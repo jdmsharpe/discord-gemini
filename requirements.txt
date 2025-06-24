@@ -1,0 +1,2 @@
+google-genai~=1.21
+py-cord~=2.6
