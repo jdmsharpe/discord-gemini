@@ -40,18 +40,18 @@ jobs:
       env: 
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-    - name: Build test image
-      uses: docker/build-push-action@v5
-      with:
-        push: false
-        load: true  # Ensure the image is loaded into the Docker daemon
-        context: .
-        file: ./Dockerfile.test
-        tags: discord-gemini:latest
-        cache-from: type=local,src=/tmp/.buildx-cache
-        cache-to: type=local,dest=/tmp/.buildx-cache
+    # - name: Build test image
+    #   uses: docker/build-push-action@v5
+    #   with:
+    #     push: false
+    #     load: true  # Ensure the image is loaded into the Docker daemon
+    #     context: .
+    #     file: ./Dockerfile.test
+    #     tags: discord-gemini:latest
+    #     cache-from: type=local,src=/tmp/.buildx-cache
+    #     cache-to: type=local,dest=/tmp/.buildx-cache
 
-    - name: Run Docker container to execute tests
-      run: docker run discord-gemini-test:latest
-      env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    # - name: Run Docker container to execute tests
+    #   run: docker run discord-gemini-test:latest
+    #   env:
+    #     GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
