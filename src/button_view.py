@@ -42,7 +42,10 @@ class ButtonView(View):
                     "No active conversation found.", ephemeral=True
                 )
         except Exception as e:
-            # ... (error handling)
+            logging.error(f"Error in regenerate_button: {str(e)}", exc_info=True)
+            await interaction.followup.send(
+                "An error occurred while regenerating the response.", ephemeral=True
+            )
 
     @button(emoji="⏹️", style=ButtonStyle.blurple)
     async def stop_button(self, button: Button, interaction: Interaction):
