@@ -256,7 +256,6 @@ class GeminiAPI(commands.Cog):
         "attachment",
         description="Attachment to append to the prompt. Only images are supported at this time. (default: not set)",
         required=False,
-        type=Attachment,
     )
     @option(
         "temperature",
