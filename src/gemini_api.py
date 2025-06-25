@@ -256,20 +256,19 @@ class GeminiAPI(commands.Cog):
         "attachment",
         description="Attachment to append to the prompt. Only images are supported at this time. (default: not set)",
         required=False,
+        type=Attachment,
     )
     @option(
         "temperature",
         description="A value between 0.0 and 1.0. (default: not set)",
         required=False,
-        min_value=0.0,
-        max_value=1.0,
+        type=float,
     )
     @option(
         "top_p",
         description="A value between 0.0 and 1.0. (default: not set)",
         required=False,
-        min_value=0.0,
-        max_value=1.0,
+        type=float,
     )
     async def converse(
         self,
