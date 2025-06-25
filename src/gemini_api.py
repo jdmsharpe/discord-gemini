@@ -556,8 +556,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "guidance_scale",
-        description="(Advanced) Controls adherence to text prompt. \
-                    Higher values increase alignment but may reduce quality. (default: not set)",
+        description="(Advanced) Controls adherence to prompt. Ranges from 0 to 20. (default: not set)",
         required=False,
         type=float,
         min_value=0.0,
