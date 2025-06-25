@@ -799,32 +799,19 @@ class GeminiAPI(commands.Cog):
         if hasattr(imagen_response, 'generated_images') and imagen_response.generated_images:
             for generated_image in imagen_response.generated_images:
                 if hasattr(generated_image, 'image') and generated_image.image:
-                    # The generated_image.image might be a google.genai Image object
                     img = generated_image.image
-                    self.logger.debug(f"Imagen returned image type: {type(img)}, attributes: {dir(img)}")
                     
-                    # Check if it has image data we can extract
-                    if hasattr(img, 'data'):
-                        # Convert bytes to PIL Image
+                    # Extract image data using the canonical image_bytes attribute
+                    if hasattr(img, 'image_bytes') and img.image_bytes:
                         try:
-                            pil_image = Image.open(BytesIO(img.data))  # type: ignore
+                            pil_image = Image.open(BytesIO(img.image_bytes))
                             generated_images.append(pil_image)
                         except Exception as e:
-                            self.logger.error(f"Failed to convert image data to PIL: {e}")
-                            continue
-                    elif hasattr(img, '__bytes__'):
-                        # Try to get bytes representation
-                        try:
-                            image_bytes = bytes(img)  # type: ignore
-                            pil_image = Image.open(BytesIO(image_bytes))
-                            generated_images.append(pil_image)
-                        except Exception as e:
-                            self.logger.error(f"Failed to convert image bytes to PIL: {e}")
+                            self.logger.error(f"Failed to convert image_bytes to PIL Image: {e}")
                             continue
                     else:
-                        # Assume it's already a PIL-compatible image
-                        self.logger.debug(f"Using image object directly: {type(img)}")
-                        generated_images.append(img)
+                        self.logger.error(f"Image object missing image_bytes attribute. Type: {type(img)}")
+                        continue
         
         return generated_images
 
@@ -853,25 +840,17 @@ class GeminiAPI(commands.Cog):
         # Create files for Discord
         files = []
         for i, image in enumerate(generated_images):
-            image_bytes = BytesIO()
-            
-            # Handle different image types - try PIL Image save first
             try:
-                # Try PIL Image save with format (most common case)
-                image.save(image_bytes, format="PNG")  # type: ignore
-            except (TypeError, AttributeError):
-                try:
-                    # Fall back to save without format parameter
-                    image.save(image_bytes)  # type: ignore
-                except (TypeError, AttributeError):
-                    # If all else fails, skip this image and log error
-                    self.logger.error(f"Unable to save image {i+1}, unsupported image type: {type(image)}")
-                    continue
-            
-            image_bytes.seek(0)
-            files.append(
-                File(image_bytes, filename=f"generated_image_{i+1}.png")
-            )
+                image_bytes = BytesIO()
+                # All generated_images should be PIL Image objects at this point
+                image.save(image_bytes, format="PNG")
+                image_bytes.seek(0)
+                files.append(
+                    File(image_bytes, filename=f"generated_image_{i+1}.png")
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to save image {i+1}: {e}")
+                continue
 
         description = f"**Prompt:** {prompt}\n"
         description += f"**Model:** {model}\n"
