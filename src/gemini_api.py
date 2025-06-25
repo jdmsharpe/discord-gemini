@@ -6,12 +6,14 @@ from discord import (
     Attachment,
     Colour,
     Embed,
+    File,
 )
 from discord.commands import command, option, OptionChoice, slash_command
-from typing import Optional, Dict, List, Union, Any
+from typing import Optional, Dict, List, Union, Any, Literal
 from util import (
     ChatCompletionParameters,
     chunk_text,
+    ImageGenerationParameters,
 )
 import aiohttp
 import asyncio
@@ -19,6 +21,8 @@ from button_view import ButtonView
 import logging
 from config.auth import GUILD_IDS, GEMINI_API_KEY
 from dataclasses import dataclass
+from PIL import Image
+from io import BytesIO
 
 
 @dataclass
@@ -283,14 +287,32 @@ class GeminiAPI(commands.Cog):
         type=Attachment,
     )
     @option(
+        "frequency_penalty",
+        description="(Advanced) Controls how much the model should repeat itself. (default: not set)",
+        required=False,
+        type=float,
+    )
+    @option(
+        "presence_penalty",
+        description="(Advanced) Controls how much the model should talk about the prompt. (default: not set)",
+        required=False,
+        type=float,
+    )
+    @option(
+        "seed",
+        description="(Advanced) Seed for deterministic outputs. (default: not set)",
+        required=False,
+        type=int,
+    )
+    @option(
         "temperature",
-        description="A value between 0.0 and 1.0. (default: not set)",
+        description="(Advanced) Controls the randomness of the model. (default: not set)",
         required=False,
         type=float,
     )
     @option(
         "top_p",
-        description="A value between 0.0 and 1.0. (default: not set)",
+        description="(Advanced) Nucleus sampling. (default: not set)",
         required=False,
         type=float,
     )
@@ -300,6 +322,9 @@ class GeminiAPI(commands.Cog):
         prompt: str,
         model: str = "gemini-2.5-flash",
         system_instruction: Optional[str] = None,
+        frequency_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,
+        seed: Optional[int] = None,
         attachment: Optional[Attachment] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
@@ -345,8 +370,14 @@ class GeminiAPI(commands.Cog):
                             )
 
             config_args = {}
-            if system_instruction:
+            if system_instruction is not None:
                 config_args["system_instruction"] = system_instruction
+            if frequency_penalty is not None:
+                config_args["frequency_penalty"] = frequency_penalty
+            if presence_penalty is not None:
+                config_args["presence_penalty"] = presence_penalty
+            if seed is not None:
+                config_args["seed"] = seed
             if temperature is not None:
                 config_args["temperature"] = temperature
             if top_p is not None:
@@ -366,10 +397,20 @@ class GeminiAPI(commands.Cog):
             self.logger.debug(f"Received response from Gemini: {response_text}")
 
             # Update initial response description based on input parameters
-            description = ""
-            description += f"**Prompt:** {prompt}\n"
+            description = f"{prompt}\n"
             description += f"**Model:** {model}\n"
             description += f"**System Instruction:** {system_instruction}\n"
+            description += (
+                f"**Frequency Penalty:** {frequency_penalty}\n"
+                if frequency_penalty
+                else ""
+            )
+            description += (
+                f"**Presence Penalty:** {presence_penalty}\n"
+                if presence_penalty
+                else ""
+            )
+            description += f"**Seed:** {seed}\n" if seed else ""
             description += f"**Temperature:** {temperature}\n" if temperature else ""
             description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
             await ctx.send_followup(
@@ -439,3 +480,421 @@ class GeminiAPI(commands.Cog):
         finally:
             if typing_task:
                 typing_task.cancel()
+
+    @slash_command(
+        name="generate_image",
+        description="Generates an image based on a prompt.",
+        guild_ids=GUILD_IDS,
+    )
+    @option("prompt", description="Prompt", required=True, type=str)
+    @option(
+        "model",
+        description="Choose between Gemini or Imagen models. (default: Gemini 2.0 Flash Preview Image Generation)",
+        required=False,
+        choices=[
+            OptionChoice(
+                name="Gemini 2.0 Flash Preview Image Generation",
+                value="gemini-2.0-flash-preview-image-generation",
+            ),
+            OptionChoice(name="Imagen 3", value="imagen-3.0-generate-001"),
+            OptionChoice(name="Imagen 4", value="imagen-4.0-generate-preview-06-06"),
+            OptionChoice(
+                name="Imagen 4 Ultra", value="imagen-4.0-ultra-generate-preview-06-06"
+            ),
+        ],
+        type=str,
+    )
+    @option(
+        "number_of_images",
+        description="Number of images to generate (1-4). (default: 1)",
+        required=False,
+        type=int,
+        min_value=1,
+        max_value=4,
+    )
+    @option(
+        "aspect_ratio",
+        description="Aspect ratio of the generated image. (default: 1:1)",
+        required=False,
+        choices=[
+            OptionChoice(name="Square (1:1)", value="1:1"),
+            OptionChoice(name="Portrait (3:4)", value="3:4"),
+            OptionChoice(name="Landscape (4:3)", value="4:3"),
+            OptionChoice(name="Portrait (9:16)", value="9:16"),
+            OptionChoice(name="Landscape (16:9)", value="16:9"),
+        ],
+        type=str,
+    )
+    @option(
+        "person_generation",
+        description="(Imagen only) Control generation of people in images. (default: allow_adult)",
+        required=False,
+        choices=[
+            OptionChoice(name="Don't Allow", value="dont_allow"),
+            OptionChoice(name="Allow Adults", value="allow_adult"),
+            OptionChoice(name="Allow All", value="allow_all"),
+        ],
+        type=str,
+    )
+    @option(
+        "attachment",
+        description="(Gemini only) Image to edit. Upload an image for image editing tasks. (default: not set)",
+        required=False,
+        type=Attachment,
+    )
+    @option(
+        "negative_prompt",
+        description="(Advanced) Description of what to discourage in the generated images. (default: not set)",
+        required=False,
+        type=str,
+    )
+    @option(
+        "seed",
+        description="(Advanced) Random seed for image generation. (default: not set)",
+        required=False,
+        type=int,
+    )
+    @option(
+        "guidance_scale",
+        description="(Advanced) Controls adherence to text prompt. \
+                    Higher values increase alignment but may reduce quality. (default: not set)",
+        required=False,
+        type=float,
+        min_value=0.0,
+        max_value=20.0,
+    )
+    async def generate_image(
+        self,
+        ctx: ApplicationContext,
+        prompt: str,
+        model: str = "gemini-2.0-flash-preview-image-generation",
+        number_of_images: int = 1,
+        aspect_ratio: str = "1:1",
+        person_generation: str = "allow_adult",
+        attachment: Optional[Attachment] = None,
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        guidance_scale: Optional[float] = None,
+    ):
+        """
+        Generates images from a prompt using either Gemini or Imagen models.
+
+        This function supports both Google's Gemini and Imagen image generation models,
+        automatically selecting the appropriate API based on the model chosen:
+
+        Gemini Models (via generate_content API):
+        - Text-to-image generation with response_modalities=['TEXT', 'IMAGE']
+        - Image editing capabilities when attachments are provided
+        - Multiple image generation via candidate_count
+        - Seed control for reproducible outputs
+        - Returns both text and image responses
+
+        Imagen Models (via generate_images API):
+        - Advanced image generation with full parameter support
+        - number_of_images, aspect_ratio, negative_prompt, seed, guidance_scale
+        - person_generation controls for content safety
+        - No image editing support (attachment not allowed)
+        - Image-only responses
+
+        The function uses a clean modular architecture with separate helper methods
+        for each model type, ensuring maintainable and extensible code.
+
+        Args:
+            ctx: Discord application context
+            prompt: Text description of the image to generate
+            model: Model to use (Gemini or Imagen variants)
+            number_of_images: Number of images to generate (1-4)
+            aspect_ratio: Image dimensions (1:1, 3:4, 4:3, 9:16, 16:9)
+            person_generation: Control people in images (Imagen only)
+            attachment: Image to edit (Gemini only)
+            negative_prompt: What to avoid in generation (Imagen only)
+            seed: Random seed for reproducible results
+            guidance_scale: Text prompt adherence control (Imagen only)
+
+        Returns:
+            Discord response with generated images and parameter information
+        """
+        await ctx.defer()
+        try:
+            # Check if this is a Gemini or Imagen model and use appropriate API
+            is_gemini_model = model.startswith("gemini-")
+            
+            # Process response - handle both Gemini and Imagen response formats
+            text_response = None
+            generated_images = []
+            
+            if is_gemini_model:
+                # Handle Gemini models using generate_content
+                text_response, generated_images = await self._generate_image_with_gemini(
+                    prompt, model, number_of_images, seed, attachment
+                )
+            else:
+                # Handle Imagen models using generate_images
+                if attachment:
+                    await ctx.send_followup(
+                        embed=Embed(
+                            title="Not Supported",
+                            description="Image editing is not supported with Imagen models. Please use a Gemini model for image editing.",
+                            color=Colour.orange(),
+                        )
+                    )
+                    return
+
+                # Create ImageGenerationParameters for clean parameter handling
+                image_params = ImageGenerationParameters(
+                    prompt=prompt,
+                    model=model,
+                    number_of_images=number_of_images,
+                    aspect_ratio=aspect_ratio,
+                    person_generation=person_generation,
+                    negative_prompt=negative_prompt,
+                    seed=seed,
+                    guidance_scale=guidance_scale,
+                )
+
+                generated_images = await self._generate_image_with_imagen(image_params)
+                
+            # Send response
+            if generated_images:
+                embed, files = await self._create_image_response_embed(
+                    prompt=prompt,
+                    model=model,
+                    generated_images=generated_images,
+                    attachment=attachment,
+                    number_of_images=number_of_images,
+                    seed=seed,
+                    negative_prompt=negative_prompt,
+                    guidance_scale=guidance_scale,
+                    aspect_ratio=aspect_ratio,
+                    person_generation=person_generation,
+                    text_response=text_response,
+                )
+
+                await ctx.send_followup(embed=embed, files=files)
+            else:
+                # No images generated, but maybe there's text (only for Gemini)
+                embed_description = "The model did not generate any images.\n"
+                if text_response:
+                    embed_description += f"Text response: {text_response}\n"
+                elif is_gemini_model:
+                    embed_description += f"Try asking explicitly for image generation.\n"
+                else:
+                    embed_description += f"Imagen models should generate images. Check your prompt or try different parameters.\n"
+
+                # Show unsupported parameters info based on model type
+                if is_gemini_model:
+                    unsupported_params = []
+                    if negative_prompt:
+                        unsupported_params.append("negative_prompt")
+                    if guidance_scale:
+                        unsupported_params.append("guidance_scale")
+                    if aspect_ratio != "1:1":
+                        unsupported_params.append("aspect_ratio")
+                    if person_generation != "allow_adult":
+                        unsupported_params.append("person_generation")
+                        
+                    if unsupported_params:
+                        embed_description += f"\n*Note: These parameters are not yet implemented for Gemini: {', '.join(unsupported_params)}*"
+
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="No Images Generated",
+                        description=embed_description,
+                        color=Colour.orange(),
+                    )
+                )
+
+        except Exception as e:
+            description = str(e)
+            self.logger.error(
+                f"Error in generate_image: {description}",
+                exc_info=True,
+            )
+            await ctx.send_followup(
+                embed=Embed(title="Error", description=description, color=Colour.red())
+            )
+
+    async def _generate_image_with_gemini(
+        self, 
+        prompt: str, 
+        model: str, 
+        number_of_images: int, 
+        seed: Optional[int], 
+        attachment: Optional[Attachment]
+    ) -> tuple[Optional[str], List[Image.Image]]:
+        """
+        Generate images using Gemini models with generate_content API.
+        
+        Returns:
+            tuple: (text_response, generated_images)
+        """
+        contents = prompt
+        
+        # Add attachment for image editing if provided
+        if attachment:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(attachment.url) as resp:
+                    if resp.status == 200:
+                        image_data = await resp.read()
+                        image = Image.open(BytesIO(image_data))
+                        contents = [prompt, image]
+        
+        # Create the configuration for image generation
+        generate_config = types.GenerateContentConfig(
+            response_modalities=["TEXT", "IMAGE"]
+        )
+        
+        # For additional parameters like seed and candidate count
+        if number_of_images and number_of_images > 1:
+            generate_config = types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+                candidate_count=number_of_images,
+            )
+        elif seed is not None:
+            generate_config = types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"], seed=seed
+            )
+        
+        gemini_response = self.client.models.generate_content(
+            model=model, contents=contents, config=generate_config
+        )
+        
+        # Process Gemini response from generate_content
+        text_response = None
+        generated_images = []
+        
+        if gemini_response.candidates and len(gemini_response.candidates) > 0:
+            candidate = gemini_response.candidates[0]
+            if candidate.content and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if hasattr(part, "text") and part.text is not None:
+                        text_response = part.text
+                    elif (
+                        hasattr(part, "inline_data")
+                        and part.inline_data is not None
+                    ):
+                        if part.inline_data.data:
+                            image = Image.open(BytesIO(part.inline_data.data))
+                            generated_images.append(image)
+        
+        return text_response, generated_images
+
+    async def _generate_image_with_imagen(
+        self, 
+        image_params: ImageGenerationParameters
+    ) -> List[Image.Image]:
+        """
+        Generate images using Imagen models with generate_images API.
+        
+        Returns:
+            List of generated PIL Images
+        """
+        imagen_response = self.client.models.generate_images(
+            model=image_params.model,
+            prompt=image_params.prompt,
+            config=types.GenerateImagesConfig(**image_params.to_dict())
+        )
+        
+        # Process Imagen response from generate_images
+        generated_images = []
+        if hasattr(imagen_response, 'generated_images') and imagen_response.generated_images:
+            for generated_image in imagen_response.generated_images:
+                if hasattr(generated_image, 'image') and generated_image.image:
+                    # The generated_image.image should be a PIL Image
+                    generated_images.append(generated_image.image)
+        
+        return generated_images
+
+    async def _create_image_response_embed(
+        self,
+        prompt: str,
+        model: str,
+        generated_images: List[Image.Image],
+        attachment: Optional[Attachment],
+        number_of_images: int,
+        seed: Optional[int],
+        negative_prompt: Optional[str],
+        guidance_scale: Optional[float],
+        aspect_ratio: str,
+        person_generation: str,
+        text_response: Optional[str] = None
+    ) -> tuple[Embed, List[File]]:
+        """
+        Create Discord embed and file attachments for image generation response.
+        
+        Returns:
+            tuple: (embed, files)
+        """
+        is_gemini_model = model.startswith("gemini-")
+        
+        # Create files for Discord
+        files = []
+        for i, image in enumerate(generated_images):
+            image_bytes = BytesIO()
+            image.save(image_bytes, format="PNG")
+            image_bytes.seek(0)
+            files.append(
+                File(image_bytes, filename=f"generated_image_{i+1}.png")
+            )
+
+        description = f"**Prompt:** {prompt}\n"
+        description += f"**Model:** {model}\n"
+        if attachment:
+            description += f"**Mode:** Image Editing\n"
+        else:
+            description += f"**Mode:** Image Generation\n"
+        description += f"**Number of Images:** {len(generated_images)}"
+
+        # Show which parameters are currently supported
+        if is_gemini_model:
+            # For Gemini models, show what's supported
+            if number_of_images > 1:
+                description += f" (requested: {number_of_images})"
+            if seed is not None:
+                description += f"\n**Seed:** {seed}"
+            
+            # Note about unsupported parameters for Gemini
+            unsupported_params = []
+            if negative_prompt:
+                unsupported_params.append(f"negative_prompt: {negative_prompt}")
+            if guidance_scale:
+                unsupported_params.append(f"guidance_scale: {guidance_scale}")
+            if aspect_ratio != "1:1":
+                unsupported_params.append(f"aspect_ratio: {aspect_ratio}")
+            if person_generation != "allow_adult":
+                unsupported_params.append(f"person_generation: {person_generation}")
+                
+            if unsupported_params:
+                description += f"\n\n*Note: Advanced parameters not yet implemented for Gemini: {', '.join(unsupported_params)}*"
+        else:
+            # For Imagen models, show all supported parameters
+            if seed is not None:
+                description += f"\n**Seed:** {seed}"
+            if negative_prompt:
+                description += f"\n**Negative Prompt:** {negative_prompt}"
+            if guidance_scale:
+                description += f"\n**Guidance Scale:** {guidance_scale}"
+            if aspect_ratio != "1:1":
+                description += f"\n**Aspect Ratio:** {aspect_ratio}"
+            if person_generation != "allow_adult":
+                description += f"\n**Person Generation:** {person_generation}"
+
+        if text_response:
+            # Truncate long text responses for the embed
+            truncated_text = (
+                text_response[:500] + "..."
+                if len(text_response) > 500
+                else text_response
+            )
+            description += f"\n\n**AI Response:** {truncated_text}"
+
+        embed = Embed(
+            title=f"Images Generated with {'Gemini' if is_gemini_model else 'Imagen'}",
+            description=description,
+            color=Colour.green(),
+        )
+
+        if files:
+            embed.set_image(url=f"attachment://{files[0].filename}")
+
+        return embed, files
