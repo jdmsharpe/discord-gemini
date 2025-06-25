@@ -6,25 +6,15 @@ from typing import List, Optional, Dict, Literal
 class ChatCompletionParameters:
     """A dataclass to store the parameters for a chat completion."""
 
-    model: str = "gemini-2.5-flash"
-    model_options: Literal[
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite-preview-06-17",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-pro",
-    ] = "gemini-1.5-flash"
-    history: List[Dict[str, str]] = field(default_factory=list)
-    persona: Optional[str] = None
+    model: str
+    system_instruction: Optional[str] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     conversation_starter: Optional[str] = None
     conversation_id: Optional[int] = None
     channel_id: Optional[int] = None
     paused: Optional[bool] = False
+    history: List[Dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
