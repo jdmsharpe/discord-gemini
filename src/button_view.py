@@ -19,13 +19,12 @@ class ButtonView(View):
         self.conversation_id = conversation_id
 
     @button(emoji="🔄", style=ButtonStyle.green)
-    async def regenerate_button(self, interaction: Interaction, button: Button):
+    async def regenerate_button(self, interaction: Interaction, _: Button):
         """
         Regenerate the last response for the current conversation.
 
         Args:
             interaction (Interaction): The interaction object.
-            button (Button): The button that was clicked.
         """
         logging.info("Regenerate button clicked.")
         try:
@@ -67,18 +66,22 @@ class ButtonView(View):
                 )
         except Exception as e:
             logging.error(f"Error in regenerate_button: {str(e)}", exc_info=True)
-            await interaction.followup.send(
-                "An error occurred while regenerating the response.", ephemeral=True
-            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "An error occurred while regenerating the response.", ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    "An error occurred while regenerating the response.", ephemeral=True
+                )
 
     @button(emoji="⏯️", style=ButtonStyle.gray)
-    async def play_pause_button(self, interaction: Interaction, button: Button):
+    async def play_pause_button(self, interaction: Interaction, _: Button):
         """
         Pause or resume the conversation.
 
         Args:
             interaction (Interaction): The interaction object.
-            button (Button): The button that was clicked.
         """
         # Check if the interaction user is the one who started the conversation
         if interaction.user != self.conversation_starter:
@@ -103,13 +106,12 @@ class ButtonView(View):
             )
 
     @button(emoji="⏹️", style=ButtonStyle.blurple)
-    async def stop_button(self, interaction: Interaction, button: Button):
+    async def stop_button(self, interaction: Interaction, _: Button):
         """
         End the conversation.
 
         Args:
             interaction (Interaction): The interaction object.
-            button (Button): The button that was clicked.
         """
         # Check if the interaction user is the one who started the conversation
         if interaction.user != self.conversation_starter:
@@ -121,7 +123,6 @@ class ButtonView(View):
         # End the conversation
         if self.conversation_id in self.cog.conversations:
             del self.cog.conversations[self.conversation_id]
-            button.disabled = True  # Disable the button
             await interaction.response.send_message(
                 "Conversation ended.", ephemeral=True, delete_after=3
             )
