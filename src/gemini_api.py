@@ -14,7 +14,7 @@ from discord.commands import (
     OptionChoice,
     slash_command,
 )
-from typing import Optional, Dict, List, Union, Any, Literal
+from typing import Optional, Dict, List, Union, Any
 from util import (
     ChatCompletionParameters,
     chunk_text,
@@ -254,13 +254,15 @@ class GeminiAPI(commands.Cog):
     async def keep_typing(self, channel):
         """
         Keep the typing indicator active until cancelled.
-        Uses shorter intervals to be more responsive to cancellation.
+        Sends typing indicator every 8 seconds to maintain it.
         """
         try:
             while True:
-                async with channel.typing():
-                    # Use shorter sleep intervals to be more responsive to cancellation
-                    await asyncio.sleep(2)
+                # Send typing indicator
+                await channel.trigger_typing()
+                # Wait 8 seconds before sending another one
+                # Discord's typing indicator lasts ~10 seconds, so this keeps it active
+                await asyncio.sleep(8)
         except asyncio.CancelledError:
             # Task was cancelled, stop typing
             pass
