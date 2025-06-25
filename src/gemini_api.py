@@ -140,7 +140,7 @@ class GeminiAPI(commands.Cog):
             generation_config = (
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
-
+            self.logger.debug(f"Sending contents to Gemini: {contents}")
             response = self.client.models.generate_content(
                 model=params.model,
                 contents=contents,
@@ -210,6 +210,9 @@ class GeminiAPI(commands.Cog):
                 f"Error in handle_new_message_in_conversation: {description}",
                 exc_info=True,
             )
+            # Truncate the description to fit within Discord's embed limits
+            if len(description) > 4000:
+                description = description[:4000] + "\n\n... (error message truncated)"
             await message.reply(
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
