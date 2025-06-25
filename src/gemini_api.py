@@ -104,6 +104,7 @@ class GeminiAPI(commands.Cog):
             if message.author != params.conversation_starter or params.paused:
                 return
 
+            self.logger.debug(f"Starting typing indicator for followup message from {message.author}")
             typing_task = asyncio.create_task(self.keep_typing(message.channel))
 
             user_parts: List[Union[str, Dict]] = [{"text": message.content}]
@@ -158,11 +159,8 @@ class GeminiAPI(commands.Cog):
 
             # Stop typing indicator as soon as we have the response
             if typing_task:
+                self.logger.debug(f"Stopping typing indicator for conversation {params.conversation_id}")
                 typing_task.cancel()
-                try:
-                    await typing_task
-                except asyncio.CancelledError:
-                    pass
                 typing_task = None
 
             # Handle case where response text might be None
@@ -243,29 +241,27 @@ class GeminiAPI(commands.Cog):
             )
 
         finally:
-            # Only cancel typing task if it wasn't already cancelled
-            if typing_task and not typing_task.cancelled():
+            # Cancel typing task if it exists
+            if typing_task:
                 typing_task.cancel()
-                try:
-                    await typing_task
-                except asyncio.CancelledError:
-                    pass
 
     async def keep_typing(self, channel):
         """
-        Keep the typing indicator active until cancelled.
-        Sends typing indicator every 8 seconds to maintain it.
+        Coroutine to keep the typing indicator alive in a channel.
+
+        Args:
+            channel: The Discord channel object.
         """
         try:
+            self.logger.debug(f"Starting typing indicator loop in channel {channel.id}")
             while True:
-                # Send typing indicator
-                await channel.trigger_typing()
-                # Wait 8 seconds before sending another one
-                # Discord's typing indicator lasts ~10 seconds, so this keeps it active
-                await asyncio.sleep(8)
+                async with channel.typing():
+                    self.logger.debug(f"Sent typing indicator to channel {channel.id}")
+                    await asyncio.sleep(5)  # Resend typing indicator every 5 seconds
         except asyncio.CancelledError:
             # Task was cancelled, stop typing
-            pass
+            self.logger.debug(f"Typing indicator cancelled for channel {channel.id}")
+            raise
 
     # Added for debugging purposes
     @commands.Cog.listener()
