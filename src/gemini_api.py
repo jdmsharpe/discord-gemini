@@ -14,6 +14,7 @@ from util import (
     ChatCompletionParameters,
     chunk_text,
     ImageGenerationParameters,
+    VideoGenerationParameters,
 )
 import aiohttp
 import asyncio
@@ -615,6 +616,18 @@ class GeminiAPI(commands.Cog):
         """
         await ctx.defer()
         try:
+            # Create ImageGenerationParameters for clean parameter handling
+            image_params = ImageGenerationParameters(
+                prompt=prompt,
+                model=model,
+                number_of_images=number_of_images,
+                aspect_ratio=aspect_ratio,
+                person_generation=person_generation,
+                negative_prompt=negative_prompt,
+                seed=seed,
+                guidance_scale=guidance_scale,
+            )
+
             # Check if this is a Gemini or Imagen model and use appropriate API
             is_gemini_model = model.startswith("gemini-")
             
@@ -639,33 +652,14 @@ class GeminiAPI(commands.Cog):
                     )
                     return
 
-                # Create ImageGenerationParameters for clean parameter handling
-                image_params = ImageGenerationParameters(
-                    prompt=prompt,
-                    model=model,
-                    number_of_images=number_of_images,
-                    aspect_ratio=aspect_ratio,
-                    person_generation=person_generation,
-                    negative_prompt=negative_prompt,
-                    seed=seed,
-                    guidance_scale=guidance_scale,
-                )
-
                 generated_images = await self._generate_image_with_imagen(image_params)
                 
             # Send response
             if generated_images:
                 embed, files = await self._create_image_response_embed(
-                    prompt=prompt,
-                    model=model,
+                    image_params=image_params,
                     generated_images=generated_images,
                     attachment=attachment,
-                    number_of_images=number_of_images,
-                    seed=seed,
-                    negative_prompt=negative_prompt,
-                    guidance_scale=guidance_scale,
-                    aspect_ratio=aspect_ratio,
-                    person_generation=person_generation,
                     text_response=text_response,
                 )
 
@@ -683,13 +677,13 @@ class GeminiAPI(commands.Cog):
                 # Show unsupported parameters info based on model type
                 if is_gemini_model:
                     unsupported_params = []
-                    if negative_prompt:
+                    if image_params.negative_prompt:
                         unsupported_params.append("negative_prompt")
-                    if guidance_scale:
+                    if image_params.guidance_scale:
                         unsupported_params.append("guidance_scale")
-                    if aspect_ratio != "1:1":
+                    if image_params.aspect_ratio != "1:1":
                         unsupported_params.append("aspect_ratio")
-                    if person_generation != "allow_adult":
+                    if image_params.person_generation != "allow_adult":
                         unsupported_params.append("person_generation")
                         
                     if unsupported_params:
@@ -707,6 +701,167 @@ class GeminiAPI(commands.Cog):
             description = str(e)
             self.logger.error(
                 f"Error in generate_image: {description}",
+                exc_info=True,
+            )
+            await ctx.send_followup(
+                embed=Embed(title="Error", description=description, color=Colour.red())
+            )
+
+    @slash_command(
+        name="generate_video",
+        description="Generates a video based on a prompt using Veo.",
+        guild_ids=GUILD_IDS,
+    )
+    @option("prompt", description="Prompt for video generation", required=True, type=str)
+    @option(
+        "model",
+        description="Choose Veo model. (default: Veo 2.0 Generate)",
+        required=False,
+        choices=[
+            OptionChoice(name="Veo 2.0 Generate", value="veo-2.0-generate-001"),
+        ],
+        type=str,
+    )
+    @option(
+        "aspect_ratio",
+        description="Aspect ratio of the generated video. (default: 16:9)",
+        required=False,
+        choices=[
+            OptionChoice(name="Landscape (16:9)", value="16:9"),
+            OptionChoice(name="Portrait (9:16)", value="9:16"),
+        ],
+        type=str,
+    )
+    @option(
+        "person_generation",
+        description="Control generation of people in videos. (default: allow_adult)",
+        required=False,
+        choices=[
+            OptionChoice(name="Don't Allow", value="dont_allow"),
+            OptionChoice(name="Allow Adults", value="allow_adult"),
+            OptionChoice(name="Allow All", value="allow_all"),
+        ],
+        type=str,
+    )
+    @option(
+        "attachment",
+        description="Image to use as the first frame for the video. (default: not set)",
+        required=False,
+        type=Attachment,
+    )
+    @option(
+        "number_of_videos",
+        description="Number of videos to generate (1-2). (default: 1)",
+        required=False,
+        type=int,
+        min_value=1,
+        max_value=2,
+    )
+    @option(
+        "duration_seconds",
+        description="Length of each output video in seconds (5-8). (default: not set)",
+        required=False,
+        type=int,
+        min_value=5,
+        max_value=8,
+    )
+    @option(
+        "negative_prompt",
+        description="(Advanced) Description of what to discourage. (default: not set)",
+        required=False,
+        type=str,
+    )
+    @option(
+        "enhance_prompt",
+        description="(Advanced) Enable or disable the prompt rewriter. (default: True)",
+        required=False,
+        type=bool,
+    )
+    async def generate_video(
+        self,
+        ctx: ApplicationContext,
+        prompt: str,
+        model: str = "veo-2.0-generate-001",
+        aspect_ratio: str = "16:9",
+        person_generation: str = "allow_adult",
+        attachment: Optional[Attachment] = None,
+        number_of_videos: int = 1,
+        duration_seconds: Optional[int] = None,
+        negative_prompt: Optional[str] = None,
+        enhance_prompt: Optional[bool] = None,
+    ):
+        """
+        Generates videos from a prompt using Veo models.
+
+        This function uses Google's Veo video generation model to create videos based on text prompts
+        and optionally starting from an image. The generation process is asynchronous and can take
+        2-6 minutes to complete.
+
+        Veo Features:
+        - Text-to-video generation with detailed prompts
+        - Image-to-video generation when attachments are provided
+        - 5-8 second video duration at 720p resolution and 24fps
+        - Support for landscape (16:9) and portrait (9:16) aspect ratios
+        - Person generation controls for content safety
+        - Advanced parameters like negative prompts and prompt enhancement
+
+        The function handles the long-running operation by polling the API until completion,
+        then downloads and sends the generated videos to Discord.
+
+        Args:
+            ctx: Discord application context
+            prompt: Text description of the video to generate
+            model: Veo model to use (currently only veo-2.0-generate-001)
+            aspect_ratio: Video dimensions (16:9 or 9:16)
+            person_generation: Control people in videos (dont_allow, allow_adult, allow_all)
+            attachment: Optional image to use as first frame (image-to-video)
+            number_of_videos: Number of videos to generate (1-2)
+            duration_seconds: Video length in seconds (5-8)
+            negative_prompt: What to avoid in generation
+            enhance_prompt: Enable/disable prompt rewriter
+
+        Returns:
+            Discord response with generated videos and parameter information
+        """
+        await ctx.defer()
+        try:
+            # Create VideoGenerationParameters for clean parameter handling
+            video_params = VideoGenerationParameters(
+                prompt=prompt,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                person_generation=person_generation,
+                negative_prompt=negative_prompt,
+                number_of_videos=number_of_videos,
+                duration_seconds=duration_seconds,
+                enhance_prompt=enhance_prompt,
+            )
+
+            # Generate videos using Veo
+            generated_videos = await self._generate_video_with_veo(video_params, attachment)
+                
+            # Send response
+            if generated_videos:
+                embed, files = await self._create_video_response_embed(
+                    video_params=video_params,
+                    generated_videos=generated_videos,
+                    attachment=attachment,
+                )
+
+                await ctx.send_followup(embed=embed, files=files)
+            else:
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="No Videos Generated",
+                        description="The model did not generate any videos. This may be due to resource constraints or safety filters. Please try again with a different prompt or parameters.",
+                        color=Colour.orange(),
+                    )
+                )
+
+        except Exception as e:
+            description = str(e)
+            self.logger.error(
+                f"Error in generate_video: {description}",
                 exc_info=True,
             )
             await ctx.send_followup(
@@ -817,16 +972,9 @@ class GeminiAPI(commands.Cog):
 
     async def _create_image_response_embed(
         self,
-        prompt: str,
-        model: str,
+        image_params: ImageGenerationParameters,
         generated_images: List[Image.Image],
         attachment: Optional[Attachment],
-        number_of_images: int,
-        seed: Optional[int],
-        negative_prompt: Optional[str],
-        guidance_scale: Optional[float],
-        aspect_ratio: str,
-        person_generation: str,
         text_response: Optional[str] = None
     ) -> tuple[Embed, List[File]]:
         """
@@ -835,7 +983,7 @@ class GeminiAPI(commands.Cog):
         Returns:
             tuple: (embed, files)
         """
-        is_gemini_model = model.startswith("gemini-")
+        is_gemini_model = image_params.model.startswith("gemini-")
         
         # Create files for Discord
         files = []
@@ -852,8 +1000,8 @@ class GeminiAPI(commands.Cog):
                 self.logger.error(f"Failed to save image {i+1}: {e}")
                 continue
 
-        description = f"**Prompt:** {prompt}\n"
-        description += f"**Model:** {model}\n"
+        description = f"**Prompt:** {image_params.prompt}\n"
+        description += f"**Model:** {image_params.model}\n"
         if attachment:
             description += f"**Mode:** Image Editing\n"
         else:
@@ -863,36 +1011,36 @@ class GeminiAPI(commands.Cog):
         # Show which parameters are currently supported
         if is_gemini_model:
             # For Gemini models, show what's supported
-            if number_of_images > 1:
-                description += f" (requested: {number_of_images})"
-            if seed is not None:
-                description += f"\n**Seed:** {seed}"
+            if image_params.number_of_images > 1:
+                description += f" (requested: {image_params.number_of_images})"
+            if image_params.seed is not None:
+                description += f"\n**Seed:** {image_params.seed}"
             
             # Note about unsupported parameters for Gemini
             unsupported_params = []
-            if negative_prompt:
-                unsupported_params.append(f"negative_prompt: {negative_prompt}")
-            if guidance_scale:
-                unsupported_params.append(f"guidance_scale: {guidance_scale}")
-            if aspect_ratio != "1:1":
-                unsupported_params.append(f"aspect_ratio: {aspect_ratio}")
-            if person_generation != "allow_adult":
-                unsupported_params.append(f"person_generation: {person_generation}")
+            if image_params.negative_prompt:
+                unsupported_params.append(f"negative_prompt: {image_params.negative_prompt}")
+            if image_params.guidance_scale:
+                unsupported_params.append(f"guidance_scale: {image_params.guidance_scale}")
+            if image_params.aspect_ratio != "1:1":
+                unsupported_params.append(f"aspect_ratio: {image_params.aspect_ratio}")
+            if image_params.person_generation != "allow_adult":
+                unsupported_params.append(f"person_generation: {image_params.person_generation}")
                 
             if unsupported_params:
                 description += f"\n\n*Note: Advanced parameters not yet implemented for Gemini: {', '.join(unsupported_params)}*"
         else:
             # For Imagen models, show all supported parameters
-            if seed is not None:
-                description += f"\n**Seed:** {seed}"
-            if negative_prompt:
-                description += f"\n**Negative Prompt:** {negative_prompt}"
-            if guidance_scale:
-                description += f"\n**Guidance Scale:** {guidance_scale}"
-            if aspect_ratio != "1:1":
-                description += f"\n**Aspect Ratio:** {aspect_ratio}"
-            if person_generation != "allow_adult":
-                description += f"\n**Person Generation:** {person_generation}"
+            if image_params.seed is not None:
+                description += f"\n**Seed:** {image_params.seed}"
+            if image_params.negative_prompt:
+                description += f"\n**Negative Prompt:** {image_params.negative_prompt}"
+            if image_params.guidance_scale:
+                description += f"\n**Guidance Scale:** {image_params.guidance_scale}"
+            if image_params.aspect_ratio != "1:1":
+                description += f"\n**Aspect Ratio:** {image_params.aspect_ratio}"
+            if image_params.person_generation != "allow_adult":
+                description += f"\n**Person Generation:** {image_params.person_generation}"
 
         if text_response:
             # Truncate long text responses for the embed
@@ -911,5 +1059,134 @@ class GeminiAPI(commands.Cog):
 
         if files:
             embed.set_image(url=f"attachment://{files[0].filename}")
+
+        return embed, files
+
+    async def _generate_video_with_veo(
+        self, 
+        video_params: VideoGenerationParameters,
+        attachment: Optional[Attachment] = None
+    ) -> List[str]:
+        """
+        Generate videos using Veo models with generate_videos API.
+        
+        Returns:
+            List of generated video file paths
+        """
+        import time
+        
+        # Prepare the generation call
+        kwargs = {
+            "model": video_params.model,
+            "prompt": video_params.prompt,
+            "config": types.GenerateVideosConfig(**video_params.to_dict())
+        }
+        
+        # Add image if provided for image-to-video generation
+        if attachment:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(attachment.url) as resp:
+                    if resp.status == 200:
+                        image_data = await resp.read()
+                        image = Image.open(BytesIO(image_data))
+                        kwargs["image"] = image
+        
+        # Start the video generation operation
+        operation = self.client.models.generate_videos(**kwargs)
+        
+        self.logger.info(f"Started video generation operation: {operation.name}")
+        
+        # Poll for completion (this can take 2-6 minutes)
+        max_wait_time = 600  # 10 minutes timeout
+        start_time = time.time()
+        poll_interval = 20  # Poll every 20 seconds
+        
+        while not operation.done:
+            if time.time() - start_time > max_wait_time:
+                raise Exception("Video generation timed out after 10 minutes")
+                
+            await asyncio.sleep(poll_interval)
+            operation = self.client.operations.get(operation)
+            self.logger.debug(f"Operation status: {operation.done}")
+        
+        # Process completed operation
+        generated_videos = []
+        if hasattr(operation, 'response') and operation.response:
+            if hasattr(operation.response, 'generated_videos') and operation.response.generated_videos:
+                for i, generated_video in enumerate(operation.response.generated_videos):
+                    if hasattr(generated_video, 'video') and generated_video.video:
+                        try:
+                            # Download the video file
+                            video_file = self.client.files.download(file=generated_video.video)
+                            
+                            # Save to a temporary file path
+                            video_path = f"temp_video_{i}.mp4"
+                            generated_video.video.save(video_path)
+                            generated_videos.append(video_path)
+                            
+                            self.logger.info(f"Downloaded video {i+1}: {video_path}")
+                        except Exception as e:
+                            self.logger.error(f"Failed to download video {i+1}: {e}")
+                            continue
+        
+        return generated_videos
+
+    async def _create_video_response_embed(
+        self,
+        video_params: VideoGenerationParameters,
+        generated_videos: List[str],
+        attachment: Optional[Attachment],
+    ) -> tuple[Embed, List[File]]:
+        """
+        Create Discord embed and file attachments for video generation response.
+        
+        Returns:
+            tuple: (embed, files)
+        """
+        # Create files for Discord
+        files = []
+        for i, video_path in enumerate(generated_videos):
+            try:
+                files.append(
+                    File(video_path, filename=f"generated_video_{i+1}.mp4")
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to create file for video {i+1}: {e}")
+                continue
+
+        description = f"**Prompt:** {video_params.prompt}\n"
+        description += f"**Model:** {video_params.model}\n"
+        if attachment:
+            description += f"**Mode:** Image-to-Video\n"
+        else:
+            description += f"**Mode:** Text-to-Video\n"
+        description += f"**Number of Videos:** {len(generated_videos)}"
+        if video_params.number_of_videos and video_params.number_of_videos > len(generated_videos):
+            description += f" (requested: {video_params.number_of_videos})"
+        
+        # Show generation parameters
+        if video_params.aspect_ratio:
+            description += f"\n**Aspect Ratio:** {video_params.aspect_ratio}"
+        if video_params.person_generation and video_params.person_generation != "allow_adult":
+            description += f"\n**Person Generation:** {video_params.person_generation}"
+        if video_params.duration_seconds:
+            description += f"\n**Duration:** {video_params.duration_seconds} seconds"
+        if video_params.negative_prompt:
+            description += f"\n**Negative Prompt:** {video_params.negative_prompt}"
+        if video_params.enhance_prompt is not None:
+            description += f"\n**Prompt Enhancement:** {'Enabled' if video_params.enhance_prompt else 'Disabled'}"
+
+        embed = Embed(
+            title="Videos Generated with Veo",
+            description=description,
+            color=Colour.green(),
+        )
+
+        # Note about video generation time and storage
+        embed.add_field(
+            name="ℹ️ Note", 
+            value="Video generation typically takes 2-6 minutes. Generated videos are stored on the server for 2 days.",
+            inline=False
+        )
 
         return embed, files

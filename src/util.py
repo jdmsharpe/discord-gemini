@@ -67,7 +67,39 @@ class VideoGenerationParameters:
 
     prompt: str
     model: str = "veo-2.0-generate-001"
-    model_options: Literal["veo-2.0-generate-001"] = "veo-2.0-generate-001"
+    aspect_ratio: Optional[str] = None
+    person_generation: Optional[str] = None
+    negative_prompt: Optional[str] = None
+    number_of_videos: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    enhance_prompt: Optional[bool] = None
+
+    def to_dict(self):
+        """Convert to dictionary for API calls, filtering out None values and handling special cases."""
+        config_dict = {}
+        
+        if self.aspect_ratio is not None:
+            config_dict["aspect_ratio"] = self.aspect_ratio
+        if self.negative_prompt is not None:
+            config_dict["negative_prompt"] = self.negative_prompt
+        if self.number_of_videos is not None:
+            config_dict["number_of_videos"] = self.number_of_videos
+        if self.duration_seconds is not None:
+            config_dict["duration_seconds"] = self.duration_seconds
+        if self.enhance_prompt is not None:
+            config_dict["enhance_prompt"] = self.enhance_prompt
+            
+        # Handle person_generation mapping for Veo models
+        if self.person_generation and self.person_generation != "allow_adult":
+            person_gen_map = {
+                "dont_allow": "dont_allow",
+                "allow_adult": "allow_adult", 
+                "allow_all": "allow_all"
+            }
+            if self.person_generation in person_gen_map:
+                config_dict["person_generation"] = person_gen_map[self.person_generation]
+        
+        return config_dict
 
 
 @dataclass
