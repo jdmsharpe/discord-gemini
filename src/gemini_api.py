@@ -362,7 +362,7 @@ class GeminiAPI(commands.Cog):
             response_text = response.text
 
             self.logger.debug(f"Received response from Gemini: {response_text}")
-            await ctx.send_followup("", ephemeral=True)
+            await ctx.send_followup("Response generated, please see below.", ephemeral=True)
 
             # Assemble the response
             embeds = []
