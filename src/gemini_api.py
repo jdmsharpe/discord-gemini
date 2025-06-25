@@ -369,12 +369,12 @@ class GeminiAPI(commands.Cog):
                 await ctx.send_followup("No response generated.")
                 return
 
-            # Send the first embed to establish the conversation and get its ID
-            message = await ctx.send_followup(embed=embeds[0])
+            # Send the first part of the response as a brand new message
+            message = await ctx.channel.send(embed=embeds[0])
             main_conversation_id = message.id
             self.message_to_conversation_id[main_conversation_id] = main_conversation_id
 
-            # Create the view with buttons and attach it to the first message
+            # Create the view with buttons and attach it to the new message
             view = ButtonView(
                 cog=self,
                 conversation_starter=ctx.author,
@@ -400,9 +400,9 @@ class GeminiAPI(commands.Cog):
             conversation_wrapper = Conversation(params=params, history=history)
             self.conversations[main_conversation_id] = conversation_wrapper
 
-            # Send any remaining embeds as separate messages with the same view
+            # Send any remaining embeds as separate messages
             for embed in embeds[1:]:
-                followup_message = await ctx.send_followup(embed=embed, view=view)
+                followup_message = await ctx.channel.send(embed=embed, view=view)
                 self.message_to_conversation_id[followup_message.id] = (
                     main_conversation_id
                 )
