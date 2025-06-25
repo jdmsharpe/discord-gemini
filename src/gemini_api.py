@@ -6,10 +6,8 @@ from discord import (
     Attachment,
     Colour,
     Embed,
-    File,
 )
 from discord.commands import command, option, OptionChoice, slash_command
-from pathlib import Path
 from typing import Optional, Dict, List, Union, Any
 from util import (
     ChatCompletionParameters,
@@ -19,7 +17,6 @@ import aiohttp
 import asyncio
 from button_view import ButtonView
 import logging
-import io
 from config.auth import GUILD_IDS, GEMINI_API_KEY
 from dataclasses import dataclass
 
@@ -62,6 +59,8 @@ class GeminiAPI(commands.Cog):
 
         # Dictionary to store conversation state for each converse interaction
         self.conversations: Dict[int, Conversation] = {}
+        # Dictionary to map any message ID to the main conversation ID for tracking
+        self.message_to_conversation_id: Dict[int, int] = {}
         # Dictionary to store UI views for each conversation
         self.views = {}
 
@@ -78,7 +77,9 @@ class GeminiAPI(commands.Cog):
         params = conversation_wrapper.params
         history = conversation_wrapper.history
 
-        self.logger.info(f"Handling new message in conversation {params.conversation_id}.")
+        self.logger.info(
+            f"Handling new message in conversation {params.conversation_id}."
+        )
         typing_task = None
         embeds = []
 
@@ -116,7 +117,7 @@ class GeminiAPI(commands.Cog):
                 config_args["temperature"] = params.temperature
             if params.top_p is not None:
                 config_args["top_p"] = params.top_p
-            
+
             generation_config = (
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
@@ -133,16 +134,29 @@ class GeminiAPI(commands.Cog):
 
             append_response_embeds(embeds, response_text)
 
+            view = self.views.get(message.author)
+            main_conversation_id = conversation_wrapper.params.conversation_id
+
             if embeds:
-                await message.reply(
-                    embeds=embeds, view=self.views.get(message.author)
-                )
+                # Send the first embed as a direct reply to the user's message
+                reply_message = await message.reply(embed=embeds[0], view=view)
+                self.message_to_conversation_id[reply_message.id] = main_conversation_id
+
+                # Send any remaining embeds as separate messages in the same channel
+                for embed in embeds[1:]:
+                    followup_message = await message.channel.send(
+                        embed=embed, view=view
+                    )
+                    self.message_to_conversation_id[followup_message.id] = (
+                        main_conversation_id
+                    )
+
                 self.logger.debug("Replied with generated response.")
             else:
                 self.logger.warning("No embeds to send in the reply.")
                 await message.reply(
                     content="An error occurred: No content to send.",
-                    view=self.views.get(message.author),
+                    view=view,
                 )
 
         except Exception as e:
@@ -194,11 +208,19 @@ class GeminiAPI(commands.Cog):
         if message.author == self.bot.user:
             return
 
-        if message.reference and message.reference.message_id in self.conversations:
-            conversation_wrapper = self.conversations[message.reference.message_id]
-            await self.handle_new_message_in_conversation(
-                message, conversation_wrapper
-            )
+        # Use the new mapping to find the conversation
+        if (
+            message.reference
+            and message.reference.message_id in self.message_to_conversation_id
+        ):
+            main_conversation_id = self.message_to_conversation_id[
+                message.reference.message_id
+            ]
+            if main_conversation_id in self.conversations:
+                conversation_wrapper = self.conversations[main_conversation_id]
+                await self.handle_new_message_in_conversation(
+                    message, conversation_wrapper
+                )
 
     @commands.Cog.listener()
     async def on_error(self, event, *args, **kwargs):
@@ -327,7 +349,7 @@ class GeminiAPI(commands.Cog):
                 config_args["temperature"] = temperature
             if top_p is not None:
                 config_args["top_p"] = top_p
-            
+
             generation_config = (
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
@@ -343,27 +365,47 @@ class GeminiAPI(commands.Cog):
             embeds = []
             append_response_embeds(embeds, response_text)
 
-            # Send the response
-            message = await ctx.send_followup(embeds=embeds)
+            if not embeds:
+                await ctx.send_followup("No response generated.")
+                return
 
-            # Store the conversation
+            # Send the first embed to establish the conversation and get its ID
+            message = await ctx.send_followup(embed=embeds[0])
+            main_conversation_id = message.id
+            self.message_to_conversation_id[main_conversation_id] = main_conversation_id
+
+            # Create the view with buttons and attach it to the first message
+            view = ButtonView(
+                cog=self,
+                conversation_starter=ctx.author,
+                conversation_id=main_conversation_id,
+            )
+            self.views[ctx.author] = view
+            await message.edit(view=view)
+
+            # Store the conversation details
             params = ChatCompletionParameters(
                 model=model,
                 persona=persona,
                 conversation_starter=ctx.author,
                 channel_id=ctx.channel.id,
-                conversation_id=message.id,
+                conversation_id=main_conversation_id,
                 temperature=temperature,
                 top_p=top_p,
             )
-
             history = [
                 {"role": "user", "parts": parts},
                 {"role": "model", "parts": [{"text": response_text}]},
             ]
-
             conversation_wrapper = Conversation(params=params, history=history)
-            self.conversations[message.id] = conversation_wrapper
+            self.conversations[main_conversation_id] = conversation_wrapper
+
+            # Send any remaining embeds as separate messages with the same view
+            for embed in embeds[1:]:
+                followup_message = await ctx.send_followup(embed=embed, view=view)
+                self.message_to_conversation_id[followup_message.id] = (
+                    main_conversation_id
+                )
 
         except Exception as e:
             description = str(e)
