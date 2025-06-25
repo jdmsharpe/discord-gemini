@@ -19,7 +19,7 @@ class ButtonView(View):
         self.conversation_id = conversation_id
 
     @button(emoji="🔄", style=ButtonStyle.green)
-    async def regenerate_button(self, interaction: Interaction, _: Button):
+    async def regenerate_button(self, _: Button, interaction: Interaction):
         """
         Regenerate the last response for the current conversation.
 
@@ -76,7 +76,7 @@ class ButtonView(View):
                 )
 
     @button(emoji="⏯️", style=ButtonStyle.gray)
-    async def play_pause_button(self, interaction: Interaction, _: Button):
+    async def play_pause_button(self, _: Button, interaction: Interaction):
         """
         Pause or resume the conversation.
 
@@ -106,7 +106,7 @@ class ButtonView(View):
             )
 
     @button(emoji="⏹️", style=ButtonStyle.blurple)
-    async def stop_button(self, interaction: Interaction, _: Button):
+    async def stop_button(self, _: Button, interaction: Interaction):
         """
         End the conversation.
 
