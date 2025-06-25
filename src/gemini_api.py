@@ -293,19 +293,27 @@ class GeminiAPI(commands.Cog):
         if message.author == self.bot.user:
             return
 
+        self.logger.debug(f"Received message from {message.author} in channel {message.channel.id}: '{message.content}'")
+        
         # Check for active conversations in this channel
         for conversation_wrapper in self.conversations.values():
+            self.logger.debug(f"Checking conversation {conversation_wrapper.params.conversation_id} in channel {conversation_wrapper.params.channel_id}")
             # Skip conversations that are not in the same channel
             if message.channel.id != conversation_wrapper.params.channel_id:
+                self.logger.debug(f"Channel mismatch: message in {message.channel.id}, conversation in {conversation_wrapper.params.channel_id}")
                 continue
 
             # Skip if the message is not from the conversation starter
             if message.author != conversation_wrapper.params.conversation_starter:
+                self.logger.debug(f"Author mismatch: message from {message.author}, conversation started by {conversation_wrapper.params.conversation_starter}")
                 continue
 
+            self.logger.info(f"Processing followup message for conversation {conversation_wrapper.params.conversation_id}")
             # Process the message for the matching conversation
             await self.handle_new_message_in_conversation(message, conversation_wrapper)
             break  # Stop looping once we've handled the message
+        
+        self.logger.debug("No matching conversations found for this message")
 
     @commands.Cog.listener()
     async def on_error(self, event, *args, **kwargs):
