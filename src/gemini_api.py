@@ -99,7 +99,7 @@ class GeminiAPI(commands.Cog):
 
             typing_task = asyncio.create_task(self.keep_typing(message.channel))
 
-            user_parts: List[Union[str, Dict]] = [message.content]
+            user_parts: List[Union[str, Dict]] = [{"text": message.content}]
             if message.attachments:
                 for attachment in message.attachments:
                     async with aiohttp.ClientSession() as session:
