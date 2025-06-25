@@ -398,7 +398,7 @@ class GeminiAPI(commands.Cog):
             # Start typing and keep it alive until the response is ready
             typing_task = asyncio.create_task(self.keep_typing(ctx.channel))
 
-            parts: List[Union[str, Dict]] = [prompt]
+            parts: List[Dict] = [{"text": prompt}]
             if attachment:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(attachment.url) as resp:
@@ -433,7 +433,7 @@ class GeminiAPI(commands.Cog):
 
             response = self.client.models.generate_content(
                 model=model,
-                contents=parts,
+                contents=[{"role": "user", "parts": parts}],
                 config=generation_config,
             )
             response_text = response.text
