@@ -111,8 +111,8 @@ class GeminiAPI(commands.Cog):
             self.logger.debug(f"Sending history to Gemini: {history}")
 
             config_args = {}
-            if params.persona:
-                config_args["system_instruction"] = params.persona
+            if params.system_instruction:
+                config_args["system_instruction"] = params.system_instruction
             if params.temperature is not None:
                 config_args["temperature"] = params.temperature
             if params.top_p is not None:
@@ -250,11 +250,12 @@ class GeminiAPI(commands.Cog):
         description="Starts a conversation with a model.",
         guild_ids=GUILD_IDS,
     )
-    @option("prompt", description="Prompt", required=True)
+    @option("prompt", description="Prompt", required=True, type=str)
     @option(
-        "persona",
-        description="What role you want the model to emulate. (default: You are a helpful assistant.)",
+        "system_instruction",
+        description="Additional instructions for the model. (default: not set)",
         required=False,
+        type=str,
     )
     @option(
         "model",
@@ -273,6 +274,7 @@ class GeminiAPI(commands.Cog):
             OptionChoice(name="Gemini 1.5 Flash 8B", value="gemini-1.5-flash-8b"),
             OptionChoice(name="Gemini 1.5 Pro", value="gemini-1.5-pro"),
         ],
+        type=str,
     )
     @option(
         "attachment",
@@ -296,8 +298,8 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        persona: str = "You are a helpful assistant.",
         model: str = "gemini-2.5-flash",
+        system_instruction: Optional[str] = None,
         attachment: Optional[Attachment] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
@@ -343,8 +345,8 @@ class GeminiAPI(commands.Cog):
                             )
 
             config_args = {}
-            if persona:
-                config_args["system_instruction"] = persona
+            if system_instruction:
+                config_args["system_instruction"] = system_instruction
             if temperature is not None:
                 config_args["temperature"] = temperature
             if top_p is not None:
@@ -367,13 +369,9 @@ class GeminiAPI(commands.Cog):
             description = ""
             description += f"**Prompt:** {prompt}\n"
             description += f"**Model:** {model}\n"
-            description += f"**Persona:** {persona}\n"
-            description += (
-                f"**Temperature:** {temperature}\n" if temperature else ""
-            )
-            description += (
-                f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
-            )
+            description += f"**System Instruction:** {system_instruction}\n"
+            description += f"**Temperature:** {temperature}\n" if temperature else ""
+            description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
             await ctx.send_followup(
                 embed=Embed(
                     title="Prompt",
@@ -407,7 +405,7 @@ class GeminiAPI(commands.Cog):
             # Store the conversation details
             params = ChatCompletionParameters(
                 model=model,
-                persona=persona,
+                system_instruction=system_instruction,
                 conversation_starter=ctx.author,
                 channel_id=ctx.channel.id,
                 conversation_id=main_conversation_id,
