@@ -213,19 +213,19 @@ class GeminiAPI(commands.Cog):
         if message.author == self.bot.user:
             return
 
-        # Use the new mapping to find the conversation
-        if (
-            message.reference
-            and message.reference.message_id in self.message_to_conversation_id
-        ):
-            main_conversation_id = self.message_to_conversation_id[
-                message.reference.message_id
-            ]
-            if main_conversation_id in self.conversations:
-                conversation_wrapper = self.conversations[main_conversation_id]
-                await self.handle_new_message_in_conversation(
-                    message, conversation_wrapper
-                )
+        # Check for active conversations in this channel
+        for conversation_wrapper in self.conversations.values():
+            # Skip conversations that are not in the same channel
+            if message.channel.id != conversation_wrapper.params.channel_id:
+                continue
+
+            # Skip if the message is not from the conversation starter
+            if message.author != conversation_wrapper.params.conversation_starter:
+                continue
+
+            # Process the message for the matching conversation
+            await self.handle_new_message_in_conversation(message, conversation_wrapper)
+            break  # Stop looping once we've handled the message
 
     @commands.Cog.listener()
     async def on_error(self, event, *args, **kwargs):
