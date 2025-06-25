@@ -362,7 +362,25 @@ class GeminiAPI(commands.Cog):
             response_text = response.text
 
             self.logger.debug(f"Received response from Gemini: {response_text}")
-            await ctx.send_followup("Response generated, please see below.", ephemeral=True)
+
+            # Update initial response description based on input parameters
+            description = ""
+            description += f"**Prompt:** {prompt}\n"
+            description += f"**Model:** {model}\n"
+            description += f"**Persona:** {persona}\n"
+            description += (
+                f"**Temperature:** {temperature}\n" if temperature else ""
+            )
+            description += (
+                f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
+            )
+            await ctx.send_followup(
+                embed=Embed(
+                    title="Prompt",
+                    description=description,
+                    color=Colour.green(),
+                )
+            )
 
             # Assemble the response
             embeds = []
