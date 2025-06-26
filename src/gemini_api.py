@@ -1715,32 +1715,24 @@ class GeminiAPI(commands.Cog):
 
             async def receive_audio(session):
                 """Background task to process incoming audio."""
-                while True:
-                    try:
-                        async for message in session.receive():
-                            # Process audio chunks directly from server_content
-                            if (
-                                hasattr(message, "server_content")
-                                and message.server_content
-                            ):
-                                if (
-                                    hasattr(message.server_content, "audio_chunks")
-                                    and message.server_content.audio_chunks
-                                ):
-                                    # Get the first (and typically only) audio chunk
-                                    audio_data = message.server_content.audio_chunks[0].data
-                                    if audio_data:
-                                        audio_chunks.append(audio_data)
-                                        self.logger.debug(
-                                            f"Received audio chunk, size: {len(audio_data)} bytes"
-                                        )
-
-                            # Small delay as suggested in the docs
-                            await asyncio.sleep(10**-12)
-
-                    except Exception as e:
-                        self.logger.error(f"Error receiving audio: {e}")
-                        break
+                self.logger.info("Audio receiver task started.")
+                try:
+                    # This loop will now correctly break when the stream ends
+                    async for message in session.receive():
+                        if hasattr(message, "server_content") and hasattr(
+                            message.server_content, "audio_chunks"
+                        ):
+                            audio_data = message.server_content.audio_chunks[0].data
+                            if audio_data:
+                                audio_chunks.append(audio_data)
+                                self.logger.debug(
+                                    f"Received audio chunk, size: {len(audio_data)} bytes"
+                                )
+                except Exception as e:
+                    # This might catch errors if the connection is closed unexpectedly
+                    self.logger.error(f"Error in audio receiver: {e}")
+                finally:
+                    self.logger.info("Audio receiver task finished.")
 
             # Connect to Lyria RealTime using WebSocket with proper structure
             try:
