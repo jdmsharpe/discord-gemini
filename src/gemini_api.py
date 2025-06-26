@@ -1712,13 +1712,18 @@ class GeminiAPI(commands.Cog):
 
             # Collect audio chunks
             audio_chunks = []
+            stop_receiving = False
 
             async def receive_audio(session):
                 """Background task to process incoming audio."""
                 self.logger.info("Audio receiver task started.")
                 try:
-                    # Iterate through the async generator to receive messages
+                    # Iterate through the async generator to receive messages with timeout
                     async for message in session.receive():
+                        if stop_receiving:
+                            self.logger.info("Stop signal received, breaking from audio receiver")
+                            break
+                            
                         if hasattr(message, "server_content") and hasattr(
                             message.server_content, "audio_chunks"
                         ):
@@ -1728,6 +1733,9 @@ class GeminiAPI(commands.Cog):
                                 self.logger.debug(
                                     f"Received audio chunk, size: {len(audio_data)} bytes"
                                 )
+                except asyncio.CancelledError:
+                    self.logger.info("Audio receiver task cancelled")
+                    raise
                 except Exception as e:
                     # This might catch errors if the connection is closed unexpectedly
                     self.logger.error(f"Error in audio receiver: {e}")
@@ -1736,46 +1744,62 @@ class GeminiAPI(commands.Cog):
 
             # Connect to Lyria RealTime using WebSocket with proper structure
             try:
-                async with (
-                    music_client.aio.live.music.connect(
-                        model="models/lyria-realtime-exp"
-                    ) as session,
-                    asyncio.TaskGroup() as tg,
-                ):
+                async with music_client.aio.live.music.connect(
+                    model="models/lyria-realtime-exp"
+                ) as session:
                     # Set up task to receive server messages
-                    tg.create_task(receive_audio(session))
+                    receiver_task = asyncio.create_task(receive_audio(session))
 
-                    # Send initial prompts and config following the official pattern
-                    await session.set_weighted_prompts(
-                        prompts=[
-                            types.WeightedPrompt(
-                                text=prompt_data["text"], weight=prompt_data["weight"]
-                            )
-                            for prompt_data in music_params.to_weighted_prompts()
-                        ]
-                    )
+                    try:
+                        # Send initial prompts and config following the official pattern
+                        await session.set_weighted_prompts(
+                            prompts=[
+                                types.WeightedPrompt(
+                                    text=prompt_data["text"], weight=prompt_data["weight"]
+                                )
+                                for prompt_data in music_params.to_weighted_prompts()
+                            ]
+                        )
 
-                    # Set music generation configuration
-                    config_dict = music_params.to_music_config()
+                        # Set music generation configuration
+                        config_dict = music_params.to_music_config()
 
-                    # Convert scale string to enum if provided
-                    if music_params.scale:
-                        scale_enum = getattr(types.Scale, music_params.scale, None)
-                        if scale_enum:
-                            config_dict["scale"] = scale_enum
+                        # Convert scale string to enum if provided
+                        if music_params.scale:
+                            scale_enum = getattr(types.Scale, music_params.scale, None)
+                            if scale_enum:
+                                config_dict["scale"] = scale_enum
 
-                    await session.set_music_generation_config(
-                        config=types.LiveMusicGenerationConfig(**config_dict)
-                    )
+                        await session.set_music_generation_config(
+                            config=types.LiveMusicGenerationConfig(**config_dict)
+                        )
 
-                    # Start streaming music
-                    await session.play()
+                        # Start streaming music
+                        await session.play()
 
-                    # Wait for the specified duration to collect audio
-                    await asyncio.sleep(music_params.duration)
+                        # Wait for the specified duration to collect audio
+                        self.logger.info(f"Waiting {music_params.duration} seconds for music generation")
+                        await asyncio.sleep(music_params.duration)
 
-                    # Stop the session
-                    await session.stop()
+                        # Stop the session
+                        self.logger.info("Stopping music generation session")
+                        await session.stop()
+
+                        # Signal the receiver to stop and wait a bit for final chunks
+                        self.logger.info("Signaling receiver to stop")
+                        stop_receiving = True
+                        
+                    finally:
+                        # Cancel the receiver task if it's still running
+                        if not receiver_task.done():
+                            self.logger.info("Cancelling receiver task")
+                            receiver_task.cancel()
+                            
+                        # Give the task a moment to finish cancellation
+                        try:
+                            await asyncio.sleep(0.1)  # Brief pause for cleanup
+                        except Exception:
+                            pass
 
                 # Combine all audio chunks
                 if audio_chunks:
