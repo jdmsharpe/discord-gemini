@@ -1717,22 +1717,17 @@ class GeminiAPI(commands.Cog):
                 """Background task to process incoming audio."""
                 self.logger.info("Audio receiver task started.")
                 try:
-                    # This loop will now correctly break when the stream ends
-                    while True:
-                        try:
-                            message = await asyncio.wait_for(session.receive(), timeout=10.0)
-                            if hasattr(message, "server_content") and hasattr(
-                                message.server_content, "audio_chunks"
-                            ):
-                                audio_data = message.server_content.audio_chunks[0].data
-                                if audio_data:
-                                    audio_chunks.append(audio_data)
-                                    self.logger.debug(
-                                        f"Received audio chunk, size: {len(audio_data)} bytes"
-                                    )
-                        except asyncio.TimeoutError:
-                            self.logger.info("Audio receiver timed out, assuming stream has ended.")
-                            break
+                    # Iterate through the async generator to receive messages
+                    async for message in session.receive():
+                        if hasattr(message, "server_content") and hasattr(
+                            message.server_content, "audio_chunks"
+                        ):
+                            audio_data = message.server_content.audio_chunks[0].data
+                            if audio_data:
+                                audio_chunks.append(audio_data)
+                                self.logger.debug(
+                                    f"Received audio chunk, size: {len(audio_data)} bytes"
+                                )
                 except Exception as e:
                     # This might catch errors if the connection is closed unexpectedly
                     self.logger.error(f"Error in audio receiver: {e}")
