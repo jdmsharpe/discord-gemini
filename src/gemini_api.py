@@ -1,34 +1,33 @@
+# Standard library imports
+import asyncio
+import logging
+import time
+from dataclasses import dataclass
+from io import BytesIO
+from typing import Any, Dict, List, Optional, Union
+
+# Third-party imports
+import aiohttp
+from PIL import Image
+
+# Discord imports
+from discord import Attachment, Colour, Embed, File
+from discord.commands import ApplicationContext, OptionChoice, command, option, slash_command
 from discord.ext import commands
+
+# Google AI imports
 from google import genai
 from google.genai import types
-from discord import (
-    Attachment,
-    Colour,
-    Embed,
-    File,
-)
-from discord.commands import (
-    ApplicationContext,
-    command,
-    option,
-    OptionChoice,
-    slash_command,
-)
-from typing import Optional, Dict, List, Union, Any
+
+# Local imports
+from button_view import ButtonView
+from config.auth import GEMINI_API_KEY, GUILD_IDS
 from util import (
     ChatCompletionParameters,
-    chunk_text,
     ImageGenerationParameters,
     VideoGenerationParameters,
+    chunk_text,
 )
-import aiohttp
-import asyncio
-from button_view import ButtonView
-import logging
-from config.auth import GUILD_IDS, GEMINI_API_KEY
-from dataclasses import dataclass
-from PIL import Image
-from io import BytesIO
 
 
 @dataclass
@@ -104,7 +103,9 @@ class GeminiAPI(commands.Cog):
             if message.author != params.conversation_starter or params.paused:
                 return
 
-            self.logger.debug(f"Starting typing indicator for followup message from {message.author}")
+            self.logger.debug(
+                f"Starting typing indicator for followup message from {message.author}"
+            )
             typing_task = asyncio.create_task(self.keep_typing(message.channel))
 
             user_parts: List[Union[str, Dict]] = [{"text": message.content}]
@@ -159,7 +160,9 @@ class GeminiAPI(commands.Cog):
 
             # Stop typing indicator as soon as we have the response
             if typing_task:
-                self.logger.debug(f"Stopping typing indicator for conversation {params.conversation_id}")
+                self.logger.debug(
+                    f"Stopping typing indicator for conversation {params.conversation_id}"
+                )
                 typing_task.cancel()
                 typing_task = None
 
@@ -293,26 +296,27 @@ class GeminiAPI(commands.Cog):
         if message.author == self.bot.user:
             return
 
-        self.logger.debug(f"Received message from {message.author} in channel {message.channel.id}: '{message.content}'")
-        
+        self.logger.debug(
+            f"Received message from {message.author} in channel {message.channel.id}: '{message.content}'"
+        )
+
         # Check for active conversations in this channel
         for conversation_wrapper in self.conversations.values():
-            self.logger.debug(f"Checking conversation {conversation_wrapper.params.conversation_id} in channel {conversation_wrapper.params.channel_id}")
             # Skip conversations that are not in the same channel
             if message.channel.id != conversation_wrapper.params.channel_id:
-                self.logger.debug(f"Channel mismatch: message in {message.channel.id}, conversation in {conversation_wrapper.params.channel_id}")
                 continue
 
             # Skip if the message is not from the conversation starter
             if message.author != conversation_wrapper.params.conversation_starter:
-                self.logger.debug(f"Author mismatch: message from {message.author}, conversation started by {conversation_wrapper.params.conversation_starter}")
                 continue
 
-            self.logger.info(f"Processing followup message for conversation {conversation_wrapper.params.conversation_id}")
+            self.logger.info(
+                f"Processing followup message for conversation {conversation_wrapper.params.conversation_id}"
+            )
             # Process the message for the matching conversation
             await self.handle_new_message_in_conversation(message, conversation_wrapper)
             break  # Stop looping once we've handled the message
-        
+
         self.logger.debug("No matching conversations found for this message")
 
     @commands.Cog.listener()
@@ -1192,7 +1196,6 @@ class GeminiAPI(commands.Cog):
         Returns:
             List of generated video file paths
         """
-        import time
 
         # Prepare the generation call
         kwargs = {
