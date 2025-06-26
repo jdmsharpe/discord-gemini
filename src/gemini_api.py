@@ -2,8 +2,10 @@
 import asyncio
 import logging
 import time
+import wave
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 # Third-party imports
@@ -25,6 +27,7 @@ from config.auth import GEMINI_API_KEY, GUILD_IDS
 from util import (
     ChatCompletionParameters,
     ImageGenerationParameters,
+    SpeechGenerationParameters,
     VideoGenerationParameters,
     chunk_text,
 )
@@ -982,6 +985,177 @@ class GeminiAPI(commands.Cog):
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
 
+    @slash_command(
+        name="text_to_speech",
+        description="Generates lifelike audio from input text using Gemini TTS.",
+        guild_ids=GUILD_IDS,
+    )
+    @option(
+        "input_text",
+        description="Text to convert to speech (max 32k tokens)",
+        required=True,
+        type=str,
+    )
+    @option(
+        "model",
+        description="Choose Gemini TTS model. (default: Gemini 2.5 Flash Preview TTS)",
+        required=False,
+        choices=[
+            OptionChoice(
+                name="Gemini 2.5 Flash Preview TTS", 
+                value="gemini-2.5-flash-preview-tts"
+            ),
+            OptionChoice(
+                name="Gemini 2.5 Pro Preview TTS", 
+                value="gemini-2.5-pro-preview-tts"
+            ),
+        ],
+        type=str,
+    )
+    @option(
+        "voice_name",
+        description="Voice to use for single-speaker TTS. (default: Kore)",
+        required=False,
+        choices=[
+            OptionChoice(name="Zephyr (Bright)", value="Zephyr"),
+            OptionChoice(name="Puck (Upbeat)", value="Puck"), 
+            OptionChoice(name="Charon (Informative)", value="Charon"),
+            OptionChoice(name="Kore (Firm)", value="Kore"),
+            OptionChoice(name="Fenrir (Excitable)", value="Fenrir"),
+            OptionChoice(name="Leda (Youthful)", value="Leda"),
+            OptionChoice(name="Orus (Firm)", value="Orus"),
+            OptionChoice(name="Aoede (Breezy)", value="Aoede"),
+            OptionChoice(name="Callirrhoe (Easy-going)", value="Callirrhoe"),
+            OptionChoice(name="Autonoe (Bright)", value="Autonoe"),
+            OptionChoice(name="Enceladus (Breathy)", value="Enceladus"),
+            OptionChoice(name="Iapetus (Clear)", value="Iapetus"),
+            OptionChoice(name="Umbriel (Easy-going)", value="Umbriel"),
+            OptionChoice(name="Algieba (Smooth)", value="Algieba"),
+            OptionChoice(name="Despina (Smooth)", value="Despina"),
+            OptionChoice(name="Erinome (Clear)", value="Erinome"),
+            OptionChoice(name="Algenib (Gravelly)", value="Algenib"),
+            OptionChoice(name="Rasalgethi (Informative)", value="Rasalgethi"),
+            OptionChoice(name="Laomedeia (Upbeat)", value="Laomedeia"),
+            OptionChoice(name="Achernar (Soft)", value="Achernar"),
+            OptionChoice(name="Alnilam (Firm)", value="Alnilam"),
+            OptionChoice(name="Schedar (Even)", value="Schedar"),
+            OptionChoice(name="Gacrux (Mature)", value="Gacrux"),
+            OptionChoice(name="Pulcherrima (Forward)", value="Pulcherrima"),
+            OptionChoice(name="Achird (Friendly)", value="Achird"),
+            OptionChoice(name="Zubenelgenubi (Casual)", value="Zubenelgenubi"),
+            OptionChoice(name="Vindemiatrix (Gentle)", value="Vindemiatrix"),
+            OptionChoice(name="Sadachbia (Lively)", value="Sadachbia"),
+            OptionChoice(name="Sadaltager (Knowledgeable)", value="Sadaltager"),
+            OptionChoice(name="Sulafat (Warm)", value="Sulafat"),
+        ],
+        type=str,
+    )
+    @option(
+        "style_prompt",
+        description="Natural language instructions to control voice style, tone, accent, pace. (default: not set)",
+        required=False,
+        type=str,
+    )
+    async def text_to_speech(
+        self,
+        ctx: ApplicationContext,
+        input_text: str,
+        model: str = "gemini-2.5-flash-preview-tts",
+        voice_name: str = "Kore",
+        style_prompt: Optional[str] = None,
+    ):
+        """
+        Generates audio from input text using Gemini's native text-to-speech capabilities.
+
+        This function uses Google's Gemini TTS models to convert text into lifelike audio.
+        The TTS capability supports natural language control over style, accent, pace, and tone.
+
+        Features:
+        - Single-speaker TTS with 30 prebuilt voice options
+        - Natural language style control through prompts
+        - Support for 24 languages with automatic detection
+        - High-quality audio output in WAV format
+        - Up to 32k token context window
+
+        Args:
+            ctx: Discord application context
+            input_text: Text to convert to speech (max 32k tokens)
+            model: Gemini TTS model to use
+            voice_name: Voice option for speech generation
+            style_prompt: Natural language instructions for voice control
+
+        Returns:
+            Discord response with generated audio file and parameter information
+        """
+        await ctx.defer()
+        
+        try:
+            # Prepare the text input with optional style guidance
+            content_text = input_text
+            if style_prompt:
+                content_text = f"{style_prompt}: {input_text}"
+
+            # Create TTS parameters
+            tts_params = SpeechGenerationParameters(
+                input_text=content_text,
+                model=model,
+                voice_name=voice_name,
+                multi_speaker=False,
+                style_prompt=style_prompt,
+            )
+
+            # Generate audio using Gemini TTS
+            audio_data = await self._generate_speech_with_gemini(tts_params)
+
+            if audio_data:
+                # Create temporary audio file
+                audio_file_path = Path(f"tts_output_{voice_name}.wav")
+                
+                # Write audio data to WAV file
+                with wave.open(str(audio_file_path), "wb") as wf:
+                    wf.setnchannels(1)  # Mono
+                    wf.setsampwidth(2)  # 16-bit
+                    wf.setframerate(24000)  # 24kHz sample rate
+                    wf.writeframes(audio_data)
+
+                # Create response embed
+                description = f"**Text:** {input_text[:500]}{'...' if len(input_text) > 500 else ''}\n"
+                description += f"**Model:** {model}\n"
+                description += f"**Voice:** {voice_name}\n"
+                if style_prompt:
+                    description += f"**Style Instructions:** {style_prompt}\n"
+                description += f"**Format:** WAV (24kHz, 16-bit, Mono)\n"
+
+                embed = Embed(
+                    title="Text-to-Speech Generation",
+                    description=description,
+                    color=Colour.green(),
+                )
+
+                # Send the audio file
+                await ctx.send_followup(embed=embed, file=File(audio_file_path))
+
+                # Clean up the temporary file
+                audio_file_path.unlink(missing_ok=True)
+            else:
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="No Audio Generated",
+                        description="The model did not generate any audio. Please try again with different text or parameters.",
+                        color=Colour.orange(),
+                    )
+                )
+
+        except Exception as e:
+            description = str(e)
+            self.logger.error(
+                f"Error in text_to_speech: {description}",
+                exc_info=True,
+            )
+            await ctx.send_followup(
+                embed=Embed(title="Error", description=description, color=Colour.red())
+            )
+
     async def _generate_image_with_gemini(
         self,
         prompt: str,
@@ -1322,3 +1496,42 @@ class GeminiAPI(commands.Cog):
         )
 
         return embed, files
+
+    async def _generate_speech_with_gemini(
+        self, tts_params: SpeechGenerationParameters
+    ) -> Optional[bytes]:
+        """
+        Generate speech using Gemini TTS models.
+
+        Args:
+            tts_params: TTS parameters containing input text, model, voice, etc.
+
+        Returns:
+            Raw audio data as bytes, or None if generation failed
+        """
+        try:
+            # Generate speech using Gemini TTS
+            response = self.client.models.generate_content(
+                model=tts_params.model,
+                contents=tts_params.input_text,
+                config=types.GenerateContentConfig(**tts_params.to_dict()),
+            )
+
+            # Extract audio data from response
+            if (
+                response.candidates 
+                and len(response.candidates) > 0
+                and response.candidates[0].content
+                and response.candidates[0].content.parts
+            ):
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, "inline_data") and part.inline_data:
+                        if part.inline_data.data:
+                            return part.inline_data.data
+
+            self.logger.warning("No audio data found in Gemini TTS response")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error generating speech with Gemini: {e}")
+            raise
