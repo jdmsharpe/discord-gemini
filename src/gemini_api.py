@@ -1301,7 +1301,7 @@ class GeminiAPI(commands.Cog):
                 embed = Embed(
                     title="Music Generation",
                     description=description,
-                    color=Colour.purple(),
+                    color=Colour.dark_blue(),
                 )
 
                 # Send the audio file
