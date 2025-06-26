@@ -1705,7 +1705,10 @@ class GeminiAPI(commands.Cog):
         """
         try:
             # Create a client specifically for music generation with proper API version
-            music_client = genai.Client(api_key=GEMINI_API_KEY)
+            music_client = genai.Client(
+                api_key=GEMINI_API_KEY, 
+                http_options={'api_version': 'v1alpha'}
+            )
 
             # Collect audio chunks
             audio_chunks = []
@@ -1743,7 +1746,7 @@ class GeminiAPI(commands.Cog):
             try:
                 async with (
                     music_client.aio.live.music.connect(
-                        model="models/music-fx"
+                        model="models/lyria-realtime-exp"
                     ) as session,
                     asyncio.TaskGroup() as tg,
                 ):
