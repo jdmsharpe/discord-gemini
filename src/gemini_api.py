@@ -433,7 +433,30 @@ class GeminiAPI(commands.Cog):
         top_p: Optional[float] = None,
     ):
         """
-        Creates a model response for the given chat conversation.
+        Creates a persistent conversation session with a Gemini model.
+
+        Initiates an interactive conversation with context preservation across multiple exchanges.
+        Supports multimodal inputs (text + images) and provides interactive UI controls for
+        conversation management.
+
+        Args:
+            ctx: Discord application context
+            prompt: Initial conversation prompt or question
+            model: Gemini model variant (default: gemini-2.5-flash)
+            system_instruction: Optional behavioral guidelines for the AI
+            frequency_penalty: Controls repetition reduction (experimental)
+            presence_penalty: Controls topic focus (experimental)
+            seed: Random seed for deterministic responses
+            attachment: Optional image attachment for multimodal input
+            temperature: Response creativity (0.0 conservative → 2.0 creative)
+            top_p: Nucleus sampling threshold (0.0 focused → 1.0 diverse)
+
+        Returns:
+            Discord response with initial AI message and interactive conversation controls
+
+        Note:
+            Only one conversation per user per channel allowed. Conversations persist until
+            explicitly ended or bot restarts. Follow-up messages automatically handled.
         """
         # Acknowledge the interaction immediately - reply can take some time
         await ctx.defer()
