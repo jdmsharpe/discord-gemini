@@ -58,3 +58,10 @@ Try these prompts with `/generate_music`:
 - **Instruments**: "piano and strings", "guitar and drums", "electronic synthesizers"
 - **Moods**: "upbeat and energetic", "calm and meditative", "dark and atmospheric"
 - **Combinations**: "upbeat electronic dance music with heavy bass", "peaceful acoustic guitar with nature sounds"
+
+## Troubleshooting
+
+### General Issues
+- Ensure your API key has the necessary permissions
+- Check that your bot has proper Discord permissions in the channel
+- Verify your internet connection for streaming features
