@@ -27,6 +27,7 @@ from config.auth import GEMINI_API_KEY, GUILD_IDS
 from util import (
     ChatCompletionParameters,
     ImageGenerationParameters,
+    MusicGenerationParameters,
     SpeechGenerationParameters,
     VideoGenerationParameters,
     chunk_text,
@@ -1151,6 +1152,188 @@ class GeminiAPI(commands.Cog):
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
 
+    @slash_command(
+        name="generate_music",
+        description="Generate instrumental music using Gemini's Lyria RealTime model.",
+        guild_ids=GUILD_IDS,
+    )
+    @option(
+        "prompt",
+        description="Musical prompt describing genre, mood, instruments, or style",
+        required=True,
+        type=str,
+    )
+    @option(
+        "duration",
+        description="Duration of music to generate in seconds (default: 30, max: 120)",
+        required=False,
+        type=int,
+        min_value=5,
+        max_value=120,
+    )
+    @option(
+        "bpm",
+        description="Beats per minute (60-200). Leave empty for model to decide.",
+        required=False,
+        type=int,
+        min_value=60,
+        max_value=200,
+    )
+    @option(
+        "scale",
+        description="Musical scale/key for the generation",
+        required=False,
+        choices=[
+            OptionChoice(name="C Major / A Minor", value="C_MAJOR_A_MINOR"),
+            OptionChoice(name="D♭ Major / B♭ Minor", value="D_FLAT_MAJOR_B_FLAT_MINOR"),
+            OptionChoice(name="D Major / B Minor", value="D_MAJOR_B_MINOR"),
+            OptionChoice(name="E♭ Major / C Minor", value="E_FLAT_MAJOR_C_MINOR"),
+            OptionChoice(name="E Major / C# Minor", value="E_MAJOR_D_FLAT_MINOR"),
+            OptionChoice(name="F Major / D Minor", value="F_MAJOR_D_MINOR"),
+            OptionChoice(name="G♭ Major / E♭ Minor", value="G_FLAT_MAJOR_E_FLAT_MINOR"),
+            OptionChoice(name="G Major / E Minor", value="G_MAJOR_E_MINOR"),
+            OptionChoice(name="A♭ Major / F Minor", value="A_FLAT_MAJOR_F_MINOR"),
+            OptionChoice(name="A Major / F# Minor", value="A_MAJOR_G_FLAT_MINOR"),
+            OptionChoice(name="B♭ Major / G Minor", value="B_FLAT_MAJOR_G_MINOR"),
+            OptionChoice(name="B Major / G# Minor", value="B_MAJOR_A_FLAT_MINOR"),
+        ],
+        type=str,
+    )
+    @option(
+        "density",
+        description="Musical density. Lower = sparser, Higher = busier. (default: not set)",
+        required=False,
+        type=float,
+        min_value=0.0,
+        max_value=1.0,
+    )
+    @option(
+        "brightness",
+        description="Tonal brightness. Higher = brighter sound. (default: not set)",
+        required=False,
+        type=float,
+        min_value=0.0,
+        max_value=1.0,
+    )
+    @option(
+        "guidance",
+        description="Prompt adherence. Higher = more faithful to prompt (default: 4.0)",
+        required=False,
+        type=float,
+        min_value=0.0,
+        max_value=6.0,
+    )
+    async def generate_music(
+        self,
+        ctx: ApplicationContext,
+        prompt: str,
+        duration: int = 30,
+        bpm: Optional[int] = None,
+        scale: Optional[str] = None,
+        density: Optional[float] = None,
+        brightness: Optional[float] = None,
+        guidance: float = 4.0,
+    ):
+        """
+        Generate instrumental music using Gemini's Lyria RealTime model.
+
+        This function uses Google's state-of-the-art real-time streaming music generation
+        model to create instrumental music based on text prompts. The model supports
+        real-time control over various musical parameters.
+
+        Features:
+        - Real-time streaming music generation
+        - Support for various genres, instruments, and moods
+        - Controllable parameters: BPM, scale, density, brightness
+        - High-quality stereo audio output (48kHz, 16-bit)
+        - Instrumental music only
+
+        Args:
+            ctx: Discord application context
+            prompt: Musical prompt describing desired style/characteristics
+            duration: Length of music to generate in seconds
+            bpm: Beats per minute (optional, model decides if not set)
+            scale: Musical scale/key for generation
+            density: Musical density (sparseness vs business)
+            brightness: Tonal brightness (frequency emphasis)
+            guidance: How strictly to follow the prompt
+
+        Returns:
+            Discord response with generated music file and parameter information
+        """
+        await ctx.defer()
+        
+        try:
+            # Create music generation parameters
+            music_params = MusicGenerationParameters(
+                prompts=[prompt],
+                duration=duration,
+                bpm=bpm,
+                scale=scale,
+                guidance=guidance,
+                density=density,
+                brightness=brightness,
+            )
+
+            # Generate music using Lyria RealTime
+            audio_data = await self._generate_music_with_lyria(music_params)
+
+            if audio_data:
+                # Create temporary audio file
+                audio_file_path = Path(f"music_output_{int(time.time())}.wav")
+                
+                # Write audio data to WAV file (stereo, 48kHz, 16-bit)
+                with wave.open(str(audio_file_path), "wb") as wf:
+                    wf.setnchannels(2)  # Stereo
+                    wf.setsampwidth(2)  # 16-bit
+                    wf.setframerate(48000)  # 48kHz sample rate
+                    wf.writeframes(audio_data)
+
+                # Create response embed
+                description = f"**Prompt:** {prompt}\n"
+                description += f"**Duration:** {duration} seconds\n"
+                description += f"**Model:** Lyria RealTime\n"
+                if bpm:
+                    description += f"**BPM:** {bpm}\n"
+                if scale:
+                    description += f"**Scale:** {scale.replace('_', ' ')}\n"
+                if density is not None:
+                    description += f"**Density:** {density}\n"
+                if brightness is not None:
+                    description += f"**Brightness:** {brightness}\n"
+                description += f"**Guidance:** {guidance}\n"
+                description += f"**Format:** WAV (48kHz, 16-bit, Stereo)\n"
+
+                embed = Embed(
+                    title="Music Generation",
+                    description=description,
+                    color=Colour.purple(),
+                )
+
+                # Send the audio file
+                await ctx.send_followup(embed=embed, file=File(audio_file_path))
+
+                # Clean up the temporary file
+                audio_file_path.unlink(missing_ok=True)
+            else:
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="No Music Generated",
+                        description="The model did not generate any music. Please try again with a different prompt or parameters.",
+                        color=Colour.orange(),
+                    )
+                )
+
+        except Exception as e:
+            description = str(e)
+            self.logger.error(
+                f"Error in generate_music: {description}",
+                exc_info=True,
+            )
+            await ctx.send_followup(
+                embed=Embed(title="Error", description=description, color=Colour.red())
+            )
+
     async def _generate_image_with_gemini(
         self,
         prompt: str,
@@ -1491,6 +1674,97 @@ class GeminiAPI(commands.Cog):
         )
 
         return embed, files
+
+    async def _generate_music_with_lyria(
+        self, music_params: MusicGenerationParameters
+    ) -> Optional[bytes]:
+        """
+        Generate music using Gemini's Lyria RealTime model.
+
+        Args:
+            music_params: Music generation parameters
+
+        Returns:
+            Raw audio data as bytes, or None if generation failed
+        """
+        try:
+            # Collect audio chunks
+            audio_chunks = []
+            start_time = time.time()
+            
+            # Connect to Lyria RealTime using WebSocket
+            async with self.client.aio.live.music.connect(
+                model='models/lyria-realtime-exp'
+            ) as session:
+                
+                # Set up background task to receive audio
+                async def receive_audio():
+                    while True:
+                        try:
+                            async for message in session.receive():
+                                if hasattr(message, 'server_content') and message.server_content:
+                                    if hasattr(message.server_content, 'audio_chunks'):
+                                        for audio_chunk in message.server_content.audio_chunks:
+                                            if hasattr(audio_chunk, 'data') and audio_chunk.data:
+                                                audio_chunks.append(audio_chunk.data)
+                                
+                                # Check if we've collected enough audio
+                                elapsed_time = time.time() - start_time
+                                if elapsed_time >= music_params.duration:
+                                    return
+                                    
+                        except Exception as e:
+                            self.logger.error(f"Error receiving audio: {e}")
+                            break
+                        
+                        # Small delay to prevent excessive CPU usage
+                        await asyncio.sleep(0.001)
+
+                # Create async task group to handle concurrent operations
+                async with asyncio.TaskGroup() as tg:
+                    # Start receiving audio
+                    tg.create_task(receive_audio())
+                    
+                    # Send initial configuration and prompts
+                    await session.set_weighted_prompts(
+                        prompts=[
+                            types.WeightedPrompt(text=prompt_data["text"], weight=prompt_data["weight"])
+                            for prompt_data in music_params.to_weighted_prompts()
+                        ]
+                    )
+                    
+                    # Set music generation configuration
+                    config_dict = music_params.to_music_config()
+                    
+                    # Convert scale string to enum if provided
+                    if music_params.scale:
+                        scale_enum = getattr(types.Scale, music_params.scale, None)
+                        if scale_enum:
+                            config_dict["scale"] = scale_enum
+                    
+                    await session.set_music_generation_config(
+                        config=types.LiveMusicGenerationConfig(**config_dict)
+                    )
+                    
+                    # Start music generation
+                    await session.play()
+                    
+                    # Wait for the specified duration
+                    await asyncio.sleep(music_params.duration)
+                    
+                    # Stop the session
+                    await session.stop()
+
+            # Combine all audio chunks
+            if audio_chunks:
+                return b''.join(audio_chunks)
+            else:
+                self.logger.warning("No audio chunks received from Lyria RealTime")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Error generating music with Lyria RealTime: {e}")
+            raise
 
     async def _generate_speech_with_gemini(
         self, tts_params: SpeechGenerationParameters

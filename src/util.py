@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Literal, Any
+from typing import Any, Dict, List, Literal, Optional
 
 
 @dataclass
@@ -147,6 +147,62 @@ class SpeechGenerationParameters:
         
         config_dict["speech_config"] = speech_config
         return config_dict
+
+
+@dataclass
+class MusicGenerationParameters:
+    """A dataclass to store parameters for music generation using Lyria RealTime."""
+    
+    prompts: List[str]
+    prompt_weights: Optional[List[float]] = None
+    duration: int = 30  # seconds
+    bpm: Optional[int] = None  # 60-200
+    scale: Optional[str] = None  # e.g., "C_MAJOR_A_MINOR"
+    guidance: float = 4.0  # 0.0-6.0
+    density: Optional[float] = None  # 0.0-1.0
+    brightness: Optional[float] = None  # 0.0-1.0
+    temperature: float = 1.1  # 0.0-3.0
+    top_k: int = 40  # 1-1000
+    seed: Optional[int] = None
+    mute_bass: bool = False
+    mute_drums: bool = False
+    only_bass_and_drums: bool = False
+
+    def to_weighted_prompts(self) -> List[Dict[str, Any]]:
+        """Convert prompts to WeightedPrompt format for Gemini API."""
+        if self.prompt_weights and len(self.prompt_weights) == len(self.prompts):
+            return [
+                {"text": prompt, "weight": weight}
+                for prompt, weight in zip(self.prompts, self.prompt_weights)
+            ]
+        else:
+            # Default weight of 1.0 for all prompts
+            return [{"text": prompt, "weight": 1.0} for prompt in self.prompts]
+
+    def to_music_config(self) -> Dict[str, Any]:
+        """Convert to MusicGenerationConfig format for Gemini API."""
+        config = {
+            "guidance": self.guidance,
+            "temperature": self.temperature,
+            "top_k": self.top_k,
+            "mute_bass": self.mute_bass,
+            "mute_drums": self.mute_drums,
+            "only_bass_and_drums": self.only_bass_and_drums,
+        }
+        
+        # Add optional parameters if provided
+        if self.bpm is not None:
+            config["bpm"] = self.bpm
+        if self.scale is not None:
+            config["scale"] = self.scale
+        if self.density is not None:
+            config["density"] = self.density
+        if self.brightness is not None:
+            config["brightness"] = self.brightness
+        if self.seed is not None:
+            config["seed"] = self.seed
+            
+        return config
 
 
 @dataclass
