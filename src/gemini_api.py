@@ -385,7 +385,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "attachment",
-        description="Attachment to append to the prompt. Only images are supported at this time. (default: not set)",
+        description="Attachment to append to the prompt. (default: not set)",
         required=False,
         type=Attachment,
     )
@@ -673,7 +673,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "guidance_scale",
-        description="(Advanced) Controls adherence to prompt. Ranges from 0 to 20. (default: not set)",
+        description="(Advanced) Controls adherence to prompt. Ranges from 0.0 to 20.0. (default: not set)",
         required=False,
         type=float,
         min_value=0.0,
@@ -864,7 +864,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "number_of_videos",
-        description="Number of videos to generate (1-2). (default: 1)",
+        description="Number of videos to generate, from 1 to 2. (default: 1)",
         required=False,
         type=int,
         min_value=1,
@@ -872,7 +872,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "duration_seconds",
-        description="Length of each output video in seconds (5-8). (default: not set)",
+        description="Length of each output video in seconds, from 5 to 8 seconds. (default: not set)",
         required=False,
         type=int,
         min_value=5,
@@ -983,18 +983,18 @@ class GeminiAPI(commands.Cog):
 
     @slash_command(
         name="text_to_speech",
-        description="Generates lifelike audio from input text using Gemini TTS.",
+        description="Generates lifelike audio from input text using Gemini text-to-speech.",
         guild_ids=GUILD_IDS,
     )
     @option(
         "input_text",
-        description="Text to convert to speech (max 32k tokens)",
+        description="Text to convert to speech. Max 32k tokens.",
         required=True,
         type=str,
     )
     @option(
         "model",
-        description="Choose Gemini TTS model. (default: Gemini 2.5 Flash Preview TTS)",
+        description="Choose Gemini text-to-speech model. (default: Gemini 2.5 Flash Preview TTS)",
         required=False,
         choices=[
             OptionChoice(
@@ -1009,7 +1009,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "voice_name",
-        description="Voice to use for single-speaker TTS. (default: Kore)",
+        description="Voice to use for single-speaker text-to-speech. (default: Kore)",
         required=False,
         choices=[
             OptionChoice(name="Kore (Firm)", value="Kore"),
@@ -1153,13 +1153,13 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "prompt",
-        description="Musical prompt describing genre, mood, instruments, or style",
+        description="Musical prompt describing genre, mood, instruments, or style.",
         required=True,
         type=str,
     )
     @option(
         "duration",
-        description="Duration of music to generate in seconds (default: 30, max: 120)",
+        description="Duration of music to generate in seconds. Max is 120. (default: 30)",
         required=False,
         type=int,
         min_value=5,
@@ -1167,7 +1167,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "bpm",
-        description="Beats per minute (60-200). Leave empty for model to decide.",
+        description="Beats per minute from 60 to 200. Leave empty for model to decide.",
         required=False,
         type=int,
         min_value=60,
@@ -1175,7 +1175,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "scale",
-        description="Musical scale/key for the generation",
+        description="Scale/key for the music.",
         required=False,
         choices=[
             OptionChoice(name="C Major / A Minor", value="C_MAJOR_A_MINOR"),
@@ -1195,7 +1195,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "density",
-        description="Musical density. Lower = sparser, Higher = busier. (default: not set)",
+        description="(Advanced) Musical density from 0.0 top 1.0. Lower is sparser, Higher is busier. (default: not set)",
         required=False,
         type=float,
         min_value=0.0,
@@ -1203,7 +1203,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "brightness",
-        description="Tonal brightness. Higher = brighter sound. (default: not set)",
+        description="(Advanced) Tonal brightness from 0.0 to 1.0. Higher is brighter sound. (default: not set)",
         required=False,
         type=float,
         min_value=0.0,
@@ -1211,7 +1211,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "guidance",
-        description="Prompt adherence. Higher = more faithful to prompt (default: 4.0)",
+        description="(Advanced) Prompt adherence from 0.0 to 6.0. Higher is more faithful to prompt. (default: 4.0)",
         required=False,
         type=float,
         min_value=0.0,
@@ -1285,11 +1285,11 @@ class GeminiAPI(commands.Cog):
 
                 # Create response embed
                 description = f"**Prompt:** {prompt}\n"
-                description += f"**Duration:** {duration} seconds\n"
                 description += f"**Model:** Lyria RealTime\n"
-                if bpm:
+                description += f"**Duration:** {duration} seconds\n"
+                if bpm is not None:
                     description += f"**BPM:** {bpm}\n"
-                if scale:
+                if scale is not None:
                     description += f"**Scale:** {scale.replace('_', ' ')}\n"
                 if density is not None:
                     description += f"**Density:** {density}\n"
