@@ -54,7 +54,7 @@ def append_response_embeds(embeds, response_text):
             Embed(
                 title="Response" + f" (Part {index})" if index > 1 else "Response",
                 description=chunk,
-                color=Colour.blue(),
+                color=Colour.dark_blue(),
             )
         )
 
@@ -1124,7 +1124,7 @@ class GeminiAPI(commands.Cog):
                 embed = Embed(
                     title="Text-to-Speech Generation",
                     description=description,
-                    color=Colour.green(),
+                    color=Colour.dark_blue(),
                 )
 
                 # Send the audio file
@@ -1344,9 +1344,9 @@ class GeminiAPI(commands.Cog):
             description += f"\n\n**AI Response:** {truncated_text}"
 
         embed = Embed(
-            title=f"Images Generated with {'Gemini' if is_gemini_model else 'Imagen'}",
+            title=f"Image Generation with {'Gemini' if is_gemini_model else 'Imagen'}",
             description=description,
-            color=Colour.green(),
+            color=Colour.dark_blue(),
         )
 
         if files:
@@ -1480,7 +1480,7 @@ class GeminiAPI(commands.Cog):
         embed = Embed(
             title="Videos Generated with Veo",
             description=description,
-            color=Colour.green(),
+            color=Colour.dark_blue(),
         )
 
         # Note about video generation time and storage
