@@ -1319,8 +1319,26 @@ class GeminiAPI(commands.Cog):
                 f"Error in generate_music: {description}",
                 exc_info=True,
             )
+            
+            # Provide more helpful error messages for common issues
+            if "Music generation is currently unavailable" in description:
+                embed_title = "Music Generation Unavailable"
+                embed_color = Colour.orange()
+            elif "Authentication error" in description:
+                embed_title = "Authentication Error"
+                embed_color = Colour.red()
+            elif "404" in description:
+                embed_title = "Service Not Available"
+                embed_color = Colour.orange()
+                description = ("The Lyria RealTime music generation service is not available. "
+                             "This feature may not be enabled for your account or region. "
+                             "Please check Google AI Studio for availability.")
+            else:
+                embed_title = "Music Generation Error"
+                embed_color = Colour.red()
+                
             await ctx.send_followup(
-                embed=Embed(title="Error", description=description, color=Colour.red())
+                embed=Embed(title=embed_title, description=description, color=embed_color)
             )
 
     async def _generate_image_with_gemini(
@@ -1677,44 +1695,46 @@ class GeminiAPI(commands.Cog):
             Raw audio data as bytes, or None if generation failed
         """
         try:
+            # Create a client specifically for music generation with proper API version
+            music_client = genai.Client(
+                api_key=GEMINI_API_KEY, 
+                http_options={'api_version': 'v1alpha'}
+            )
+            
             # Collect audio chunks
             audio_chunks = []
-            start_time = time.time()
             
-            # Connect to Lyria RealTime using WebSocket
-            async with self.client.aio.live.music.connect(
-                model='models/lyria-realtime-exp'
-            ) as session:
-                
-                # Set up background task to receive audio
-                async def receive_audio():
-                    while True:
-                        try:
-                            async for message in session.receive():
-                                if hasattr(message, 'server_content') and message.server_content:
-                                    if hasattr(message.server_content, 'audio_chunks'):
-                                        for audio_chunk in message.server_content.audio_chunks:
-                                            if hasattr(audio_chunk, 'data') and audio_chunk.data:
-                                                audio_chunks.append(audio_chunk.data)
-                                
-                                # Check if we've collected enough audio
-                                elapsed_time = time.time() - start_time
-                                if elapsed_time >= music_params.duration:
-                                    return
-                                    
-                        except Exception as e:
-                            self.logger.error(f"Error receiving audio: {e}")
-                            break
-                        
-                        # Small delay to prevent excessive CPU usage
-                        await asyncio.sleep(0.001)
+            async def receive_audio(session):
+                """Background task to process incoming audio."""
+                while True:
+                    try:
+                        async for message in session.receive():
+                            # Process audio chunks directly from server_content
+                            if hasattr(message, 'server_content') and message.server_content:
+                                if hasattr(message.server_content, 'audio_chunks') and message.server_content.audio_chunks:
+                                    # Get the first (and typically only) audio chunk
+                                    audio_data = message.server_content.audio_chunks[0].data
+                                    if audio_data:
+                                        audio_chunks.append(audio_data)
+                                        self.logger.debug(f"Received audio chunk, size: {len(audio_data)} bytes")
+                            
+                            # Small delay as suggested in the docs
+                            await asyncio.sleep(10**-12)
+                                        
+                    except Exception as e:
+                        self.logger.error(f"Error receiving audio: {e}")
+                        break
 
-                # Create async task group to handle concurrent operations
-                async with asyncio.TaskGroup() as tg:
-                    # Start receiving audio
-                    tg.create_task(receive_audio())
+            # Connect to Lyria RealTime using WebSocket with proper structure
+            try:
+                async with (
+                    music_client.aio.live.music.connect(model='models/lyria-realtime-exp') as session,
+                    asyncio.TaskGroup() as tg,
+                ):
+                    # Set up task to receive server messages
+                    tg.create_task(receive_audio(session))
                     
-                    # Send initial configuration and prompts
+                    # Send initial prompts and config following the official pattern
                     await session.set_weighted_prompts(
                         prompts=[
                             types.WeightedPrompt(text=prompt_data["text"], weight=prompt_data["weight"])
@@ -1735,25 +1755,46 @@ class GeminiAPI(commands.Cog):
                         config=types.LiveMusicGenerationConfig(**config_dict)
                     )
                     
-                    # Start music generation
+                    # Start streaming music
                     await session.play()
                     
-                    # Wait for the specified duration
+                    # Wait for the specified duration to collect audio
                     await asyncio.sleep(music_params.duration)
                     
                     # Stop the session
                     await session.stop()
 
-            # Combine all audio chunks
-            if audio_chunks:
-                return b''.join(audio_chunks)
-            else:
-                self.logger.warning("No audio chunks received from Lyria RealTime")
-                return None
+                # Combine all audio chunks
+                if audio_chunks:
+                    self.logger.info(f"Successfully collected {len(audio_chunks)} audio chunks")
+                    return b''.join(audio_chunks)
+                else:
+                    self.logger.warning("No audio chunks received from Lyria RealTime")
+                    return None
+                    
+            except Exception as websocket_error:
+                # Handle specific WebSocket connection errors
+                if "404" in str(websocket_error):
+                    self.logger.error("Lyria RealTime endpoint not found (404).")
+                    raise Exception("Music generation is currently unavailable. This could be due to:\n"
+                                  "1. The Lyria RealTime model is not available in your region\n"
+                                  "2. Your account doesn't have access to the music generation API\n"
+                                  "3. The service is temporarily unavailable\n\n"
+                                  "Please check Google AI Studio or contact support for more information.")
+                elif "401" in str(websocket_error) or "403" in str(websocket_error):
+                    self.logger.error("Authentication/authorization error for Lyria RealTime")
+                    raise Exception("Authentication error: Please check your API key permissions for music generation.")
+                else:
+                    self.logger.error(f"WebSocket connection error: {websocket_error}")
+                    raise Exception(f"Connection error: {websocket_error}")
 
         except Exception as e:
-            self.logger.error(f"Error generating music with Lyria RealTime: {e}")
-            raise
+            if "Music generation is currently unavailable" in str(e) or "Authentication error" in str(e):
+                # Re-raise our custom error messages
+                raise
+            else:
+                self.logger.error(f"Error generating music with Lyria RealTime: {e}")
+                raise Exception(f"Music generation failed: {e}")
 
     async def _generate_speech_with_gemini(
         self, tts_params: SpeechGenerationParameters
