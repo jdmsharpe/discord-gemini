@@ -830,15 +830,6 @@ class GeminiAPI(commands.Cog):
         "prompt", description="Prompt for video generation", required=True, type=str
     )
     @option(
-        "model",
-        description="Choose Veo model. (default: Veo 2.0 Generate)",
-        required=False,
-        choices=[
-            OptionChoice(name="Veo 2.0 Generate", value="veo-2.0-generate-001"),
-        ],
-        type=str,
-    )
-    @option(
         "aspect_ratio",
         description="Aspect ratio of the generated video. (default: 16:9)",
         required=False,
@@ -897,7 +888,6 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "veo-2.0-generate-001",
         aspect_ratio: str = "16:9",
         person_generation: str = "allow_adult",
         attachment: Optional[Attachment] = None,
@@ -907,13 +897,13 @@ class GeminiAPI(commands.Cog):
         enhance_prompt: Optional[bool] = None,
     ):
         """
-        Generates videos from a prompt using Veo models.
+        Generates videos from a prompt using Veo 2.0.
 
-        This function uses Google's Veo video generation model to create videos based on text prompts
+        This function uses Google's Veo 2.0 video generation model to create videos based on text prompts
         and optionally starting from an image. The generation process is asynchronous and can take
         2-6 minutes to complete.
 
-        Veo Features:
+        Veo 2.0 Features:
         - Text-to-video generation with detailed prompts
         - Image-to-video generation when attachments are provided
         - 5-8 second video duration at 720p resolution and 24fps
@@ -927,7 +917,6 @@ class GeminiAPI(commands.Cog):
         Args:
             ctx: Discord application context
             prompt: Text description of the video to generate
-            model: Veo model to use (currently only veo-2.0-generate-001)
             aspect_ratio: Video dimensions (16:9 or 9:16)
             person_generation: Control people in videos (dont_allow, allow_adult, allow_all)
             attachment: Optional image to use as first frame (image-to-video)
@@ -944,7 +933,7 @@ class GeminiAPI(commands.Cog):
             # Create VideoGenerationParameters for clean parameter handling
             video_params = VideoGenerationParameters(
                 prompt=prompt,
-                model=model,
+                model="veo-2.0-generate-001",
                 aspect_ratio=aspect_ratio,
                 person_generation=person_generation,
                 negative_prompt=negative_prompt,
