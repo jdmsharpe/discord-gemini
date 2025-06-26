@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Literal
+from typing import List, Optional, Dict, Literal, Any
 
 
 @dataclass
@@ -66,7 +66,7 @@ class VideoGenerationParameters:
     """A dataclass to store the parameters for a video generation."""
 
     prompt: str
-    model: str = "veo-2.0-generate-001"
+    model: str
     aspect_ratio: Optional[str] = None
     person_generation: Optional[str] = None
     negative_prompt: Optional[str] = None
@@ -106,11 +106,47 @@ class VideoGenerationParameters:
 class SpeechGenerationParameters:
     """A dataclass to store the parameters for a speech generation."""
 
-    prompt: str
+    input_text: str
     model: str = "gemini-2.5-flash-preview-tts"
-    model_options: Literal[
-        "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"
-    ] = "gemini-2.5-flash-preview-tts"
+    voice_name: Optional[str] = "Kore"
+    multi_speaker: bool = False
+    speaker_configs: Optional[List[Dict[str, str]]] = None
+    style_prompt: Optional[str] = None
+
+    def to_dict(self):
+        """Convert to dictionary for API calls, filtering out None values."""
+        config_dict: Dict[str, Any] = {
+            "response_modalities": ["AUDIO"]
+        }
+        
+        # Add speech config
+        speech_config: Dict[str, Any] = {}
+        
+        if self.multi_speaker and self.speaker_configs:
+            # Multi-speaker configuration
+            speaker_voice_configs = []
+            for speaker_config in self.speaker_configs:
+                speaker_voice_configs.append({
+                    "speaker": speaker_config["speaker"],
+                    "voice_config": {
+                        "prebuilt_voice_config": {
+                            "voice_name": speaker_config["voice_name"]
+                        }
+                    }
+                })
+            speech_config["multi_speaker_voice_config"] = {
+                "speaker_voice_configs": speaker_voice_configs
+            }
+        else:
+            # Single speaker configuration
+            speech_config["voice_config"] = {
+                "prebuilt_voice_config": {
+                    "voice_name": self.voice_name
+                }
+            }
+        
+        config_dict["speech_config"] = speech_config
+        return config_dict
 
 
 @dataclass
