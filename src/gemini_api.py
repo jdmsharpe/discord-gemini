@@ -14,7 +14,13 @@ from PIL import Image
 
 # Discord imports
 from discord import Attachment, Colour, Embed, File
-from discord.commands import ApplicationContext, OptionChoice, command, option, slash_command
+from discord.commands import (
+    ApplicationContext,
+    OptionChoice,
+    command,
+    option,
+    slash_command,
+)
 from discord.ext import commands
 
 # Google AI imports
@@ -992,12 +998,11 @@ class GeminiAPI(commands.Cog):
         required=False,
         choices=[
             OptionChoice(
-                name="Gemini 2.5 Flash Preview TTS", 
-                value="gemini-2.5-flash-preview-tts"
+                name="Gemini 2.5 Flash Preview TTS",
+                value="gemini-2.5-flash-preview-tts",
             ),
             OptionChoice(
-                name="Gemini 2.5 Pro Preview TTS", 
-                value="gemini-2.5-pro-preview-tts"
+                name="Gemini 2.5 Pro Preview TTS", value="gemini-2.5-pro-preview-tts"
             ),
         ],
         type=str,
@@ -1008,7 +1013,7 @@ class GeminiAPI(commands.Cog):
         required=False,
         choices=[
             OptionChoice(name="Kore (Firm)", value="Kore"),
-            OptionChoice(name="Puck (Upbeat)", value="Puck"), 
+            OptionChoice(name="Puck (Upbeat)", value="Puck"),
             OptionChoice(name="Charon (Informative)", value="Charon"),
             OptionChoice(name="Zephyr (Bright)", value="Zephyr"),
             OptionChoice(name="Fenrir (Excitable)", value="Fenrir"),
@@ -1073,7 +1078,7 @@ class GeminiAPI(commands.Cog):
             Discord response with generated audio file and parameter information
         """
         await ctx.defer()
-        
+
         try:
             # Prepare the text input with optional style guidance
             content_text = input_text
@@ -1095,7 +1100,7 @@ class GeminiAPI(commands.Cog):
             if audio_data:
                 # Create temporary audio file
                 audio_file_path = Path(f"tts_output_{voice_name}.wav")
-                
+
                 # Write audio data to WAV file
                 with wave.open(str(audio_file_path), "wb") as wf:
                     wf.setnchannels(1)  # Mono
@@ -1251,7 +1256,7 @@ class GeminiAPI(commands.Cog):
             Discord response with generated music file and parameter information
         """
         await ctx.defer()
-        
+
         try:
             # Create music generation parameters
             music_params = MusicGenerationParameters(
@@ -1270,7 +1275,7 @@ class GeminiAPI(commands.Cog):
             if audio_data:
                 # Create temporary audio file
                 audio_file_path = Path(f"music_output_{int(time.time())}.wav")
-                
+
                 # Write audio data to WAV file (stereo, 48kHz, 16-bit)
                 with wave.open(str(audio_file_path), "wb") as wf:
                     wf.setnchannels(2)  # Stereo
@@ -1319,7 +1324,7 @@ class GeminiAPI(commands.Cog):
                 f"Error in generate_music: {description}",
                 exc_info=True,
             )
-            
+
             # Provide more helpful error messages for common issues
             if "Music generation is currently unavailable" in description:
                 embed_title = "Music Generation Unavailable"
@@ -1330,15 +1335,19 @@ class GeminiAPI(commands.Cog):
             elif "404" in description:
                 embed_title = "Service Not Available"
                 embed_color = Colour.orange()
-                description = ("The Lyria RealTime music generation service is not available. "
-                             "This feature may not be enabled for your account or region. "
-                             "Please check Google AI Studio for availability.")
+                description = (
+                    "The Lyria RealTime music generation service is not available. "
+                    "This feature may not be enabled for your account or region. "
+                    "Please check Google AI Studio for availability."
+                )
             else:
                 embed_title = "Music Generation Error"
                 embed_color = Colour.red()
-                
+
             await ctx.send_followup(
-                embed=Embed(title=embed_title, description=description, color=embed_color)
+                embed=Embed(
+                    title=embed_title, description=description, color=embed_color
+                )
             )
 
     async def _generate_image_with_gemini(
@@ -1696,31 +1705,36 @@ class GeminiAPI(commands.Cog):
         """
         try:
             # Create a client specifically for music generation with proper API version
-            music_client = genai.Client(
-                api_key=GEMINI_API_KEY, 
-                http_options={'api_version': 'v1alpha'}
-            )
-            
+            music_client = genai.Client(api_key=GEMINI_API_KEY)
+
             # Collect audio chunks
             audio_chunks = []
-            
+
             async def receive_audio(session):
                 """Background task to process incoming audio."""
                 while True:
                     try:
                         async for message in session.receive():
                             # Process audio chunks directly from server_content
-                            if hasattr(message, 'server_content') and message.server_content:
-                                if hasattr(message.server_content, 'audio_chunks') and message.server_content.audio_chunks:
+                            if (
+                                hasattr(message, "server_content")
+                                and message.server_content
+                            ):
+                                if (
+                                    hasattr(message.server_content, "audio_chunks")
+                                    and message.server_content.audio_chunks
+                                ):
                                     # Get the first (and typically only) audio chunk
                                     audio_data = message.server_content.audio_chunks[0].data
                                     if audio_data:
                                         audio_chunks.append(audio_data)
-                                        self.logger.debug(f"Received audio chunk, size: {len(audio_data)} bytes")
-                            
+                                        self.logger.debug(
+                                            f"Received audio chunk, size: {len(audio_data)} bytes"
+                                        )
+
                             # Small delay as suggested in the docs
                             await asyncio.sleep(10**-12)
-                                        
+
                     except Exception as e:
                         self.logger.error(f"Error receiving audio: {e}")
                         break
@@ -1728,62 +1742,74 @@ class GeminiAPI(commands.Cog):
             # Connect to Lyria RealTime using WebSocket with proper structure
             try:
                 async with (
-                    music_client.aio.live.music.connect(model='models/lyria-realtime-exp') as session,
+                    music_client.aio.live.music.connect(
+                        model="models/music-fx"
+                    ) as session,
                     asyncio.TaskGroup() as tg,
                 ):
                     # Set up task to receive server messages
                     tg.create_task(receive_audio(session))
-                    
+
                     # Send initial prompts and config following the official pattern
                     await session.set_weighted_prompts(
                         prompts=[
-                            types.WeightedPrompt(text=prompt_data["text"], weight=prompt_data["weight"])
+                            types.WeightedPrompt(
+                                text=prompt_data["text"], weight=prompt_data["weight"]
+                            )
                             for prompt_data in music_params.to_weighted_prompts()
                         ]
                     )
-                    
+
                     # Set music generation configuration
                     config_dict = music_params.to_music_config()
-                    
+
                     # Convert scale string to enum if provided
                     if music_params.scale:
                         scale_enum = getattr(types.Scale, music_params.scale, None)
                         if scale_enum:
                             config_dict["scale"] = scale_enum
-                    
+
                     await session.set_music_generation_config(
                         config=types.LiveMusicGenerationConfig(**config_dict)
                     )
-                    
+
                     # Start streaming music
                     await session.play()
-                    
+
                     # Wait for the specified duration to collect audio
                     await asyncio.sleep(music_params.duration)
-                    
+
                     # Stop the session
                     await session.stop()
 
                 # Combine all audio chunks
                 if audio_chunks:
-                    self.logger.info(f"Successfully collected {len(audio_chunks)} audio chunks")
-                    return b''.join(audio_chunks)
+                    self.logger.info(
+                        f"Successfully collected {len(audio_chunks)} audio chunks"
+                    )
+                    return b"".join(audio_chunks)
                 else:
                     self.logger.warning("No audio chunks received from Lyria RealTime")
                     return None
-                    
+
             except Exception as websocket_error:
                 # Handle specific WebSocket connection errors
                 if "404" in str(websocket_error):
                     self.logger.error("Lyria RealTime endpoint not found (404).")
-                    raise Exception("Music generation is currently unavailable. This could be due to:\n"
-                                  "1. The Lyria RealTime model is not available in your region\n"
-                                  "2. Your account doesn't have access to the music generation API\n"
-                                  "3. The service is temporarily unavailable\n\n"
-                                  "Please check Google AI Studio or contact support for more information.")
+                    raise Exception(
+                        "Music generation is currently unavailable. This could be due to:\n"
+                        "1. The Lyria RealTime model is not available in your region\n"
+                        "2. Your account doesn't have access to the music generation API\n"
+                        "3. The service is temporarily unavailable\n\n"
+                        "Please check Google AI Studio or contact support for more information."
+                    )
                 elif "401" in str(websocket_error) or "403" in str(websocket_error):
-                    self.logger.error("Authentication/authorization error for Lyria RealTime")
-                    raise Exception("Authentication error: Please check your API key permissions for music generation.")
+                    self.logger.error(
+                        "Authentication/authorization error for Lyria RealTime"
+                    )
+                    raise Exception(
+                        "Authentication error: Please check your API key permissions for music generation."
+                    )
                 else:
                     self.logger.error(f"WebSocket connection error: {websocket_error}")
                     raise Exception(f"Connection error: {websocket_error}")
@@ -1818,7 +1844,7 @@ class GeminiAPI(commands.Cog):
 
             # Extract audio data from response
             if (
-                response.candidates 
+                response.candidates
                 and len(response.candidates) > 0
                 and response.candidates[0].content
                 and response.candidates[0].content.parts
