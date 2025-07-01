@@ -5,18 +5,18 @@ A Discord bot that enables Google Gemini API interactions, including text genera
 ## Features
 
 ### Text Generation
-- **`/chat`**: Have conversations with Gemini AI models
+- **`/converse`**: Have conversations with Gemini AI models
 - Support for multiple Gemini models (2.5 Flash, 2.5 Pro, etc.)
 - Persistent conversation history with button controls
 
 ### Image Generation
-- **`/image`**: Generate images from text prompts
+- **`/generate_image`**: Generate images from text prompts
 - Multiple aspect ratios and image count options
-- Support for Gemini 2.5 Flash and Imagen
+- Support for Gemini 2.5 Flash, along with Imagen 3, 4, and 4 Ultra
 - Additional support for image editing with reference images
 
 ### Video Generation  
-- **`/video`**: Generate videos from text prompts or image inputs
+- **`/generate_video`**: Generate videos from text prompts or image inputs
 - Uses Veo 2 to generate realistic video clips
 
 ### Text-to-Speech
