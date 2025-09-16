@@ -1,6 +1,11 @@
 # Discord Gemini Bot
 
-A Discord bot that enables Google Gemini API interactions, including text generation, image creation, video generation, text-to-speech, and music generation.
+<div align="center">
+
+[![HitCount](https://hits.dwyl.com/jdmsharpe/discord-gemini.svg?style=flat-square&show=unique)](http://hits.dwyl.com/jdmsharpe/discord-gemini)
+<a href="https://hub.docker.com/r/jsgreen152/discord-gemini" target="_blank" rel="noopener noreferrer">![Workflow](https://github.com/jdmsharpe/discord-gemini/actions/workflows/main.yml/badge.svg)</a>
+  
+</div>
 
 ## Features
 
