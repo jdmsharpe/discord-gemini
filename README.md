@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![HitCount](https://hits.dwyl.com/jdmsharpe/discord-gemini.svg?style=flat-square&show=unique)](http://hits.dwyl.com/jdmsharpe/discord-gemini)
+![Hits](https://hitscounter.dev/count/tag.svg?url=https%3A%2F%2Fgithub.com%2Fjdmsharpe%2Fdiscord-gemini&title=repo%20views)
 <a href="https://hub.docker.com/r/jsgreen152/discord-gemini" target="_blank" rel="noopener noreferrer">![Workflow](https://github.com/jdmsharpe/discord-gemini/actions/workflows/main.yml/badge.svg)</a>
   
 </div>
