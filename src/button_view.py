@@ -1,3 +1,4 @@
+import asyncio
 from discord import (
     ButtonStyle,
     Interaction,
@@ -27,53 +28,88 @@ class ButtonView(View):
             interaction (Interaction): The interaction object.
         """
         logging.info("Regenerate button clicked.")
-        try:
-            # Check if the interaction user is the one who started the conversation
-            if interaction.user != self.conversation_starter:
-                await interaction.response.send_message(
-                    "You are not allowed to regenerate the response.", ephemeral=True
-                )
-                return
 
-            if self.conversation_id in self.cog.conversations:
-                # Modify the conversation history and regenerate the response
-                conversation = self.cog.conversations[self.conversation_id]
+        if interaction.user != self.conversation_starter:
+            await interaction.response.send_message(
+                "You are not allowed to regenerate the response.", ephemeral=True
+            )
+            return
 
-                conversation.history.pop()  # Remove the last assistant message
-                conversation.history.pop()  # Remove the last user message
+        conversation = self.cog.conversations.get(self.conversation_id)
+        if conversation is None:
+            await interaction.response.send_message(
+                "No active conversation found.", ephemeral=True
+            )
+            return
 
-                # For now, get the last user message from the channel history
-                if hasattr(interaction.channel, 'history'):
-                    channel = cast(TextChannel, interaction.channel)
-                    messages = [msg async for msg in channel.history(limit=2)]
-                    user_message = messages[1]
-                else:
-                    # Fallback if channel doesn't support history
-                    await interaction.response.send_message(
+        await interaction.response.defer(ephemeral=True)
+
+        async def run_regeneration():
+            removed_entries = []
+            try:
+                if len(conversation.history) < 2:
+                    await interaction.followup.send(
+                        "Not enough history to regenerate yet.", ephemeral=True
+                    )
+                    return
+
+                if not hasattr(interaction.channel, "history"):
+                    await interaction.followup.send(
                         "Cannot regenerate in this type of channel.", ephemeral=True
                     )
                     return
 
-                await self.cog.handle_new_message_in_conversation(
-                    user_message, conversation
-                )
-                await interaction.response.send_message(
+                channel = cast(TextChannel, interaction.channel)
+                user_message = None
+                async for msg in channel.history(limit=10):
+                    if msg.author == self.conversation_starter:
+                        user_message = msg
+                        break
+
+                if user_message is None:
+                    await interaction.followup.send(
+                        "Could not find the previous message to regenerate.",
+                        ephemeral=True,
+                    )
+                    return
+
+                try:
+                    removed_entries.append(conversation.history.pop())
+                    removed_entries.append(conversation.history.pop())
+                except IndexError:
+                    if removed_entries:
+                        for entry in reversed(removed_entries):
+                            conversation.history.append(entry)
+                        removed_entries.clear()
+                    await interaction.followup.send(
+                        "Conversation history is too short to regenerate.",
+                        ephemeral=True,
+                    )
+                    return
+
+                removed_entries.reverse()
+
+                try:
+                    await self.cog.handle_new_message_in_conversation(
+                        user_message, conversation
+                    )
+                except Exception:
+                    conversation.history.extend(removed_entries)
+                    removed_entries.clear()
+                    raise
+
+                await interaction.followup.send(
                     "Response regenerated.", ephemeral=True, delete_after=3
                 )
-            else:
-                await interaction.response.send_message(
-                    "No active conversation found.", ephemeral=True
-                )
-        except Exception as e:
-            logging.error(f"Error in regenerate_button: {str(e)}", exc_info=True)
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "An error occurred while regenerating the response.", ephemeral=True
-                )
-            else:
+            except Exception:
+                logging.exception("Error in regenerate_button background task")
+                if removed_entries:
+                    conversation.history.extend(removed_entries)
                 await interaction.followup.send(
                     "An error occurred while regenerating the response.", ephemeral=True
                 )
+
+        asyncio.create_task(run_regeneration())
 
     @button(emoji="⏯️", style=ButtonStyle.gray)
     async def play_pause_button(self, _: Button, interaction: Interaction):

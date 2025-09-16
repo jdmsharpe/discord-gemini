@@ -88,6 +88,54 @@ class GeminiAPI(commands.Cog):
         self.message_to_conversation_id: Dict[int, int] = {}
         # Dictionary to store UI views for each conversation
         self.views = {}
+        self._http_session: Optional[aiohttp.ClientSession] = None
+        self._session_lock = asyncio.Lock()
+
+    async def _get_http_session(self) -> aiohttp.ClientSession:
+        if self._http_session and not self._http_session.closed:
+            return self._http_session
+        async with self._session_lock:
+            if self._http_session is None or self._http_session.closed:
+                self._http_session = aiohttp.ClientSession()
+            return self._http_session
+
+    async def _fetch_attachment_bytes(self, attachment: Attachment) -> Optional[bytes]:
+        session = await self._get_http_session()
+        try:
+            async with session.get(attachment.url) as response:
+                if response.status == 200:
+                    return await response.read()
+                self.logger.warning(
+                    "Failed to fetch attachment %s: HTTP %s",
+                    attachment.url,
+                    response.status,
+                )
+        except aiohttp.ClientError as error:
+            self.logger.warning(
+                "Error fetching attachment %s: %s", attachment.url, error
+            )
+        return None
+
+    def cog_unload(self):
+        session = self._http_session
+        if session and not session.closed:
+            loop = getattr(self.bot, 'loop', None)
+            if loop and loop.is_running():
+                loop.create_task(session.close())
+            else:
+                new_loop = asyncio.new_event_loop()
+                try:
+                    new_loop.run_until_complete(session.close())
+                finally:
+                    new_loop.close()
+        self._http_session = None
+
+    async def _generate_content_async(self, **kwargs):
+        return await asyncio.to_thread(self.client.models.generate_content, **kwargs)
+
+    async def _generate_images_async(self, **kwargs):
+        return await asyncio.to_thread(self.client.models.generate_images, **kwargs)
+
 
     async def handle_new_message_in_conversation(
         self, message, conversation_wrapper: Conversation
@@ -121,18 +169,17 @@ class GeminiAPI(commands.Cog):
             user_parts: List[Union[str, Dict]] = [{"text": message.content}]
             if message.attachments:
                 for attachment in message.attachments:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(attachment.url) as resp:
-                            if resp.status == 200:
-                                image_data = await resp.read()
-                                user_parts.append(
-                                    {
-                                        "inline_data": {
-                                            "mime_type": attachment.content_type,
-                                            "data": image_data,
-                                        }
-                                    }
-                                )
+                    image_data = await self._fetch_attachment_bytes(attachment)
+                    if image_data is None:
+                        continue
+                    user_parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": attachment.content_type,
+                                "data": image_data,
+                            }
+                        }
+                    )
 
             history.append({"role": "user", "parts": user_parts})
 
@@ -160,7 +207,7 @@ class GeminiAPI(commands.Cog):
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
             self.logger.debug(f"Sending contents to Gemini: {contents}")
-            response = self.client.models.generate_content(
+            response = await self._generate_content_async(
                 model=params.model,
                 contents=contents,
                 config=generation_config,
@@ -482,18 +529,16 @@ class GeminiAPI(commands.Cog):
 
             parts: List[Dict] = [{"text": prompt}]
             if attachment:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(attachment.url) as resp:
-                        if resp.status == 200:
-                            image_data = await resp.read()
-                            parts.append(
-                                {
-                                    "inline_data": {
-                                        "mime_type": attachment.content_type,
-                                        "data": image_data,
-                                    }
-                                }
-                            )
+                image_data = await self._fetch_attachment_bytes(attachment)
+                if image_data is not None:
+                    parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": attachment.content_type,
+                                "data": image_data,
+                            }
+                        }
+                    )
 
             config_args = {}
             if system_instruction is not None:
@@ -527,7 +572,7 @@ class GeminiAPI(commands.Cog):
                     # Assume it's a string or other supported type
                     formatted_parts.append(part)
 
-            response = self.client.models.generate_content(
+            response = await self._generate_content_async(
                 model=model,
                 contents=[{"role": "user", "parts": formatted_parts}],
                 config=generation_config,
@@ -1391,12 +1436,14 @@ class GeminiAPI(commands.Cog):
 
         # Add attachment for image editing if provided
         if attachment:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(attachment.url) as resp:
-                    if resp.status == 200:
-                        image_data = await resp.read()
-                        image = Image.open(BytesIO(image_data))
-                        contents = [prompt, image]
+            image_data = await self._fetch_attachment_bytes(attachment)
+            if image_data:
+                try:
+                    image = Image.open(BytesIO(image_data))
+                except Exception as error:
+                    self.logger.warning("Failed to open attachment for image generation: %s", error)
+                else:
+                    contents = [prompt, image]
 
         # Create the configuration for image generation
         generate_config = types.GenerateContentConfig(
@@ -1414,7 +1461,7 @@ class GeminiAPI(commands.Cog):
                 response_modalities=["TEXT", "IMAGE"], seed=seed
             )
 
-        gemini_response = self.client.models.generate_content(
+        gemini_response = await self._generate_content_async(
             model=model, contents=contents, config=generate_config
         )
 
@@ -1444,7 +1491,7 @@ class GeminiAPI(commands.Cog):
         Returns:
             List of generated PIL Images
         """
-        imagen_response = self.client.models.generate_images(
+        imagen_response = await self._generate_images_async(
             model=image_params.model,
             prompt=image_params.prompt,
             config=types.GenerateImagesConfig(**image_params.to_dict()),
@@ -1597,12 +1644,14 @@ class GeminiAPI(commands.Cog):
 
         # Add image if provided for image-to-video generation
         if attachment:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(attachment.url) as resp:
-                    if resp.status == 200:
-                        image_data = await resp.read()
-                        image = Image.open(BytesIO(image_data))
-                        kwargs["image"] = image
+            image_data = await self._fetch_attachment_bytes(attachment)
+            if image_data:
+                try:
+                    image = Image.open(BytesIO(image_data))
+                except Exception as error:
+                    self.logger.warning("Failed to open attachment for video generation: %s", error)
+                else:
+                    kwargs["image"] = image
 
         # Start the video generation operation
         operation = self.client.models.generate_videos(**kwargs)
@@ -1878,7 +1927,7 @@ class GeminiAPI(commands.Cog):
         """
         try:
             # Generate speech using Gemini TTS
-            response = self.client.models.generate_content(
+            response = await self._generate_content_async(
                 model=tts_params.model,
                 contents=tts_params.input_text,
                 config=types.GenerateContentConfig(**tts_params.to_dict()),
