@@ -136,6 +136,15 @@ class GeminiAPI(commands.Cog):
     async def _generate_images_async(self, **kwargs):
         return await asyncio.to_thread(self.client.models.generate_images, **kwargs)
 
+    async def _generate_videos_async(self, **kwargs):
+        return await asyncio.to_thread(self.client.models.generate_videos, **kwargs)
+
+    async def _get_operation_async(self, operation):
+        return await asyncio.to_thread(self.client.operations.get, operation)
+
+    async def _download_file_async(self, **kwargs):
+        return await asyncio.to_thread(self.client.files.download, **kwargs)
+
 
     async def handle_new_message_in_conversation(
         self, message, conversation_wrapper: Conversation
@@ -1654,7 +1663,7 @@ class GeminiAPI(commands.Cog):
                     kwargs["image"] = image
 
         # Start the video generation operation
-        operation = self.client.models.generate_videos(**kwargs)
+        operation = await self._generate_videos_async(**kwargs)
 
         self.logger.info(f"Started video generation operation: {operation.name}")
 
@@ -1668,7 +1677,7 @@ class GeminiAPI(commands.Cog):
                 raise Exception("Video generation timed out after 10 minutes")
 
             await asyncio.sleep(poll_interval)
-            operation = self.client.operations.get(operation)
+            operation = await self._get_operation_async(operation)
             self.logger.debug(f"Operation status: {operation.done}")
 
         # Process completed operation
@@ -1684,7 +1693,7 @@ class GeminiAPI(commands.Cog):
                     if hasattr(generated_video, "video") and generated_video.video:
                         try:
                             # Download the video file
-                            video_file = self.client.files.download(
+                            await self._download_file_async(
                                 file=generated_video.video
                             )
 
