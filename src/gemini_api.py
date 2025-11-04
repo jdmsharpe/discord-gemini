@@ -422,7 +422,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "model",
-        description="Choose from the following Gemini models. (default: gemini-2.5-flash)",
+        description="Choose from the following Gemini models. (default: Gemini 2.5 Flash)",
         required=False,
         choices=[
             OptionChoice(name="Gemini 2.5 Pro", value="gemini-2.5-pro"),
@@ -910,13 +910,13 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "model",
-        description="Choose Veo model for video generation. (default: Veo 2)",
+        description="Choose Veo model for video generation. (default: Veo 3.1 Preview)",
         required=False,
         choices=[
             OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
             OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
-            OptionChoice(name="Veo 3.1", value="veo-3.1-generate-preview"),
-            OptionChoice(name="Veo 3.1 Fast", value="veo-3.1-fast-generate-preview"),
+            OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
+            OptionChoice(name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"),
         ],
         type=str,
     )
@@ -979,7 +979,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "veo-2.0-generate-001",
+        model: str = "veo-3.1-generate-preview",
         aspect_ratio: str = "16:9",
         person_generation: str = "allow_adult",
         attachment: Optional[Attachment] = None,
