@@ -915,6 +915,8 @@ class GeminiAPI(commands.Cog):
         choices=[
             OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
             OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
+            OptionChoice(name="Veo 3.1", value="veo-3.1-generate-preview"),
+            OptionChoice(name="Veo 3.1 Fast", value="veo-3.1-fast-generate-preview"),
         ],
         type=str,
     )
@@ -987,7 +989,7 @@ class GeminiAPI(commands.Cog):
         enhance_prompt: Optional[bool] = None,
     ):
         """
-        Generates videos from a prompt using Veo models (2.0 or 3.0).
+        Generates videos from a prompt using Veo models (2.0, 3.0, or 3.1).
 
         This function uses Google's Veo video generation models to create videos based on text prompts
         and optionally starting from an image. The generation process is asynchronous and can take
@@ -996,10 +998,11 @@ class GeminiAPI(commands.Cog):
         Veo Features:
         - Text-to-video generation with detailed prompts
         - Image-to-video generation when attachments are provided
-        - 5-8 second video duration at 720p resolution and 24fps
+        - 5-8 second video duration at 720p or 1080p resolution and 24fps
         - Support for landscape (16:9) and portrait (9:16) aspect ratios
         - Person generation controls for content safety
         - Advanced parameters like negative prompts and prompt enhancement
+        - Veo 3.1: Native audio generation, video extension, reference image support
 
         The function handles the long-running operation by polling the API until completion,
         then downloads and sends the generated videos to Discord.
@@ -1007,7 +1010,7 @@ class GeminiAPI(commands.Cog):
         Args:
             ctx: Discord application context
             prompt: Text description of the video to generate
-            model: Veo model variant (veo-2.0-generate-001 or veo-3.0-generate-001)
+            model: Veo model variant (2.0, 3.0, 3.1, or 3.1-fast)
             aspect_ratio: Video dimensions (16:9 or 9:16)
             person_generation: Control people in videos (dont_allow, allow_adult, allow_all)
             attachment: Optional image to use as first frame (image-to-video)
