@@ -31,9 +31,11 @@
 - **`/generate_video`**: Generate videos from text prompts or image inputs
 - Model options:
   - Veo 2 - High-quality video generation
-  - Veo 3 - Latest generation with improved realism
+  - Veo 3 - Enhanced realism and detail
+  - Veo 3.1 - Latest with native audio, video extension, and reference images
+  - Veo 3.1 Fast - Faster generation variant
 - Support for both text-to-video and image-to-video generation
-- Customizable duration (5-8 seconds), aspect ratio, and more
+- Customizable duration (5-8 seconds), aspect ratio, resolution (720p/1080p)
 
 ### Text-to-Speech
 - **`/text_to_speech`**: Convert text to lifelike speech
