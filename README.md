@@ -11,18 +11,29 @@
 
 ### Text Generation
 - **`/converse`**: Have conversations with Gemini AI models
-- Support for multiple Gemini models (2.5 Flash, 2.5 Pro, etc.)
+- Support for multiple Gemini models:
+  - Gemini 2.5 Pro, 2.5 Flash, 2.5 Flash Lite
+  - Gemini 2.0 Flash, 2.0 Flash Lite
+  - Legacy support for Gemini 1.5 models
 - Persistent conversation history with button controls
+- Multimodal support (text + images)
 
 ### Image Generation
 - **`/generate_image`**: Generate images from text prompts
-- Multiple aspect ratios and image count options
-- Support for Gemini 2.5 Flash, along with Imagen 3, 4, and 4 Ultra
-- Additional support for image editing with reference images
+- Multiple model options:
+  - Gemini 2.5 Flash Image (with editing support)
+  - Imagen 3
+  - Imagen 4, 4 Ultra, and 4 Fast
+- Multiple aspect ratios and image count options (1-4 images)
+- Image editing support with reference images (Gemini models)
 
-### Video Generation  
+### Video Generation
 - **`/generate_video`**: Generate videos from text prompts or image inputs
-- Uses Veo 2 to generate realistic video clips
+- Model options:
+  - Veo 2 - High-quality video generation
+  - Veo 3 - Latest generation with improved realism
+- Support for both text-to-video and image-to-video generation
+- Customizable duration (5-8 seconds), aspect ratio, and more
 
 ### Text-to-Speech
 - **`/text_to_speech`**: Convert text to lifelike speech
@@ -51,9 +62,9 @@
 ## Requirements
 
 - Python 3.8+
-- google-genai ~1.21
-- py-cord ~2.6  
-- Pillow ~10.0
+- google-genai ~1.48
+- py-cord ~2.6
+- Pillow ~12.0
 
 ## Music Generation Examples
 
