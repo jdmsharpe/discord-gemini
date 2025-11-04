@@ -427,10 +427,7 @@ class GeminiAPI(commands.Cog):
         choices=[
             OptionChoice(name="Gemini 2.5 Pro", value="gemini-2.5-pro"),
             OptionChoice(name="Gemini 2.5 Flash", value="gemini-2.5-flash"),
-            OptionChoice(
-                name="Gemini 2.5 Flash Lite Preview 06-17",
-                value="gemini-2.5-flash-lite-preview-06-17",
-            ),
+            OptionChoice(name="Gemini 2.5 Flash Lite", value="gemini-2.5-flash-lite"),
             OptionChoice(name="Gemini 2.0 Flash", value="gemini-2.0-flash"),
             OptionChoice(name="Gemini 2.0 Flash Lite", value="gemini-2.0-flash-lite"),
             OptionChoice(name="Gemini 1.5 Flash", value="gemini-1.5-flash"),
@@ -683,18 +680,17 @@ class GeminiAPI(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Choose between Gemini or Imagen models. (default: Gemini 2.0 Flash Preview Image Generation)",
+        description="Choose between Gemini or Imagen models. (default: Gemini 2.5 Flash Image)",
         required=False,
         choices=[
             OptionChoice(
-                name="Gemini 2.0 Flash Preview Image Generation",
-                value="gemini-2.0-flash-preview-image-generation",
+                name="Gemini 2.5 Flash Image",
+                value="gemini-2.5-flash-image",
             ),
             OptionChoice(name="Imagen 3", value="imagen-3.0-generate-001"),
-            OptionChoice(name="Imagen 4", value="imagen-4.0-generate-preview-06-06"),
-            OptionChoice(
-                name="Imagen 4 Ultra", value="imagen-4.0-ultra-generate-preview-06-06"
-            ),
+            OptionChoice(name="Imagen 4", value="imagen-4.0-generate-001"),
+            OptionChoice(name="Imagen 4 Ultra", value="imagen-4.0-ultra-generate-001"),
+            OptionChoice(name="Imagen 4 Fast", value="imagen-4.0-fast-generate-001"),
         ],
         type=str,
     )
@@ -760,7 +756,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-2.0-flash-preview-image-generation",
+        model: str = "gemini-2.5-flash-image",
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         person_generation: str = "allow_adult",
@@ -913,6 +909,16 @@ class GeminiAPI(commands.Cog):
         "prompt", description="Prompt for video generation", required=True, type=str
     )
     @option(
+        "model",
+        description="Choose Veo model for video generation. (default: Veo 2)",
+        required=False,
+        choices=[
+            OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
+            OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
+        ],
+        type=str,
+    )
+    @option(
         "aspect_ratio",
         description="Aspect ratio of the generated video. (default: 16:9)",
         required=False,
@@ -971,6 +977,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
+        model: str = "veo-2.0-generate-001",
         aspect_ratio: str = "16:9",
         person_generation: str = "allow_adult",
         attachment: Optional[Attachment] = None,
@@ -980,13 +987,13 @@ class GeminiAPI(commands.Cog):
         enhance_prompt: Optional[bool] = None,
     ):
         """
-        Generates videos from a prompt using Veo 2.0.
+        Generates videos from a prompt using Veo models (2.0 or 3.0).
 
-        This function uses Google's Veo 2.0 video generation model to create videos based on text prompts
+        This function uses Google's Veo video generation models to create videos based on text prompts
         and optionally starting from an image. The generation process is asynchronous and can take
         2-6 minutes to complete.
 
-        Veo 2.0 Features:
+        Veo Features:
         - Text-to-video generation with detailed prompts
         - Image-to-video generation when attachments are provided
         - 5-8 second video duration at 720p resolution and 24fps
@@ -1000,6 +1007,7 @@ class GeminiAPI(commands.Cog):
         Args:
             ctx: Discord application context
             prompt: Text description of the video to generate
+            model: Veo model variant (veo-2.0-generate-001 or veo-3.0-generate-001)
             aspect_ratio: Video dimensions (16:9 or 9:16)
             person_generation: Control people in videos (dont_allow, allow_adult, allow_all)
             attachment: Optional image to use as first frame (image-to-video)
@@ -1016,7 +1024,7 @@ class GeminiAPI(commands.Cog):
             # Create VideoGenerationParameters for clean parameter handling
             video_params = VideoGenerationParameters(
                 prompt=prompt,
-                model="veo-2.0-generate-001",
+                model=model,
                 aspect_ratio=aspect_ratio,
                 person_generation=person_generation,
                 negative_prompt=negative_prompt,

@@ -1,6 +1,9 @@
 # Ignore VS Code settings
 .vscode/
 
+# Ignore virtual environment folders
+.venv/
+
 # Ignore system files
 .DS_Store
 Thumbs.db
