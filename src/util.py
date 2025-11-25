@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
+
+from discord import Member, User
 
 
 @dataclass
@@ -13,7 +15,7 @@ class ChatCompletionParameters:
     seed: Optional[int] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
-    conversation_starter: Optional[str] = None
+    conversation_starter: Optional[Union[Member, User]] = None
     conversation_id: Optional[int] = None
     channel_id: Optional[int] = None
     paused: Optional[bool] = False
@@ -36,7 +38,7 @@ class ImageGenerationParameters:
     def to_dict(self):
         """Convert to dictionary for API calls, filtering out None values and handling special cases."""
         config_dict = {}
-        
+
         if self.number_of_images is not None:
             config_dict["number_of_images"] = self.number_of_images
         if self.aspect_ratio is not None:
@@ -47,17 +49,19 @@ class ImageGenerationParameters:
             config_dict["seed"] = self.seed
         if self.guidance_scale is not None:
             config_dict["guidance_scale"] = self.guidance_scale
-            
+
         # Handle person_generation mapping for Imagen models
         if self.person_generation and self.person_generation != "allow_adult":
             person_gen_map = {
                 "dont_allow": "DONT_ALLOW",
-                "allow_adult": "ALLOW_ADULT", 
-                "allow_all": "ALLOW_ALL"
+                "allow_adult": "ALLOW_ADULT",
+                "allow_all": "ALLOW_ALL",
             }
             if self.person_generation in person_gen_map:
-                config_dict["person_generation"] = person_gen_map[self.person_generation]
-        
+                config_dict["person_generation"] = person_gen_map[
+                    self.person_generation
+                ]
+
         return config_dict
 
 
@@ -77,7 +81,7 @@ class VideoGenerationParameters:
     def to_dict(self):
         """Convert to dictionary for API calls, filtering out None values and handling special cases."""
         config_dict = {}
-        
+
         if self.aspect_ratio is not None:
             config_dict["aspect_ratio"] = self.aspect_ratio
         if self.negative_prompt is not None:
@@ -88,17 +92,19 @@ class VideoGenerationParameters:
             config_dict["duration_seconds"] = self.duration_seconds
         if self.enhance_prompt is not None:
             config_dict["enhance_prompt"] = self.enhance_prompt
-            
+
         # Handle person_generation mapping for Veo models
         if self.person_generation and self.person_generation != "allow_adult":
             person_gen_map = {
                 "dont_allow": "dont_allow",
-                "allow_adult": "allow_adult", 
-                "allow_all": "allow_all"
+                "allow_adult": "allow_adult",
+                "allow_all": "allow_all",
             }
             if self.person_generation in person_gen_map:
-                config_dict["person_generation"] = person_gen_map[self.person_generation]
-        
+                config_dict["person_generation"] = person_gen_map[
+                    self.person_generation
+                ]
+
         return config_dict
 
 
@@ -115,36 +121,34 @@ class SpeechGenerationParameters:
 
     def to_dict(self):
         """Convert to dictionary for API calls, filtering out None values."""
-        config_dict: Dict[str, Any] = {
-            "response_modalities": ["AUDIO"]
-        }
-        
+        config_dict: Dict[str, Any] = {"response_modalities": ["AUDIO"]}
+
         # Add speech config
         speech_config: Dict[str, Any] = {}
-        
+
         if self.multi_speaker and self.speaker_configs:
             # Multi-speaker configuration
             speaker_voice_configs = []
             for speaker_config in self.speaker_configs:
-                speaker_voice_configs.append({
-                    "speaker": speaker_config["speaker"],
-                    "voice_config": {
-                        "prebuilt_voice_config": {
-                            "voice_name": speaker_config["voice_name"]
-                        }
+                speaker_voice_configs.append(
+                    {
+                        "speaker": speaker_config["speaker"],
+                        "voice_config": {
+                            "prebuilt_voice_config": {
+                                "voice_name": speaker_config["voice_name"]
+                            }
+                        },
                     }
-                })
+                )
             speech_config["multi_speaker_voice_config"] = {
                 "speaker_voice_configs": speaker_voice_configs
             }
         else:
             # Single speaker configuration
             speech_config["voice_config"] = {
-                "prebuilt_voice_config": {
-                    "voice_name": self.voice_name
-                }
+                "prebuilt_voice_config": {"voice_name": self.voice_name}
             }
-        
+
         config_dict["speech_config"] = speech_config
         return config_dict
 
@@ -152,7 +156,7 @@ class SpeechGenerationParameters:
 @dataclass
 class MusicGenerationParameters:
     """A dataclass to store parameters for music generation using Lyria RealTime."""
-    
+
     prompts: List[str]
     prompt_weights: Optional[List[float]] = None
     duration: int = 30  # seconds
@@ -189,7 +193,7 @@ class MusicGenerationParameters:
             "mute_drums": self.mute_drums,
             "only_bass_and_drums": self.only_bass_and_drums,
         }
-        
+
         # Add optional parameters if provided
         if self.bpm is not None:
             config["bpm"] = self.bpm
@@ -201,7 +205,7 @@ class MusicGenerationParameters:
             config["brightness"] = self.brightness
         if self.seed is not None:
             config["seed"] = self.seed
-            
+
         return config
 
 

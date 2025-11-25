@@ -1,13 +1,26 @@
+from typing import Union, TYPE_CHECKING, cast
+
 from discord import (
     ButtonStyle,
     Interaction,
+    Member,
+    TextChannel,
+    User,
 )
 from discord.ui import button, Button, View
 import logging
 
+if TYPE_CHECKING:
+    from gemini_api import GeminiAPI
+
 
 class ButtonView(View):
-    def __init__(self, cog, conversation_starter, conversation_id):
+    def __init__(
+        self,
+        cog: "GeminiAPI",
+        conversation_starter: Union[Member, User],
+        conversation_id: int,
+    ):
         """
         Initialize the ButtonView class.
         """
@@ -60,9 +73,15 @@ class ButtonView(View):
                 )
                 return
 
-            messages = [message async for message in channel.history(limit=10)]
+            # Type narrowing: hasattr check above ensures channel has history()
+            text_channel = cast(TextChannel, channel)
+            messages = [message async for message in text_channel.history(limit=10)]
             user_message = next(
-                (message for message in messages if message.author == self.conversation_starter),
+                (
+                    message
+                    for message in messages
+                    if message.author == self.conversation_starter
+                ),
                 None,
             )
 
