@@ -422,9 +422,10 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "model",
-        description="Choose from the following Gemini models. (default: Gemini 2.5 Flash)",
+        description="Choose from the following Gemini models. (default: Gemini 3.0 Pro)",
         required=False,
         choices=[
+            OptionChoice(name="Gemini 3.0 Pro", value="gemini-3-pro-preview"),
             OptionChoice(name="Gemini 2.5 Pro", value="gemini-2.5-pro"),
             OptionChoice(name="Gemini 2.5 Flash", value="gemini-2.5-flash"),
             OptionChoice(name="Gemini 2.5 Flash Lite", value="gemini-2.5-flash-lite"),
@@ -476,7 +477,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3-pro-preview",
         system_instruction: Optional[str] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
@@ -495,7 +496,7 @@ class GeminiAPI(commands.Cog):
         Args:
             ctx: Discord application context
             prompt: Initial conversation prompt or question
-            model: Gemini model variant (default: gemini-2.5-flash)
+            model: Gemini model variant (default: gemini-3-pro-preview)
             system_instruction: Optional behavioral guidelines for the AI
             frequency_penalty: Controls repetition reduction (experimental)
             presence_penalty: Controls topic focus (experimental)
@@ -680,9 +681,13 @@ class GeminiAPI(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Choose between Gemini or Imagen models. (default: Gemini 2.5 Flash Image)",
+        description="Choose between Gemini or Imagen models. (default: Gemini 3.0 Pro Image)",
         required=False,
         choices=[
+            OptionChoice(
+                name="Gemini 3.0 Pro Image",
+                value="gemini-3-pro-image-preview",
+            ),
             OptionChoice(
                 name="Gemini 2.5 Flash Image",
                 value="gemini-2.5-flash-image",
@@ -756,7 +761,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-2.5-flash-image",
+        model: str = "gemini-3-pro-image-preview",
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         person_generation: str = "allow_adult",
