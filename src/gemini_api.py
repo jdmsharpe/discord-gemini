@@ -119,7 +119,7 @@ class GeminiAPI(commands.Cog):
     def cog_unload(self):
         session = self._http_session
         if session and not session.closed:
-            loop = getattr(self.bot, 'loop', None)
+            loop = getattr(self.bot, "loop", None)
             if loop and loop.is_running():
                 loop.create_task(session.close())
             else:
@@ -144,7 +144,6 @@ class GeminiAPI(commands.Cog):
 
     async def _download_file_async(self, **kwargs):
         return await asyncio.to_thread(self.client.files.download, **kwargs)
-
 
     async def handle_new_message_in_conversation(
         self, message, conversation_wrapper: Conversation
@@ -921,7 +920,9 @@ class GeminiAPI(commands.Cog):
             OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
             OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
             OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
-            OptionChoice(name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"),
+            OptionChoice(
+                name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"
+            ),
         ],
         type=str,
     )
@@ -1466,7 +1467,9 @@ class GeminiAPI(commands.Cog):
                 try:
                     image = Image.open(BytesIO(image_data))
                 except Exception as error:
-                    self.logger.warning("Failed to open attachment for image generation: %s", error)
+                    self.logger.warning(
+                        "Failed to open attachment for image generation: %s", error
+                    )
                 else:
                     contents = [prompt, image]
 
@@ -1674,7 +1677,9 @@ class GeminiAPI(commands.Cog):
                 try:
                     image = Image.open(BytesIO(image_data))
                 except Exception as error:
-                    self.logger.warning("Failed to open attachment for video generation: %s", error)
+                    self.logger.warning(
+                        "Failed to open attachment for video generation: %s", error
+                    )
                 else:
                     kwargs["image"] = image
 
@@ -1709,9 +1714,7 @@ class GeminiAPI(commands.Cog):
                     if hasattr(generated_video, "video") and generated_video.video:
                         try:
                             # Download the video file
-                            await self._download_file_async(
-                                file=generated_video.video
-                            )
+                            await self._download_file_async(file=generated_video.video)
 
                             # Save to a temporary file path
                             video_path = f"temp_video_{i}.mp4"
@@ -1803,8 +1806,7 @@ class GeminiAPI(commands.Cog):
         try:
             # Create a client specifically for music generation with proper API version
             music_client = genai.Client(
-                api_key=GEMINI_API_KEY, 
-                http_options={'api_version': 'v1alpha'}
+                api_key=GEMINI_API_KEY, http_options={"api_version": "v1alpha"}
             )
 
             # Collect audio chunks
@@ -1818,9 +1820,11 @@ class GeminiAPI(commands.Cog):
                     # Iterate through the async generator to receive messages with timeout
                     async for message in session.receive():
                         if stop_receiving:
-                            self.logger.info("Stop signal received, breaking from audio receiver")
+                            self.logger.info(
+                                "Stop signal received, breaking from audio receiver"
+                            )
                             break
-                            
+
                         if hasattr(message, "server_content") and hasattr(
                             message.server_content, "audio_chunks"
                         ):
@@ -1852,7 +1856,8 @@ class GeminiAPI(commands.Cog):
                         await session.set_weighted_prompts(
                             prompts=[
                                 types.WeightedPrompt(
-                                    text=prompt_data["text"], weight=prompt_data["weight"]
+                                    text=prompt_data["text"],
+                                    weight=prompt_data["weight"],
                                 )
                                 for prompt_data in music_params.to_weighted_prompts()
                             ]
@@ -1875,7 +1880,9 @@ class GeminiAPI(commands.Cog):
                         await session.play()
 
                         # Wait for the specified duration to collect audio
-                        self.logger.info(f"Waiting {music_params.duration} seconds for music generation")
+                        self.logger.info(
+                            f"Waiting {music_params.duration} seconds for music generation"
+                        )
                         await asyncio.sleep(music_params.duration)
 
                         # Stop the session
@@ -1885,13 +1892,13 @@ class GeminiAPI(commands.Cog):
                         # Signal the receiver to stop and wait a bit for final chunks
                         self.logger.info("Signaling receiver to stop")
                         stop_receiving = True
-                        
+
                     finally:
                         # Cancel the receiver task if it's still running
                         if not receiver_task.done():
                             self.logger.info("Cancelling receiver task")
                             receiver_task.cancel()
-                            
+
                         # Give the task a moment to finish cancellation
                         try:
                             await asyncio.sleep(0.1)  # Brief pause for cleanup
@@ -1931,7 +1938,9 @@ class GeminiAPI(commands.Cog):
                     raise Exception(f"Connection error: {websocket_error}")
 
         except Exception as e:
-            if "Music generation is currently unavailable" in str(e) or "Authentication error" in str(e):
+            if "Music generation is currently unavailable" in str(
+                e
+            ) or "Authentication error" in str(e):
                 # Re-raise our custom error messages
                 raise
             else:
