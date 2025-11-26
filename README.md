@@ -60,8 +60,11 @@
 ## Setup
 
 1. Install dependencies: `pip install -r requirements.txt`
-2. Configure your Gemini API key in `src/config/auth.py`
-3. Set up Discord bot permissions and guild IDs
+2. Copy `.env.example` to `.env` and fill in your values:
+   - `BOT_TOKEN`: Your Discord bot token
+   - `GUILD_IDS`: Comma-separated list of Discord server IDs
+   - `GEMINI_API_KEY`: Your Google Gemini API key
+3. Set up Discord bot permissions in your server
 4. Run the bot: `python src/bot.py`
 
 ## Requirements
@@ -70,6 +73,7 @@
 - google-genai ~1.52
 - py-cord ~2.6
 - Pillow ~12.0
+- python-dotenv ~1.2
 
 ## Music Generation Examples
 
