@@ -4,7 +4,6 @@ WORKDIR /bot
 
 COPY ./requirements.txt /bot
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements.txt
-RUN pip install audioop-lts
 
 # Copy the source and test directories
 COPY ./src /bot/src/
