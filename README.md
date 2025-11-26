@@ -69,7 +69,7 @@
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - google-genai ~1.52
 - py-cord ~2.6
 - Pillow ~12.0
