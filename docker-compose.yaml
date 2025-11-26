@@ -3,5 +3,5 @@ services:
     build: .
     env_file:
       - .env
-    container_name: python-bot
+    container_name: discord-gemini
     command: python src/bot.py
