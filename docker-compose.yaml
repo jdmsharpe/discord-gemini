@@ -1,9 +1,7 @@
 services:
   python-bot:
     build: .
-    environment:
-      - BOT_TOKEN=${BOT_TOKEN}
-      - GUILD_IDS=${GUILD_IDS}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    env_file:
+      - .env
     container_name: python-bot
     command: python src/bot.py
