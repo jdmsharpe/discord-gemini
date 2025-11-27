@@ -13,6 +13,3 @@ Thumbs.db
 
 # Ignore Python cache files
 __pycache__/
-
-# Ignore Claude AI files
-.claude/
