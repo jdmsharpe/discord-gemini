@@ -590,7 +590,7 @@ class GeminiAPI(commands.Cog):
             self.logger.debug(f"Received response from Gemini: {response_text}")
 
             # Update initial response description based on input parameters
-            description = f"{prompt}\n"
+            description = f"**Prompt:** {prompt}\n"
             description += f"**Model:** {model}\n"
             description += f"**System Instruction:** {system_instruction}\n"
             description += (
@@ -606,35 +606,33 @@ class GeminiAPI(commands.Cog):
             description += f"**Seed:** {seed}\n" if seed else ""
             description += f"**Temperature:** {temperature}\n" if temperature else ""
             description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
-            await ctx.send_followup(
-                embed=Embed(
-                    title="Prompt",
+
+            # Assemble all embeds for a single message
+            embeds = [
+                Embed(
+                    title="Conversation Started",
                     description=description,
                     color=Colour.green(),
                 )
-            )
-
-            # Assemble the response
-            embeds = []
+            ]
             append_response_embeds(embeds, response_text)
 
-            if not embeds:
+            if len(embeds) == 1:
                 await ctx.send_followup("No response generated.")
                 return
 
-            # Send the first part of the response as a brand new message
-            message = await ctx.channel.send(embed=embeds[0])
-            main_conversation_id = message.id
-            self.message_to_conversation_id[main_conversation_id] = main_conversation_id
-
-            # Create the view with buttons and attach it to the new message
+            # Create the view with buttons
+            main_conversation_id = ctx.interaction.id
             view = ButtonView(
                 cog=self,
                 conversation_starter=ctx.author,
                 conversation_id=main_conversation_id,
             )
             self.views[ctx.author] = view
-            await message.edit(view=view)
+
+            # Send all embeds as a single message with buttons
+            message = await ctx.send_followup(embeds=embeds, view=view)
+            self.message_to_conversation_id[message.id] = main_conversation_id
 
             # Store the conversation details
             params = ChatCompletionParameters(
@@ -652,13 +650,6 @@ class GeminiAPI(commands.Cog):
             ]
             conversation_wrapper = Conversation(params=params, history=history)
             self.conversations[main_conversation_id] = conversation_wrapper
-
-            # Send any remaining embeds as separate messages
-            for embed in embeds[1:]:
-                followup_message = await ctx.channel.send(embed=embed, view=view)
-                self.message_to_conversation_id[followup_message.id] = (
-                    main_conversation_id
-                )
 
         except Exception as e:
             description = str(e)
@@ -1639,7 +1630,7 @@ class GeminiAPI(commands.Cog):
             description += f"\n\n**AI Response:** {truncated_text}"
 
         embed = Embed(
-            title=f"Image Generation with {'Gemini' if is_gemini_model else 'Imagen'}",
+            title=f"{'Gemini' if is_gemini_model else 'Imagen'} Image Generation",
             description=description,
             color=Colour.dark_blue(),
         )
@@ -1775,16 +1766,9 @@ class GeminiAPI(commands.Cog):
             description += f"\n**Prompt Enhancement:** {'Enabled' if video_params.enhance_prompt else 'Disabled'}"
 
         embed = Embed(
-            title="Videos Generated with Veo",
+            title="Video Generation",
             description=description,
             color=Colour.dark_blue(),
-        )
-
-        # Note about video generation time and storage
-        embed.add_field(
-            name="ℹ️ Note",
-            value="Video generation typically takes 2-6 minutes. Generated videos are stored on the server for 2 days.",
-            inline=False,
         )
 
         return embed, files
