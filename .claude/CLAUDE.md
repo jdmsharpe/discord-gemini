@@ -40,7 +40,7 @@ discord-gemini/
 
 ## Available Models (As of November 2025)
 
-### Text Generation Models (`/converse`)
+### Text Generation Models (`/gemini converse`)
 
 - `gemini-3-pro-preview` - Gemini 3.0 Pro (default)
 - `gemini-2.5-pro` - State-of-the-art reasoning model
@@ -52,7 +52,7 @@ discord-gemini/
 - `gemini-1.5-flash-8b` - Legacy support
 - `gemini-1.5-pro` - Legacy support
 
-### Image Generation Models (`/generate_image`)
+### Image Generation Models (`/gemini image`)
 
 - `gemini-3-pro-image-preview` - Gemini 3.0 Pro Image (default, supports editing)
 - `gemini-2.5-flash-image` - Gemini 2.5 Flash Image (supports editing)
@@ -61,19 +61,19 @@ discord-gemini/
 - `imagen-4.0-ultra-generate-001` - Imagen 4 ultra quality
 - `imagen-4.0-fast-generate-001` - Imagen 4 fast generation
 
-### Video Generation Models (`/generate_video`)
+### Video Generation Models (`/gemini video`)
 
 - `veo-2.0-generate-001` - Veo 2 (default)
 - `veo-3.0-generate-001` - Veo 3 with improved realism
 - `veo-3.1-generate-preview` - Veo 3.1 with native audio and video extension
 - `veo-3.1-fast-generate-preview` - Veo 3.1 fast variant
 
-### Text-to-Speech Models (`/text_to_speech`)
+### Text-to-Speech Models (`/gemini tts`)
 
 - `gemini-2.5-flash-preview-tts` - Flash TTS (default)
 - `gemini-2.5-pro-preview-tts` - Pro TTS
 
-### Music Generation Models (`/generate_music`)
+### Music Generation Models (`/gemini music`)
 
 - `lyria-realtime-exp` - Lyria RealTime experimental model
 
@@ -143,7 +143,9 @@ typing_task.cancel()
 
 ## Slash Commands Reference
 
-### `/converse`
+All commands are grouped under `/gemini` using `SlashCommandGroup` for clean namespacing. This allows multiple AI provider bots to coexist (e.g., `/gemini converse` vs `/openai converse`).
+
+### `/gemini converse`
 
 **Purpose**: Multi-turn conversations with context preservation
 **Parameters**:
@@ -160,7 +162,7 @@ typing_task.cancel()
 - Uses `on_message` listener to handle follow-ups
 - Button controls pause/resume conversation
 
-### `/generate_image`
+### `/gemini image`
 
 **Purpose**: Generate images from text prompts
 **Parameters**:
@@ -178,7 +180,7 @@ typing_task.cancel()
 - Gemini: `generate_content` with `response_modalities=['TEXT', 'IMAGE']`
 - Imagen: `generate_images` with full config support
 
-### `/generate_video`
+### `/gemini video`
 
 **Purpose**: Generate videos from text or image prompts
 **Parameters**:
@@ -197,7 +199,7 @@ typing_task.cancel()
 - Polls every 20 seconds, max 10 minutes timeout
 - Downloads video files when complete
 
-### `/text_to_speech`
+### `/gemini tts`
 
 **Purpose**: Convert text to lifelike speech
 **Parameters**:
@@ -212,7 +214,7 @@ typing_task.cancel()
 - Outputs WAV format (24kHz, 16-bit, Mono)
 - Uses `response_modalities` to request audio
 
-### `/generate_music`
+### `/gemini music`
 
 **Purpose**: Generate instrumental music
 **Parameters**:
@@ -234,13 +236,14 @@ typing_task.cancel()
 
 ### Adding a New Slash Command
 
-1. **Define the command**:
+Commands are added to the `gemini` SlashCommandGroup for consistent namespacing:
+
+1. **Define the command** (uses `@gemini.command` instead of `@slash_command`):
 
 ```python
-@slash_command(
+@gemini.command(
     name="command_name",
     description="Command description",
-    guild_ids=GUILD_IDS,
 )
 @option("param_name", description="Param desc", required=True, type=str)
 async def command_name(self, ctx: ApplicationContext, param_name: str):
@@ -253,6 +256,8 @@ async def command_name(self, ctx: ApplicationContext, param_name: str):
             embed=Embed(title="Error", description=str(e), color=Colour.red())
         )
 ```
+
+Note: `guild_ids` is set on the `SlashCommandGroup` definition, not individual commands.
 
 1. **Create helper methods** for complex operations:
 

@@ -5,9 +5,11 @@
 
 ## Features
 
+All commands are grouped under `/gemini` for clean namespacing.
+
 ### Text Generation
 
-- **`/converse`**: Have conversations with Gemini AI models
+- **`/gemini converse`**: Have conversations with Gemini AI models
 - Support for multiple Gemini models:
   - Gemini 3.0 Pro (Default)
   - Gemini 2.5 Pro, 2.5 Flash, 2.5 Flash Lite
@@ -18,7 +20,7 @@
 
 ### Image Generation
 
-- **`/generate_image`**: Generate images from text prompts
+- **`/gemini image`**: Generate images from text prompts
 - Multiple model options:
   - Gemini 3.0 Pro Image (Default)
   - Gemini 2.5 Flash Image (with editing support)
@@ -29,7 +31,7 @@
 
 ### Video Generation
 
-- **`/generate_video`**: Generate videos from text prompts or image inputs
+- **`/gemini video`**: Generate videos from text prompts or image inputs
 - Model options:
   - Veo 2 - High-quality video generation
   - Veo 3 - Enhanced realism and detail
@@ -40,14 +42,14 @@
 
 ### Text-to-Speech
 
-- **`/text_to_speech`**: Convert text to lifelike speech
+- **`/gemini tts`**: Convert text to lifelike speech
 - 25+ voice options with different personalities
 - Natural language style control
 - High-quality WAV output (24kHz, 16-bit)
 
 ### Music Generation
 
-- **`/generate_music`**: Create instrumental music using Lyria RealTime
+- **`/gemini music`**: Create instrumental music using Lyria RealTime
 - Real-time streaming music generation
 - Customizable parameters:
   - BPM (60-200)
@@ -77,7 +79,7 @@
 
 ## Music Generation Examples
 
-Try these prompts with `/generate_music`:
+Try these prompts with `/gemini music`:
 
 - **Genres**: "minimal techno", "jazz fusion", "acoustic folk", "orchestral score"
 - **Instruments**: "piano and strings", "guitar and drums", "electronic synthesizers"

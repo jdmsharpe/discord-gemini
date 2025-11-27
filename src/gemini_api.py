@@ -17,9 +17,9 @@ from discord import Attachment, Colour, Embed, File
 from discord.commands import (
     ApplicationContext,
     OptionChoice,
+    SlashCommandGroup,
     command,
     option,
-    slash_command,
 )
 from discord.ext import commands
 
@@ -67,6 +67,9 @@ def append_response_embeds(embeds, response_text):
 
 
 class GeminiAPI(commands.Cog):
+    # Slash command group for all Gemini commands: /gemini <subcommand>
+    gemini = SlashCommandGroup("gemini", "Gemini AI commands", guild_ids=GUILD_IDS)
+
     def __init__(self, bot):
         """
         Initialize the GeminiAPI class.
@@ -407,10 +410,9 @@ class GeminiAPI(commands.Cog):
         else:
             await ctx.send("Bot is missing necessary permissions in this channel.")
 
-    @slash_command(
+    @gemini.command(
         name="converse",
         description="Starts a conversation with a model.",
-        guild_ids=GUILD_IDS,
     )
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
@@ -672,10 +674,9 @@ class GeminiAPI(commands.Cog):
             if typing_task:
                 typing_task.cancel()
 
-    @slash_command(
-        name="generate_image",
+    @gemini.command(
+        name="image",
         description="Generates an image based on a prompt.",
-        guild_ids=GUILD_IDS,
     )
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
@@ -904,10 +905,9 @@ class GeminiAPI(commands.Cog):
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
 
-    @slash_command(
-        name="generate_video",
+    @gemini.command(
+        name="video",
         description="Generates a video based on a prompt using Veo.",
-        guild_ids=GUILD_IDS,
     )
     @option(
         "prompt", description="Prompt for video generation", required=True, type=str
@@ -1075,10 +1075,9 @@ class GeminiAPI(commands.Cog):
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
 
-    @slash_command(
-        name="text_to_speech",
+    @gemini.command(
+        name="tts",
         description="Generates lifelike audio from input text using Gemini text-to-speech.",
-        guild_ids=GUILD_IDS,
     )
     @option(
         "input_text",
@@ -1240,10 +1239,9 @@ class GeminiAPI(commands.Cog):
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
 
-    @slash_command(
-        name="generate_music",
+    @gemini.command(
+        name="music",
         description="Generate instrumental music using Gemini's Lyria RealTime model.",
-        guild_ids=GUILD_IDS,
     )
     @option(
         "prompt",
