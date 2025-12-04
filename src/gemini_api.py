@@ -120,9 +120,11 @@ class GeminiAPI(commands.Cog):
         return None
 
     def cog_unload(self):
+        loop = getattr(self.bot, "loop", None)
+
+        # Close HTTP session
         session = self._http_session
         if session and not session.closed:
-            loop = getattr(self.bot, "loop", None)
             if loop and loop.is_running():
                 loop.create_task(session.close())
             else:
@@ -133,20 +135,10 @@ class GeminiAPI(commands.Cog):
                     new_loop.close()
         self._http_session = None
 
-    async def _generate_content_async(self, **kwargs):
-        return await asyncio.to_thread(self.client.models.generate_content, **kwargs)
-
-    async def _generate_images_async(self, **kwargs):
-        return await asyncio.to_thread(self.client.models.generate_images, **kwargs)
-
-    async def _generate_videos_async(self, **kwargs):
-        return await asyncio.to_thread(self.client.models.generate_videos, **kwargs)
-
-    async def _get_operation_async(self, operation):
-        return await asyncio.to_thread(self.client.operations.get, operation)
-
-    async def _download_file_async(self, **kwargs):
-        return await asyncio.to_thread(self.client.files.download, **kwargs)
+        # Close Gemini clients
+        if loop and loop.is_running():
+            loop.create_task(self.client.aio.aclose())
+        self.client.close()
 
     async def handle_new_message_in_conversation(
         self, message, conversation_wrapper: Conversation
@@ -218,7 +210,7 @@ class GeminiAPI(commands.Cog):
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
             self.logger.debug(f"Sending contents to Gemini: {contents}")
-            response = await self._generate_content_async(
+            response = await self.client.aio.models.generate_content(
                 model=params.model,
                 contents=contents,
                 config=generation_config,
@@ -580,7 +572,7 @@ class GeminiAPI(commands.Cog):
                     # Assume it's a string or other supported type
                     formatted_parts.append(part)
 
-            response = await self._generate_content_async(
+            response = await self.client.aio.models.generate_content(
                 model=model,
                 contents=[{"role": "user", "parts": formatted_parts}],
                 config=generation_config,
@@ -672,21 +664,18 @@ class GeminiAPI(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Choose between Gemini or Imagen models. (default: Gemini 3.0 Pro Image)",
+        description="Choose between Gemini or Imagen models. (default: Nano Banana Pro)",
         required=False,
         choices=[
+            OptionChoice(name="Nano Banana Pro", value="nano-banana-pro-preview"),
             OptionChoice(
-                name="Gemini 3.0 Pro Image",
-                value="gemini-3-pro-image-preview",
+                name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"
             ),
-            OptionChoice(
-                name="Gemini 2.5 Flash Image",
-                value="gemini-2.5-flash-image",
-            ),
-            OptionChoice(name="Imagen 3", value="imagen-3.0-generate-001"),
+            OptionChoice(name="Gemini 2.5 Flash Image", value="gemini-2.5-flash-image"),
             OptionChoice(name="Imagen 4", value="imagen-4.0-generate-001"),
             OptionChoice(name="Imagen 4 Ultra", value="imagen-4.0-ultra-generate-001"),
             OptionChoice(name="Imagen 4 Fast", value="imagen-4.0-fast-generate-001"),
+            OptionChoice(name="Imagen 3", value="imagen-3.0-generate-002"),
         ],
         type=str,
     )
@@ -752,7 +741,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3-pro-image-preview",
+        model: str = "nano-banana-pro-preview",
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         person_generation: str = "allow_adult",
@@ -908,12 +897,13 @@ class GeminiAPI(commands.Cog):
         description="Choose Veo model for video generation. (default: Veo 3.1 Preview)",
         required=False,
         choices=[
-            OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
-            OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
             OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
             OptionChoice(
                 name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"
             ),
+            OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
+            OptionChoice(name="Veo 3 Fast", value="veo-3.0-fast-generate-001"),
+            OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
         ],
         type=str,
     )
@@ -1478,7 +1468,7 @@ class GeminiAPI(commands.Cog):
                 response_modalities=["TEXT", "IMAGE"], seed=seed
             )
 
-        gemini_response = await self._generate_content_async(
+        gemini_response = await self.client.aio.models.generate_content(
             model=model, contents=contents, config=generate_config
         )
 
@@ -1508,7 +1498,7 @@ class GeminiAPI(commands.Cog):
         Returns:
             List of generated PIL Images
         """
-        imagen_response = await self._generate_images_async(
+        imagen_response = await self.client.aio.models.generate_images(
             model=image_params.model,
             prompt=image_params.prompt,
             config=types.GenerateImagesConfig(**image_params.to_dict()),
@@ -1673,7 +1663,7 @@ class GeminiAPI(commands.Cog):
                     kwargs["image"] = image
 
         # Start the video generation operation
-        operation = await self._generate_videos_async(**kwargs)
+        operation = await self.client.aio.models.generate_videos(**kwargs)
 
         self.logger.info(f"Started video generation operation: {operation.name}")
 
@@ -1687,7 +1677,7 @@ class GeminiAPI(commands.Cog):
                 raise Exception("Video generation timed out after 10 minutes")
 
             await asyncio.sleep(poll_interval)
-            operation = await self._get_operation_async(operation)
+            operation = await self.client.aio.operations.get(operation)
             self.logger.debug(f"Operation status: {operation.done}")
 
         # Process completed operation
@@ -1703,7 +1693,12 @@ class GeminiAPI(commands.Cog):
                     if hasattr(generated_video, "video") and generated_video.video:
                         try:
                             # Download the video file
-                            await self._download_file_async(file=generated_video.video)
+                            # Note: async files.download doesn't support Video objects,
+                            # so we use the sync version via to_thread
+                            await asyncio.to_thread(
+                                self.client.files.download,
+                                file=generated_video.video,
+                            )
 
                             # Save to a temporary file path
                             video_path = f"temp_video_{i}.mp4"
@@ -1943,7 +1938,7 @@ class GeminiAPI(commands.Cog):
         """
         try:
             # Generate speech using Gemini TTS
-            response = await self._generate_content_async(
+            response = await self.client.aio.models.generate_content(
                 model=tts_params.model,
                 contents=tts_params.input_text,
                 config=types.GenerateContentConfig(**tts_params.to_dict()),

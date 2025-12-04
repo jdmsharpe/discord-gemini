@@ -22,21 +22,23 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 - **`/gemini image`**: Generate images from text prompts
 - Multiple model options:
-  - Gemini 3.0 Pro Image (Default)
-  - Gemini 2.5 Flash Image (with editing support)
+  - Nano Banana Pro (Default, experimental)
+  - Gemini 3.0 Pro Image
+  - Gemini 2.5 Flash Image
   - Imagen 3
   - Imagen 4, 4 Ultra, and 4 Fast
 - Multiple aspect ratios and image count options (1-4 images)
-- Image editing support with reference images (Gemini models)
+- Image editing support with reference images (Gemini model exclusive)
 
 ### Video Generation
 
 - **`/gemini video`**: Generate videos from text prompts or image inputs
 - Model options:
-  - Veo 2 - High-quality video generation
+  - Veo 3.1 - Latest with native audio, video extension, and reference images (Default)
+  - Veo 3.1 Fast - Faster Veo 3.1 variant
   - Veo 3 - Enhanced realism and detail
-  - Veo 3.1 - Latest with native audio, video extension, and reference images
-  - Veo 3.1 Fast - Faster generation variant
+  - Veo 3 Fast - Faster Veo 3 variant
+  - Veo 2 - High-quality video generation
 - Support for both text-to-video and image-to-video generation
 - Customizable duration (5-8 seconds), aspect ratio, resolution (720p/1080p)
 

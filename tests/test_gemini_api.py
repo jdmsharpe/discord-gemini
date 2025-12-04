@@ -20,6 +20,11 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         self.genai_patcher = patch("gemini_api.genai.Client")
         self.mock_genai_client = self.genai_patcher.start()
 
+        # Configure the mock client's async interface
+        mock_client_instance = self.mock_genai_client.return_value
+        mock_client_instance.aio.aclose = AsyncMock()
+        mock_client_instance.close = MagicMock()
+
         # Now import GeminiAPI after mocking
         from gemini_api import GeminiAPI, Conversation, append_response_embeds
 
@@ -163,6 +168,11 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
         # Mock the genai Client
         self.genai_patcher = patch("gemini_api.genai.Client")
         self.mock_genai_client = self.genai_patcher.start()
+
+        # Configure the mock client's async interface
+        mock_client_instance = self.mock_genai_client.return_value
+        mock_client_instance.aio.aclose = AsyncMock()
+        mock_client_instance.close = MagicMock()
 
         from gemini_api import GeminiAPI
 

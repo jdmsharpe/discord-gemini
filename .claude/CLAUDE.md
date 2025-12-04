@@ -38,7 +38,7 @@ discord-gemini/
 - **Pillow** ~12.0: Image processing library
 - **aiohttp**: Async HTTP client for downloading attachments
 
-## Available Models (As of November 2025)
+## Available Models (As of December 2025)
 
 ### Text Generation Models (`/gemini converse`)
 
@@ -54,19 +54,21 @@ discord-gemini/
 
 ### Image Generation Models (`/gemini image`)
 
-- `gemini-3-pro-image-preview` - Gemini 3.0 Pro Image (default, supports editing)
+- `nano-banana-pro-preview` - Nano Banana Pro (default, experimental)
+- `gemini-3-pro-image-preview` - Gemini 3.0 Pro Image (supports editing)
 - `gemini-2.5-flash-image` - Gemini 2.5 Flash Image (supports editing)
-- `imagen-3.0-generate-001` - Imagen 3
 - `imagen-4.0-generate-001` - Imagen 4 standard
 - `imagen-4.0-ultra-generate-001` - Imagen 4 ultra quality
 - `imagen-4.0-fast-generate-001` - Imagen 4 fast generation
+- `imagen-3.0-generate-002` - Imagen 3
 
 ### Video Generation Models (`/gemini video`)
 
-- `veo-2.0-generate-001` - Veo 2 (default)
-- `veo-3.0-generate-001` - Veo 3 with improved realism
-- `veo-3.1-generate-preview` - Veo 3.1 with native audio and video extension
+- `veo-3.1-generate-preview` - Veo 3.1 with native audio and video extension (default)
 - `veo-3.1-fast-generate-preview` - Veo 3.1 fast variant
+- `veo-3.0-generate-001` - Veo 3 with improved realism
+- `veo-3.0-fast-generate-001` - Veo 3 fast variant
+- `veo-2.0-generate-001` - Veo 2
 
 ### Text-to-Speech Models (`/gemini tts`)
 
@@ -100,13 +102,24 @@ discord-gemini/
 
 ### Key Design Patterns
 
-#### 1. Async Thread Offloading
+#### 1. Native Async Client
 
-The Gemini client is synchronous, so blocking calls are offloaded to worker threads:
+The google-genai SDK provides a native async client via `client.aio`:
 
 ```python
-async def _generate_content_async(self, **kwargs):
-    return await asyncio.to_thread(self.client.models.generate_content, **kwargs)
+# Direct async calls - no thread offloading needed
+response = await self.client.aio.models.generate_content(
+    model=model,
+    contents=contents,
+    config=config,
+)
+
+# Available async methods:
+# - client.aio.models.generate_content()
+# - client.aio.models.generate_images()
+# - client.aio.models.generate_videos()
+# - client.aio.operations.get()
+# - client.aio.files.download()  # Note: only accepts str|File, not Video
 ```
 
 #### 2. HTTP Session Management
@@ -168,7 +181,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Parameters**:
 
 - `prompt` (required): Image description
-- `model`: Gemini or Imagen model (default: gemini-3-pro-image-preview)
+- `model`: Gemini or Imagen model (default: nano-banana-pro-preview)
 - `number_of_images`: 1-4 images (default: 1)
 - `aspect_ratio`: 1:1, 3:4, 4:3, 9:16, 16:9
 - `attachment`: Reference image for editing (Gemini only)
@@ -344,6 +357,8 @@ finally:
 ### Resource Cleanup
 
 - HTTP session closed on cog unload (`cog_unload()`)
+- Gemini async client closed via `client.aio.aclose()`
+- Gemini sync client closed via `client.close()`
 - Proper async task cancellation
 - Temporary files deleted after sending
 
@@ -430,6 +445,14 @@ When making changes, also manually test:
 
 ## Version History
 
+### December 2025 - Native Async & Model Updates
+
+- Migrated from `asyncio.to_thread()` wrappers to native `client.aio.*` async calls
+- Added `nano-banana-pro-preview` experimental image model
+- Added `veo-3.0-fast-generate-001` video model
+- Removed deprecated `imagen-3.0-generate-001` (no longer available in API)
+- Improved resource cleanup in `cog_unload()` with proper client shutdown
+
 ### November 2025 - Gemini 3.0 Pro
 
 - Added `gemini-3-pro-preview` for text generation (new default)
@@ -475,5 +498,5 @@ python src/bot.py
 
 ---
 
-**Last Updated**: November 2025
+**Last Updated**: December 2025
 **Maintained by**: AI Assistant (Claude)
