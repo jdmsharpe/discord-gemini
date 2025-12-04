@@ -22,10 +22,8 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 - **`/gemini image`**: Generate images from text prompts
 - Multiple model options:
-  - Nano Banana Pro (Default, experimental)
-  - Gemini 3.0 Pro Image
+  - Gemini 3.0 Pro Image (Default)
   - Gemini 2.5 Flash Image
-  - Imagen 3
   - Imagen 4, 4 Ultra, and 4 Fast
 - Multiple aspect ratios and image count options (1-4 images)
 - Image editing support with reference images (Gemini model exclusive)

@@ -664,10 +664,9 @@ class GeminiAPI(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Choose between Gemini or Imagen models. (default: Nano Banana Pro)",
+        description="Choose between Gemini or Imagen models. (default: Gemini 3.0 Pro Image)",
         required=False,
         choices=[
-            OptionChoice(name="Nano Banana Pro", value="nano-banana-pro-preview"),
             OptionChoice(
                 name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"
             ),
@@ -675,7 +674,6 @@ class GeminiAPI(commands.Cog):
             OptionChoice(name="Imagen 4", value="imagen-4.0-generate-001"),
             OptionChoice(name="Imagen 4 Ultra", value="imagen-4.0-ultra-generate-001"),
             OptionChoice(name="Imagen 4 Fast", value="imagen-4.0-fast-generate-001"),
-            OptionChoice(name="Imagen 3", value="imagen-3.0-generate-002"),
         ],
         type=str,
     )
@@ -741,7 +739,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "nano-banana-pro-preview",
+        model: str = "gemini-3-pro-image-preview",
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         person_generation: str = "allow_adult",
