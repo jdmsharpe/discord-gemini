@@ -54,13 +54,11 @@ discord-gemini/
 
 ### Image Generation Models (`/gemini image`)
 
-- `nano-banana-pro-preview` - Nano Banana Pro (default, experimental)
-- `gemini-3-pro-image-preview` - Gemini 3.0 Pro Image (supports editing)
+- `gemini-3-pro-image-preview` - Gemini 3.0 Pro Image (default, supports editing)
 - `gemini-2.5-flash-image` - Gemini 2.5 Flash Image (supports editing)
 - `imagen-4.0-generate-001` - Imagen 4 standard
 - `imagen-4.0-ultra-generate-001` - Imagen 4 ultra quality
 - `imagen-4.0-fast-generate-001` - Imagen 4 fast generation
-- `imagen-3.0-generate-002` - Imagen 3
 
 ### Video Generation Models (`/gemini video`)
 
@@ -181,7 +179,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Parameters**:
 
 - `prompt` (required): Image description
-- `model`: Gemini or Imagen model (default: nano-banana-pro-preview)
+- `model`: Gemini or Imagen model (default: gemini-3-pro-image-preview)
 - `number_of_images`: 1-4 images (default: 1)
 - `aspect_ratio`: 1:1, 3:4, 4:3, 9:16, 16:9
 - `attachment`: Reference image for editing (Gemini only)
@@ -448,9 +446,8 @@ When making changes, also manually test:
 ### December 2025 - Native Async & Model Updates
 
 - Migrated from `asyncio.to_thread()` wrappers to native `client.aio.*` async calls
-- Added `nano-banana-pro-preview` experimental image model
 - Added `veo-3.0-fast-generate-001` video model
-- Removed deprecated `imagen-3.0-generate-001` (no longer available in API)
+- Removed deprecated Imagen 3 (no longer available in API)
 - Improved resource cleanup in `cog_unload()` with proper client shutdown
 
 ### November 2025 - Gemini 3.0 Pro
