@@ -853,7 +853,7 @@ class GeminiAPI(commands.Cog):
                     embed_description += f"Text response: {truncated_text}\n"
                 elif is_gemini_model:
                     embed_description += (
-                        f"Try asking explicitly for image generation (e.g., 'Generate an image of...').\n"
+                        f"Try asking explicitly for image generation (e.g., 'a red car').\n"
                     )
                 else:
                     embed_description += f"Imagen models should generate images. Check your prompt or try different parameters.\n"
@@ -1449,7 +1449,8 @@ class GeminiAPI(commands.Cog):
             contents = prompt
         else:
             # For generation, explicitly request an image
-            contents = f"Generate an image: {prompt}"
+            image_word = "image(s)" if number_of_images > 1 else "image"
+            contents = f"Create {image_word}: {prompt}"
 
         # Add attachment for image editing if provided
         if attachment:
