@@ -189,7 +189,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 
 - Uses different APIs for Gemini vs Imagen models
 - Gemini: `generate_content` with `response_modalities=['TEXT', 'IMAGE']`
-  - Prompts automatically prefixed with "Generate an image: " to reduce text-only responses
+  - Prompts automatically prefixed with "Create image: " (or "Create image(s): " for multiple images) to reduce text-only responses
   - Image editing (with attachment) preserves original prompt
 - Imagen: `generate_images` with full config support
 - Text responses truncated to 3800 chars to prevent Discord embed errors
@@ -434,7 +434,7 @@ When making changes, also manually test:
 
 ### Issue: Image generation returns text instead of images
 
-**Solution**: For Gemini models, prompts are automatically prefixed with "Generate an image: " to guide the model. If still getting text-only responses, try being more explicit in your prompt (e.g., "Generate an image of a red car" instead of "red car")
+**Solution**: For Gemini models, prompts are automatically prefixed with "Create image: " (or "Create image(s): " for multiple) to guide the model. If still getting text-only responses, try being more explicit in your prompt (e.g., "a red sports car in a sunny parking lot" provides more detail than just "car")
 
 ### Issue: "Invalid Form Body - embed description must be 4096 or fewer" error
 
@@ -458,7 +458,7 @@ When making changes, also manually test:
 
 - Fixed Discord embed error when image generation returns long text responses
 - Added automatic text truncation (3800 chars) to prevent "must be 4096 or fewer" errors
-- Improved Gemini image prompts with "Generate an image: " prefix to reduce text-only responses
+- Improved Gemini image prompts with "Create image:" / "Create image(s):" prefix to reduce text-only responses
 - Image editing workflows preserve original prompts without prefix
 
 ### December 2025 - Native Async & Model Updates
