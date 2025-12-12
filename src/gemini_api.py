@@ -842,10 +842,18 @@ class GeminiAPI(commands.Cog):
                 # No images generated, but maybe there's text (only for Gemini)
                 embed_description = "The model did not generate any images.\n"
                 if text_response:
-                    embed_description += f"Text response: {text_response}\n"
+                    # Truncate text response to avoid exceeding Discord's 4096 char limit
+                    # Reserve ~200 chars for the rest of the message
+                    max_text_length = 3800
+                    truncated_text = (
+                        text_response[:max_text_length] + "..."
+                        if len(text_response) > max_text_length
+                        else text_response
+                    )
+                    embed_description += f"Text response: {truncated_text}\n"
                 elif is_gemini_model:
                     embed_description += (
-                        f"Try asking explicitly for image generation.\n"
+                        f"Try asking explicitly for image generation (e.g., 'Generate an image of...').\n"
                     )
                 else:
                     embed_description += f"Imagen models should generate images. Check your prompt or try different parameters.\n"
@@ -1435,7 +1443,13 @@ class GeminiAPI(commands.Cog):
         Returns:
             tuple: (text_response, generated_images)
         """
-        contents = prompt
+        # Explicitly request image generation to reduce text-only responses
+        if attachment:
+            # For image editing, keep the prompt as-is for more natural edits
+            contents = prompt
+        else:
+            # For generation, explicitly request an image
+            contents = f"Generate an image: {prompt}"
 
         # Add attachment for image editing if provided
         if attachment:
