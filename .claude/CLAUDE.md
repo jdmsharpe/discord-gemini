@@ -189,7 +189,10 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 
 - Uses different APIs for Gemini vs Imagen models
 - Gemini: `generate_content` with `response_modalities=['TEXT', 'IMAGE']`
+  - Prompts automatically prefixed with "Generate an image: " to reduce text-only responses
+  - Image editing (with attachment) preserves original prompt
 - Imagen: `generate_images` with full config support
+- Text responses truncated to 3800 chars to prevent Discord embed errors
 
 ### `/gemini video`
 
@@ -429,6 +432,14 @@ When making changes, also manually test:
 
 **Solution**: Check WebSocket connection, verify API version, check receiver task
 
+### Issue: Image generation returns text instead of images
+
+**Solution**: For Gemini models, prompts are automatically prefixed with "Generate an image: " to guide the model. If still getting text-only responses, try being more explicit in your prompt (e.g., "Generate an image of a red car" instead of "red car")
+
+### Issue: "Invalid Form Body - embed description must be 4096 or fewer" error
+
+**Solution**: When Gemini image models return long text responses instead of images, the text is automatically truncated to 3800 characters to fit within Discord's 4096 character limit for embed descriptions. If you see truncated text, the model likely interpreted your prompt as a conversation rather than an image request.
+
 ## Future Enhancement Ideas
 
 - [ ] Support for Gemini Live API (real-time voice conversations)
@@ -442,6 +453,13 @@ When making changes, also manually test:
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### December 2025 - Image Generation Fixes
+
+- Fixed Discord embed error when image generation returns long text responses
+- Added automatic text truncation (3800 chars) to prevent "must be 4096 or fewer" errors
+- Improved Gemini image prompts with "Generate an image: " prefix to reduce text-only responses
+- Image editing workflows preserve original prompts without prefix
 
 ### December 2025 - Native Async & Model Updates
 
