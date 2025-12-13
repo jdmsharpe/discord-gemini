@@ -438,7 +438,12 @@ When making changes, also manually test:
 
 ### Issue: "Invalid Form Body - embed description must be 4096 or fewer" error
 
-**Solution**: When Gemini image models return long text responses instead of images, the text is automatically truncated to 3800 characters to fit within Discord's 4096 character limit for embed descriptions. If you see truncated text, the model likely interpreted your prompt as a conversation rather than an image request.
+**Solution**: All commands now automatically truncate content to fit Discord's 4096 character embed limit:
+- **User prompts**: Truncated to 2000 characters (with "..." indicator)
+- **Model text responses**: Truncated to 3800 characters (with "..." indicator)
+- This applies to all `/gemini` commands: converse, image, video, tts, music
+
+If you see truncated content, either shorten your input or the model returned an unusually long response.
 
 ## Future Enhancement Ideas
 
@@ -457,7 +462,9 @@ When making changes, also manually test:
 ### December 2025 - Image Generation Fixes
 
 - Fixed Discord embed error when image generation returns long text responses
-- Added automatic text truncation (3800 chars) to prevent "must be 4096 or fewer" errors
+- Added automatic truncation to prevent "must be 4096 or fewer" errors:
+  - User prompts truncated to 2000 chars across all commands
+  - Model text responses truncated to 3800 chars
 - Improved Gemini image prompts with "Create image:" / "Create image(s):" prefix to reduce text-only responses
 - Image editing workflows preserve original prompts without prefix
 

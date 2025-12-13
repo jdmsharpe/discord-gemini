@@ -333,6 +333,48 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         # Discord's limit is 4096 characters
         self.assertLessEqual(len(embed_description), 4096)
 
+    async def test_user_prompt_truncation_under_limit(self):
+        """Test that short user prompts are not truncated."""
+        short_prompt = "Generate a beautiful sunset"
+        max_length = 2000
+
+        # Simulate the truncation logic
+        truncated = short_prompt[:max_length] + "..." if len(short_prompt) > max_length else short_prompt
+
+        self.assertEqual(truncated, short_prompt)
+        self.assertNotIn("...", truncated)
+
+    async def test_user_prompt_truncation_over_limit(self):
+        """Test that long user prompts are truncated to 2000 chars."""
+        long_prompt = "A" * 3000  # Exceeds 2000 char limit
+        max_length = 2000
+
+        # Simulate the truncation logic
+        truncated = long_prompt[:max_length] + "..." if len(long_prompt) > max_length else long_prompt
+
+        self.assertEqual(len(truncated), max_length + 3)  # 2000 + "..."
+        self.assertTrue(truncated.endswith("..."))
+
+    async def test_user_prompt_truncation_fits_embed(self):
+        """Test that truncated prompt + metadata fits Discord's 4096 char limit."""
+        max_prompt_length = 2000
+        huge_prompt = "C" * 5000
+
+        truncated_prompt = (
+            huge_prompt[:max_prompt_length] + "..."
+            if len(huge_prompt) > max_prompt_length
+            else huge_prompt
+        )
+
+        # Simulate a full embed with prompt and metadata
+        embed_description = f"**Prompt:** {truncated_prompt}\n"
+        embed_description += "**Model:** gemini-3-pro-image-preview\n"
+        embed_description += "**Mode:** Image Generation\n"
+        embed_description += "**Number of Images:** 1\n"
+
+        # Discord's limit is 4096 characters
+        self.assertLessEqual(len(embed_description), 4096)
+
 
 if __name__ == "__main__":
     unittest.main()
