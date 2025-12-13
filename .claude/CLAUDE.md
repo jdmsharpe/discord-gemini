@@ -406,11 +406,11 @@ cd src && ../.venv/Scripts/python -m pytest ../tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (28 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and the `chunk_text()` utility function.
+- **`test_util.py`** (43 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`).
 
 - **`test_button_view.py`** (9 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) including user permission checks and conversation state management.
 
-- **`test_gemini_api.py`** (12 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, and response embed generation.
+- **`test_gemini_api.py`** (21 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, and image generation text/prompt truncation.
 
 ### CI Pipeline
 
@@ -492,6 +492,7 @@ If you see truncated content, either shorten your input or the model returned an
 - Added automatic truncation to prevent "must be 4096 or fewer" errors:
   - User prompts truncated to 2000 chars across all commands
   - Model text responses truncated to 3800 chars
+- Added `truncate_text()` utility function in `util.py` for consistent truncation across codebase
 - Improved Gemini image prompts with "Create image:" / "Create image(s):" prefix to reduce text-only responses
 - Image editing workflows preserve original prompts without prefix
 
