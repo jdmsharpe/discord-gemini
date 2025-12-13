@@ -189,7 +189,10 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 
 - Uses different APIs for Gemini vs Imagen models
 - Gemini: `generate_content` with `response_modalities=['TEXT', 'IMAGE']`
+  - Prompts automatically prefixed with "Create image: " (or "Create image(s): " for multiple images) to reduce text-only responses
+  - Image editing (with attachment) preserves original prompt
 - Imagen: `generate_images` with full config support
+- Text responses truncated to 3800 chars to prevent Discord embed errors
 
 ### `/gemini video`
 
@@ -310,6 +313,33 @@ embed.set_image(url="attachment://filename.png")
 await ctx.send_followup(embed=embed, files=[File(path)])
 ```
 
+### Discord Embed Limits
+
+Discord enforces strict limits on embed content. The bot handles these automatically:
+
+| Limit | Value |
+|-------|-------|
+| Embed description | 4096 chars |
+| Total embed content | 6000 chars |
+
+**Truncation strategy by command:**
+
+| Command | Field | Limit | Reason |
+|---------|-------|-------|--------|
+| converse | user prompt | 2000 chars | Leave room for metadata |
+| converse | model response | 3500 char chunks | Via `append_response_embeds()` |
+| image | user prompt | 2000 chars | Leave room for metadata |
+| image | model text response | 3800 chars | When no images generated |
+| video | user prompt | 2000 chars | Leave room for metadata |
+| tts | input text | 500 chars | Displayed in embed summary |
+| music | user prompt | 2000 chars | Leave room for metadata |
+
+**Key functions:**
+
+- `append_response_embeds()` in `gemini_api.py` - Chunks model responses and enforces 20000 char total limit with 3500 char chunks
+- `chunk_text()` in `util.py` - Splits text into configurable segments (default 4096 chars)
+- `truncate_text()` in `util.py` - Truncates text to max length with customizable suffix (default "...")
+
 ### Handling Long-Running Operations
 
 ```python
@@ -376,11 +406,11 @@ cd src && ../.venv/Scripts/python -m pytest ../tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (28 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and the `chunk_text()` utility function.
+- **`test_util.py`** (43 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`).
 
 - **`test_button_view.py`** (9 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) including user permission checks and conversation state management.
 
-- **`test_gemini_api.py`** (12 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, and response embed generation.
+- **`test_gemini_api.py`** (21 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, and image generation text/prompt truncation.
 
 ### CI Pipeline
 
@@ -429,6 +459,19 @@ When making changes, also manually test:
 
 **Solution**: Check WebSocket connection, verify API version, check receiver task
 
+### Issue: Image generation returns text instead of images
+
+**Solution**: For Gemini models, prompts are automatically prefixed with "Create image: " (or "Create image(s): " for multiple) to guide the model. If still getting text-only responses, try being more explicit in your prompt (e.g., "a red sports car in a sunny parking lot" provides more detail than just "car")
+
+### Issue: "Invalid Form Body - embed description must be 4096 or fewer" error
+
+**Solution**: All commands now automatically truncate content to fit Discord's 4096 character embed limit:
+- **User prompts**: Truncated to 2000 characters (with "..." indicator)
+- **Model text responses**: Truncated to 3800 characters (with "..." indicator)
+- This applies to all `/gemini` commands: converse, image, video, tts, music
+
+If you see truncated content, either shorten your input or the model returned an unusually long response.
+
 ## Future Enhancement Ideas
 
 - [ ] Support for Gemini Live API (real-time voice conversations)
@@ -442,6 +485,16 @@ When making changes, also manually test:
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### December 2025 - Image Generation Fixes
+
+- Fixed Discord embed error when image generation returns long text responses
+- Added automatic truncation to prevent "must be 4096 or fewer" errors:
+  - User prompts truncated to 2000 chars across all commands
+  - Model text responses truncated to 3800 chars
+- Added `truncate_text()` utility function in `util.py` for consistent truncation across codebase
+- Improved Gemini image prompts with "Create image:" / "Create image(s):" prefix to reduce text-only responses
+- Image editing workflows preserve original prompts without prefix
 
 ### December 2025 - Native Async & Model Updates
 

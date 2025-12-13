@@ -37,6 +37,7 @@ from util import (
     SpeechGenerationParameters,
     VideoGenerationParameters,
     chunk_text,
+    truncate_text,
 )
 
 
@@ -582,7 +583,9 @@ class GeminiAPI(commands.Cog):
             self.logger.debug(f"Received response from Gemini: {response_text}")
 
             # Update initial response description based on input parameters
-            description = f"**Prompt:** {prompt}\n"
+            # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+            truncated_prompt = truncate_text(prompt, 2000)
+            description = f"**Prompt:** {truncated_prompt}\n"
             description += f"**Model:** {model}\n"
             description += f"**System Instruction:** {system_instruction}\n"
             description += (
@@ -842,10 +845,13 @@ class GeminiAPI(commands.Cog):
                 # No images generated, but maybe there's text (only for Gemini)
                 embed_description = "The model did not generate any images.\n"
                 if text_response:
-                    embed_description += f"Text response: {text_response}\n"
+                    # Truncate text response to avoid exceeding Discord's 4096 char limit
+                    # Reserve ~200 chars for the rest of the message
+                    truncated_text = truncate_text(text_response, 3800)
+                    embed_description += f"Text response: {truncated_text}\n"
                 elif is_gemini_model:
                     embed_description += (
-                        f"Try asking explicitly for image generation.\n"
+                        f"Try asking explicitly for image generation (e.g., 'a red car').\n"
                     )
                 else:
                     embed_description += f"Imagen models should generate images. Check your prompt or try different parameters.\n"
@@ -1355,7 +1361,9 @@ class GeminiAPI(commands.Cog):
                     wf.writeframes(audio_data)
 
                 # Create response embed
-                description = f"**Prompt:** {prompt}\n"
+                # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+                truncated_prompt = truncate_text(prompt, 2000)
+                description = f"**Prompt:** {truncated_prompt}\n"
                 description += f"**Model:** Lyria RealTime\n"
                 description += f"**Duration:** {duration} seconds\n"
                 if bpm is not None:
@@ -1435,7 +1443,14 @@ class GeminiAPI(commands.Cog):
         Returns:
             tuple: (text_response, generated_images)
         """
-        contents = prompt
+        # Explicitly request image generation to reduce text-only responses
+        if attachment:
+            # For image editing, keep the prompt as-is for more natural edits
+            contents = prompt
+        else:
+            # For generation, explicitly request an image
+            image_word = "image(s)" if number_of_images > 1 else "image"
+            contents = f"Create {image_word}: {prompt}"
 
         # Add attachment for image editing if provided
         if attachment:
@@ -1558,7 +1573,9 @@ class GeminiAPI(commands.Cog):
                 self.logger.error(f"Failed to save image {i+1}: {e}")
                 continue
 
-        description = f"**Prompt:** {image_params.prompt}\n"
+        # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+        truncated_prompt = truncate_text(image_params.prompt, 2000)
+        description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {image_params.model}\n"
         if attachment:
             description += f"**Mode:** Image Editing\n"
@@ -1610,11 +1627,7 @@ class GeminiAPI(commands.Cog):
 
         if text_response:
             # Truncate long text responses for the embed
-            truncated_text = (
-                text_response[:500] + "..."
-                if len(text_response) > 500
-                else text_response
-            )
+            truncated_text = truncate_text(text_response, 500)
             description += f"\n\n**AI Response:** {truncated_text}"
 
         embed = Embed(
@@ -1731,7 +1744,9 @@ class GeminiAPI(commands.Cog):
                 self.logger.error(f"Failed to create file for video {i+1}: {e}")
                 continue
 
-        description = f"**Prompt:** {video_params.prompt}\n"
+        # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+        truncated_prompt = truncate_text(video_params.prompt, 2000)
+        description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {video_params.model}\n"
         if attachment:
             description += f"**Mode:** Image-to-Video\n"
