@@ -313,6 +313,32 @@ embed.set_image(url="attachment://filename.png")
 await ctx.send_followup(embed=embed, files=[File(path)])
 ```
 
+### Discord Embed Limits
+
+Discord enforces strict limits on embed content. The bot handles these automatically:
+
+| Limit | Value |
+|-------|-------|
+| Embed description | 4096 chars |
+| Total embed content | 6000 chars |
+
+**Truncation strategy by command:**
+
+| Command | Field | Limit | Reason |
+|---------|-------|-------|--------|
+| converse | user prompt | 2000 chars | Leave room for metadata |
+| converse | model response | 3500 char chunks | Via `append_response_embeds()` |
+| image | user prompt | 2000 chars | Leave room for metadata |
+| image | model text response | 3800 chars | When no images generated |
+| video | user prompt | 2000 chars | Leave room for metadata |
+| tts | input text | 500 chars | Displayed in embed summary |
+| music | user prompt | 2000 chars | Leave room for metadata |
+
+**Key functions:**
+
+- `append_response_embeds()` in `gemini_api.py` - Chunks model responses and enforces 20000 char total limit with 3500 char chunks
+- `chunk_text()` in `util.py` - Splits text into configurable segments (default 4096 chars)
+
 ### Handling Long-Running Operations
 
 ```python
