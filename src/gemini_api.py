@@ -582,7 +582,9 @@ class GeminiAPI(commands.Cog):
             self.logger.debug(f"Received response from Gemini: {response_text}")
 
             # Update initial response description based on input parameters
-            description = f"**Prompt:** {prompt}\n"
+            # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+            truncated_prompt = prompt[:2000] + "..." if len(prompt) > 2000 else prompt
+            description = f"**Prompt:** {truncated_prompt}\n"
             description += f"**Model:** {model}\n"
             description += f"**System Instruction:** {system_instruction}\n"
             description += (
@@ -1363,7 +1365,9 @@ class GeminiAPI(commands.Cog):
                     wf.writeframes(audio_data)
 
                 # Create response embed
-                description = f"**Prompt:** {prompt}\n"
+                # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+                truncated_prompt = prompt[:2000] + "..." if len(prompt) > 2000 else prompt
+                description = f"**Prompt:** {truncated_prompt}\n"
                 description += f"**Model:** Lyria RealTime\n"
                 description += f"**Duration:** {duration} seconds\n"
                 if bpm is not None:
@@ -1573,7 +1577,13 @@ class GeminiAPI(commands.Cog):
                 self.logger.error(f"Failed to save image {i+1}: {e}")
                 continue
 
-        description = f"**Prompt:** {image_params.prompt}\n"
+        # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+        truncated_prompt = (
+            image_params.prompt[:2000] + "..."
+            if len(image_params.prompt) > 2000
+            else image_params.prompt
+        )
+        description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {image_params.model}\n"
         if attachment:
             description += f"**Mode:** Image Editing\n"
@@ -1746,7 +1756,13 @@ class GeminiAPI(commands.Cog):
                 self.logger.error(f"Failed to create file for video {i+1}: {e}")
                 continue
 
-        description = f"**Prompt:** {video_params.prompt}\n"
+        # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
+        truncated_prompt = (
+            video_params.prompt[:2000] + "..."
+            if len(video_params.prompt) > 2000
+            else video_params.prompt
+        )
+        description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {video_params.model}\n"
         if attachment:
             description += f"**Mode:** Image-to-Video\n"
