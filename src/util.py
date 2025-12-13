@@ -230,3 +230,22 @@ def chunk_text(text: str, chunk_size: int = 4096) -> List[str]:
         A list of strings, where each string is a chunk of the original text.
     """
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+
+def truncate_text(text: str, max_length: int, suffix: str = "...") -> str:
+    """
+    Truncate text to max_length, adding suffix if truncated.
+
+    Args:
+        text: The text to truncate
+        max_length: Maximum length before truncation
+        suffix: String to append when truncated (default "...")
+
+    Returns:
+        Original text if under max_length, otherwise truncated with suffix
+    """
+    if text is None:
+        return None
+    if len(text) <= max_length:
+        return text
+    return text[:max_length] + suffix

@@ -410,5 +410,86 @@ class TestChunkText(unittest.TestCase):
         self.assertEqual(len(result[0]), size)
 
 
+class TestTruncateText(unittest.TestCase):
+    """Tests for the truncate_text utility function."""
+
+    def test_truncate_text_under_limit(self):
+        """Test that short text is not truncated."""
+        from util import truncate_text
+
+        text = "Short text"
+        result = truncate_text(text, 100)
+        self.assertEqual(result, text)
+        self.assertNotIn("...", result)
+
+    def test_truncate_text_over_limit(self):
+        """Test that long text is truncated with suffix."""
+        from util import truncate_text
+
+        text = "A" * 100
+        result = truncate_text(text, 50)
+        self.assertEqual(len(result), 53)  # 50 + "..."
+        self.assertTrue(result.endswith("..."))
+        self.assertEqual(result, "A" * 50 + "...")
+
+    def test_truncate_text_at_limit(self):
+        """Test that text exactly at limit is not truncated."""
+        from util import truncate_text
+
+        text = "B" * 100
+        result = truncate_text(text, 100)
+        self.assertEqual(result, text)
+        self.assertNotIn("...", result)
+
+    def test_truncate_text_custom_suffix(self):
+        """Test truncation with custom suffix."""
+        from util import truncate_text
+
+        text = "Hello, world!"
+        result = truncate_text(text, 5, suffix="[...]")
+        self.assertEqual(result, "Hello[...]")
+
+    def test_truncate_text_none(self):
+        """Test that None input returns None."""
+        from util import truncate_text
+
+        result = truncate_text(None, 100)
+        self.assertIsNone(result)
+
+    def test_truncate_text_empty_string(self):
+        """Test that empty string is handled correctly."""
+        from util import truncate_text
+
+        result = truncate_text("", 100)
+        self.assertEqual(result, "")
+
+    def test_truncate_text_empty_suffix(self):
+        """Test truncation with empty suffix."""
+        from util import truncate_text
+
+        text = "Hello, world!"
+        result = truncate_text(text, 5, suffix="")
+        self.assertEqual(result, "Hello")
+        self.assertEqual(len(result), 5)
+
+    def test_truncate_text_prompt_limit(self):
+        """Test standard 2000 char prompt truncation."""
+        from util import truncate_text
+
+        long_prompt = "A" * 3000
+        result = truncate_text(long_prompt, 2000)
+        self.assertEqual(len(result), 2003)  # 2000 + "..."
+        self.assertTrue(result.endswith("..."))
+
+    def test_truncate_text_response_limit(self):
+        """Test standard 3500 char response truncation."""
+        from util import truncate_text
+
+        long_response = "B" * 5000
+        result = truncate_text(long_response, 3500)
+        self.assertEqual(len(result), 3503)  # 3500 + "..."
+        self.assertTrue(result.endswith("..."))
+
+
 if __name__ == "__main__":
     unittest.main()

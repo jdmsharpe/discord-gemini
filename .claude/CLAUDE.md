@@ -338,6 +338,7 @@ Discord enforces strict limits on embed content. The bot handles these automatic
 
 - `append_response_embeds()` in `gemini_api.py` - Chunks model responses and enforces 20000 char total limit with 3500 char chunks
 - `chunk_text()` in `util.py` - Splits text into configurable segments (default 4096 chars)
+- `truncate_text()` in `util.py` - Truncates text to max length with customizable suffix (default "...")
 
 ### Handling Long-Running Operations
 

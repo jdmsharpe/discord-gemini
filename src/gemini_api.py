@@ -37,6 +37,7 @@ from util import (
     SpeechGenerationParameters,
     VideoGenerationParameters,
     chunk_text,
+    truncate_text,
 )
 
 
@@ -583,7 +584,7 @@ class GeminiAPI(commands.Cog):
 
             # Update initial response description based on input parameters
             # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
-            truncated_prompt = prompt[:2000] + "..." if len(prompt) > 2000 else prompt
+            truncated_prompt = truncate_text(prompt, 2000)
             description = f"**Prompt:** {truncated_prompt}\n"
             description += f"**Model:** {model}\n"
             description += f"**System Instruction:** {system_instruction}\n"
@@ -846,12 +847,7 @@ class GeminiAPI(commands.Cog):
                 if text_response:
                     # Truncate text response to avoid exceeding Discord's 4096 char limit
                     # Reserve ~200 chars for the rest of the message
-                    max_text_length = 3800
-                    truncated_text = (
-                        text_response[:max_text_length] + "..."
-                        if len(text_response) > max_text_length
-                        else text_response
-                    )
+                    truncated_text = truncate_text(text_response, 3800)
                     embed_description += f"Text response: {truncated_text}\n"
                 elif is_gemini_model:
                     embed_description += (
@@ -1366,7 +1362,7 @@ class GeminiAPI(commands.Cog):
 
                 # Create response embed
                 # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
-                truncated_prompt = prompt[:2000] + "..." if len(prompt) > 2000 else prompt
+                truncated_prompt = truncate_text(prompt, 2000)
                 description = f"**Prompt:** {truncated_prompt}\n"
                 description += f"**Model:** Lyria RealTime\n"
                 description += f"**Duration:** {duration} seconds\n"
@@ -1578,11 +1574,7 @@ class GeminiAPI(commands.Cog):
                 continue
 
         # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
-        truncated_prompt = (
-            image_params.prompt[:2000] + "..."
-            if len(image_params.prompt) > 2000
-            else image_params.prompt
-        )
+        truncated_prompt = truncate_text(image_params.prompt, 2000)
         description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {image_params.model}\n"
         if attachment:
@@ -1635,11 +1627,7 @@ class GeminiAPI(commands.Cog):
 
         if text_response:
             # Truncate long text responses for the embed
-            truncated_text = (
-                text_response[:500] + "..."
-                if len(text_response) > 500
-                else text_response
-            )
+            truncated_text = truncate_text(text_response, 500)
             description += f"\n\n**AI Response:** {truncated_text}"
 
         embed = Embed(
@@ -1757,11 +1745,7 @@ class GeminiAPI(commands.Cog):
                 continue
 
         # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
-        truncated_prompt = (
-            video_params.prompt[:2000] + "..."
-            if len(video_params.prompt) > 2000
-            else video_params.prompt
-        )
+        truncated_prompt = truncate_text(video_params.prompt, 2000)
         description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {video_params.model}\n"
         if attachment:
