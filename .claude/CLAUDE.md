@@ -394,14 +394,14 @@ finally:
 
 ### Running Tests
 
-Tests must be run from the `src/` directory to ensure proper imports:
+Run tests from the project root using `PYTHONPATH` to ensure proper imports:
 
 ```bash
-# From project root
-cd src && python -m pytest ../tests/ -v
+# Windows PowerShell (with venv)
+PYTHONPATH=src .venv/Scripts/python.exe -m pytest tests/ -v
 
-# Or with the venv explicitly (Windows)
-cd src && ../.venv/Scripts/python -m pytest ../tests/ -v
+# Unix/macOS (with venv)
+PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 ```
 
 ### Test Structure
