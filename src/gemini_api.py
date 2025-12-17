@@ -416,7 +416,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "model",
-        description="Choose from the following Gemini models. (default: Gemini 3.0 Pro)",
+        description="Choose from the following Gemini models. (default: Gemini 3.0 Flash)",
         required=False,
         choices=[
             OptionChoice(name="Gemini 3.0 Pro", value="gemini-3-pro-preview"),
@@ -472,7 +472,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3-pro-preview",
+        model: str = "gemini-3-flash-preview",
         system_instruction: Optional[str] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
@@ -491,7 +491,7 @@ class GeminiAPI(commands.Cog):
         Args:
             ctx: Discord application context
             prompt: Initial conversation prompt or question
-            model: Gemini model variant (default: gemini-3-pro-preview)
+            model: Gemini model variant (default: gemini-3-flash-preview)
             system_instruction: Optional behavioral guidelines for the AI
             frequency_penalty: Controls repetition reduction (experimental)
             presence_penalty: Controls topic focus (experimental)

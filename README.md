@@ -11,7 +11,7 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 - **`/gemini converse`**: Have conversations with Gemini AI models
 - Support for multiple Gemini models:
-  - Gemini 3.0 Pro (Default), 3.0 Flash
+  - Gemini 3.0 Flash (Default), 3.0 Pro
   - Gemini 2.5 Pro, 2.5 Flash, 2.5 Flash Lite
   - Gemini 2.0 Flash, 2.0 Flash Lite
   - Legacy support for Gemini 1.5 models

@@ -42,8 +42,8 @@ discord-gemini/
 
 ### Text Generation Models (`/gemini converse`)
 
-- `gemini-3-pro-preview` - Gemini 3.0 Pro (default)
-- `gemini-3-flash-preview` - Gemini 3.0 Flash
+- `gemini-3-flash-preview` - Gemini 3.0 Flash (default)
+- `gemini-3-pro-preview` - Gemini 3.0 Pro
 - `gemini-2.5-pro` - State-of-the-art reasoning model
 - `gemini-2.5-flash` - Best price-performance
 - `gemini-2.5-flash-lite` - Ultra-fast, cost-efficient
@@ -163,7 +163,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Parameters**:
 
 - `prompt` (required): Initial message
-- `model`: Gemini model selection (default: gemini-3-pro-preview)
+- `model`: Gemini model selection (default: gemini-3-flash-preview)
 - `system_instruction`: Behavioral guidelines
 - `attachment`: Optional image for multimodal input
 - Advanced: `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `seed`
