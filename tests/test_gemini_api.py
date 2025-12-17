@@ -109,7 +109,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         """Test the Conversation dataclass."""
         from util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(model="gemini-3-pro-preview")
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
         history = [{"role": "user", "parts": [{"text": "Hello"}]}]
         conversation = self.Conversation(params=params, history=history)
 
