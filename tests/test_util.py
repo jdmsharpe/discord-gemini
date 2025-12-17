@@ -12,8 +12,8 @@ from util import (
 
 class TestChatCompletionParameters(unittest.TestCase):
     def test_default_values(self):
-        params = ChatCompletionParameters(model="gemini-3-pro-preview")
-        self.assertEqual(params.model, "gemini-3-pro-preview")
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
+        self.assertEqual(params.model, "gemini-3-flash-preview")
         self.assertIsNone(params.system_instruction)
         self.assertIsNone(params.frequency_penalty)
         self.assertIsNone(params.presence_penalty)
@@ -52,9 +52,9 @@ class TestChatCompletionParameters(unittest.TestCase):
 
     def test_history_default_isolated(self):
         """Test that history list is isolated between instances."""
-        params_one = ChatCompletionParameters(model="gemini-3-pro-preview")
+        params_one = ChatCompletionParameters(model="gemini-3-flash-preview")
         params_one.history.append({"role": "user", "parts": [{"text": "hello"}]})
-        params_two = ChatCompletionParameters(model="gemini-3-pro-preview")
+        params_two = ChatCompletionParameters(model="gemini-3-flash-preview")
         self.assertEqual(params_two.history, [])
         self.assertIsNot(params_one.history, params_two.history)
 
