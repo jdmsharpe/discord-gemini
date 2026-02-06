@@ -392,16 +392,22 @@ class GeminiAPI(commands.Cog):
         """
         self.logger.error(f"Error in event {event}: {args} {kwargs}", exc_info=True)
 
-    @command()
-    async def check_permissions(self, ctx):
+    @gemini.command(
+        name="check_permissions",
+        description="Check if bot has necessary permissions in this channel",
+    )
+    async def check_permissions(self, ctx: ApplicationContext):
         """
         Checks and reports the bot's permissions in the current channel.
         """
         permissions = ctx.channel.permissions_for(ctx.guild.me)
         if permissions.read_messages and permissions.read_message_history:
-            await ctx.send("Bot has permission to read messages and message history.")
+            await ctx.respond(
+                "Bot has permission to read messages and message history."
+            )
         else:
-            await ctx.send("Bot is missing necessary permissions in this channel.")
+            await ctx.respond("Bot is missing necessary permissions in this channel.")
+
 
     @gemini.command(
         name="converse",
