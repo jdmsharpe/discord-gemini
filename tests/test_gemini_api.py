@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from discord import Bot, Embed, Intents
 
@@ -26,11 +27,17 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         mock_client_instance.close = MagicMock()
 
         # Now import GeminiAPI after mocking
-        from gemini_api import GeminiAPI, Conversation, append_response_embeds
+        from gemini_api import (
+            GeminiAPI,
+            Conversation,
+            append_response_embeds,
+            extract_tool_info,
+        )
 
         self.GeminiAPI = GeminiAPI
         self.Conversation = Conversation
         self.append_response_embeds = append_response_embeds
+        self.extract_tool_info = extract_tool_info
 
         # Setting up the bot with the GeminiAPI cog
         intents = Intents.default()
@@ -87,6 +94,130 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         # Should truncate to ~19500 chars plus truncation message
         total_length = sum(len(e.description) for e in embeds)
         self.assertLess(total_length, 21000)  # Should be well under 25000
+
+    async def test_extract_tool_info_empty_output(self):
+        """Test extract_tool_info with empty candidates."""
+        response = SimpleNamespace(candidates=[])
+        tool_info = self.extract_tool_info(response)
+        self.assertEqual(tool_info["tools_used"], [])
+        self.assertEqual(tool_info["citations"], [])
+        self.assertEqual(tool_info["search_queries"], [])
+
+    async def test_extract_tool_info_google_search(self):
+        """Test extract_tool_info detects google_search and citations."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    grounding_metadata=SimpleNamespace(
+                        web_search_queries=["who won euro 2024"],
+                        grounding_chunks=[
+                            SimpleNamespace(
+                                web=SimpleNamespace(
+                                    uri="https://example.com/source",
+                                    title="Example Source",
+                                )
+                            )
+                        ],
+                        search_entry_point=None,
+                    ),
+                    content=SimpleNamespace(parts=[]),
+                )
+            ]
+        )
+
+        tool_info = self.extract_tool_info(response)
+        self.assertIn("google_search", tool_info["tools_used"])
+        self.assertEqual(tool_info["search_queries"], ["who won euro 2024"])
+        self.assertEqual(
+            tool_info["citations"],
+            [{"title": "Example Source", "uri": "https://example.com/source"}],
+        )
+
+    async def test_extract_tool_info_code_execution(self):
+        """Test extract_tool_info detects code_execution from response parts."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    grounding_metadata=None,
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(
+                                executable_code=SimpleNamespace(code="print(2 + 2)"),
+                                code_execution_result=None,
+                            )
+                        ]
+                    ),
+                )
+            ]
+        )
+
+        tool_info = self.extract_tool_info(response)
+        self.assertIn("code_execution", tool_info["tools_used"])
+        self.assertEqual(tool_info["citations"], [])
+        self.assertEqual(tool_info["search_queries"], [])
+
+    async def test_extract_tool_info_google_maps(self):
+        """Test extract_tool_info detects google_maps citations and widget token."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    grounding_metadata=SimpleNamespace(
+                        web_search_queries=[],
+                        grounding_chunks=[
+                            SimpleNamespace(
+                                maps=SimpleNamespace(
+                                    uri="https://maps.google.com/?cid=123",
+                                    title="Test Place",
+                                )
+                            )
+                        ],
+                        google_maps_widget_context_token="widgetcontent/token",
+                        search_entry_point=None,
+                    ),
+                    content=SimpleNamespace(parts=[]),
+                    url_context_metadata=None,
+                )
+            ]
+        )
+
+        tool_info = self.extract_tool_info(response)
+        self.assertIn("google_maps", tool_info["tools_used"])
+        self.assertEqual(
+            tool_info["citations"],
+            [{"title": "Test Place", "uri": "https://maps.google.com/?cid=123"}],
+        )
+        self.assertEqual(tool_info["maps_widget_token"], "widgetcontent/token")
+
+    async def test_extract_tool_info_url_context(self):
+        """Test extract_tool_info detects url_context metadata."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    grounding_metadata=None,
+                    content=SimpleNamespace(parts=[]),
+                    url_context_metadata=SimpleNamespace(
+                        url_metadata=[
+                            SimpleNamespace(
+                                retrieved_url="https://example.com/a",
+                                url_retrieval_status="URL_RETRIEVAL_STATUS_SUCCESS",
+                            )
+                        ]
+                    ),
+                )
+            ]
+        )
+
+        tool_info = self.extract_tool_info(response)
+        self.assertIn("url_context", tool_info["tools_used"])
+        self.assertEqual(
+            tool_info["url_context_sources"],
+            [
+                {
+                    "retrieved_url": "https://example.com/a",
+                    "status": "URL_RETRIEVAL_STATUS_SUCCESS",
+                }
+            ],
+        )
 
     async def test_get_http_session_creates_session(self):
         """Test that _get_http_session creates a new session."""

@@ -1,6 +1,14 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from discord.ui import Select
+
+from util import (
+    AVAILABLE_TOOLS,
+    TOOL_GOOGLE_SEARCH,
+    TOOL_URL_CONTEXT,
+)
+
 
 class TestButtonView(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -25,6 +33,96 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.view.cog, self.cog)
         self.assertEqual(self.view.conversation_starter, self.conversation_starter)
         self.assertEqual(self.view.conversation_id, self.conversation_id)
+        tool_selects = [item for item in self.view.children if isinstance(item, Select)]
+        self.assertEqual(len(tool_selects), 1)
+        self.assertEqual(tool_selects[0].max_values, 4)
+
+    async def test_init_with_initial_tools(self):
+        """Test that initial_tools marks matching select options as default."""
+        from button_view import ButtonView
+
+        view = ButtonView(
+            self.cog,
+            self.conversation_starter,
+            self.conversation_id,
+            initial_tools=[TOOL_GOOGLE_SEARCH],
+        )
+        tool_select = next(item for item in view.children if isinstance(item, Select))
+        defaults = {option.value: option.default for option in tool_select.options}
+        self.assertTrue(defaults["google_search"])
+        self.assertFalse(defaults["code_execution"])
+        self.assertFalse(defaults["google_maps"])
+        self.assertFalse(defaults["url_context"])
+
+    async def test_tool_select_callback_updates_tools(self):
+        """Test that tool selection updates conversation params tools."""
+        conversation = MagicMock()
+        conversation.params = MagicMock()
+        conversation.params.tools = []
+        conversation.params.model = "gemini-2.5-flash"
+        self.cog.conversations[self.conversation_id] = conversation
+
+        interaction = MagicMock()
+        interaction.user = self.conversation_starter
+        interaction.data = {"values": ["google_search", "code_execution"]}
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await self.view.tool_select_callback(interaction)
+
+        self.assertEqual(
+            conversation.params.tools,
+            [
+                AVAILABLE_TOOLS["google_search"],
+                AVAILABLE_TOOLS["code_execution"],
+            ],
+        )
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args.kwargs
+        call_args = interaction.response.send_message.call_args.args
+        message = call_args[0] if call_args else call_kwargs.get("content", "")
+        self.assertIn("Tools updated", message)
+        self.assertTrue(call_kwargs.get("ephemeral", False))
+
+    async def test_tool_select_callback_filters_incompatible_tools(self):
+        """Test that incompatible tools are skipped for the selected model."""
+        conversation = MagicMock()
+        conversation.params = MagicMock()
+        conversation.params.tools = []
+        conversation.params.model = "gemini-3-flash-preview"
+        self.cog.conversations[self.conversation_id] = conversation
+
+        interaction = MagicMock()
+        interaction.user = self.conversation_starter
+        interaction.data = {"values": ["google_maps", "url_context"]}
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await self.view.tool_select_callback(interaction)
+
+        self.assertEqual(conversation.params.tools, [TOOL_URL_CONTEXT])
+        call_kwargs = interaction.response.send_message.call_args.kwargs
+        call_args = interaction.response.send_message.call_args.args
+        message = call_args[0] if call_args else call_kwargs.get("content", "")
+        self.assertIn("Skipped", message)
+        self.assertIn("google_maps", message)
+
+    async def test_tool_select_callback_wrong_user(self):
+        """Test that tool selection rejects non-conversation starters."""
+        interaction = MagicMock()
+        interaction.user = MagicMock()
+        interaction.data = {"values": ["google_search"]}
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await self.view.tool_select_callback(interaction)
+
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args.kwargs
+        call_args = interaction.response.send_message.call_args.args
+        message = call_args[0] if call_args else call_kwargs.get("content", "")
+        self.assertIn("not allowed", message)
+        self.assertTrue(call_kwargs.get("ephemeral", False))
 
     async def test_regenerate_button_wrong_user(self):
         """Test that regenerate button rejects non-conversation starters."""

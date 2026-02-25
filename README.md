@@ -16,7 +16,35 @@ All commands are grouped under `/gemini` for clean namespacing.
   - Gemini 2.0 Flash, 2.0 Flash Lite
   - Legacy support for Gemini 1.5 models
 - Persistent conversation history with button controls
+- Built-in tool calling support:
+  - `google_search`
+  - `code_execution`
+  - `google_maps` (model-dependent)
+  - `url_context` (model-dependent)
+- Tools can be enabled:
+  - In the initial slash command options
+  - Mid-conversation via the tool select dropdown
+- Tool/model compatibility is enforced automatically (unsupported tools are skipped with a user-visible message)
+- Responses can include a Sources embed with:
+  - Web and Maps citations
+  - Search queries
+  - URL Context retrieval metadata
 - Multimodal support (text + images)
+
+### Converse Tool Compatibility
+
+Tool compatibility varies by model for some built-in tools:
+
+- `google_search`: all models
+- `code_execution`: all models
+- `google_maps`: compatible with gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash
+- `url_context`: compatible with gemini-3-pro-preview, gemini-3-flash-preview, gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite
+
+Notes:
+
+- `google_search` and `code_execution` are available as general built-in tools.
+- If a selected model does not support a chosen tool, the bot automatically omits that tool for the request.
+- `google_maps` is no longer supported by Gemini 3 onward.
 
 ### Image Generation
 
@@ -72,8 +100,8 @@ All commands are grouped under `/gemini` for clean namespacing.
 ## Requirements
 
 - Python 3.10+
-- google-genai ~1.52
-- py-cord ~2.6
+- google-genai ~1.64
+- py-cord ~2.7
 - Pillow ~12.0
 - python-dotenv ~1.2
 

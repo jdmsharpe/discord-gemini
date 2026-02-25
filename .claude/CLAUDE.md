@@ -90,9 +90,11 @@ discord-gemini/
 2. **ButtonView** (`src/button_view.py`)
    - Handles interactive UI buttons for conversations
    - Provides pause, resume, regenerate, and end conversation controls
+   - Provides a tool select menu for Google Search and Code Execution toggling
 
 3. **Utility Classes** (`src/util.py`)
-   - `ChatCompletionParameters`: Conversation state
+   - `ChatCompletionParameters`: Conversation state (includes `tools` list for built-in tool config)
+   - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `AVAILABLE_TOOLS`
    - `ImageGenerationParameters`: Image generation config
    - `VideoGenerationParameters`: Video generation config
    - `SpeechGenerationParameters`: TTS config
@@ -162,10 +164,14 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Purpose**: Multi-turn conversations with context preservation
 **Parameters**:
 
+- Total parameters: 11 (1 required + 10 optional)
+
 - `prompt` (required): Initial message
 - `model`: Gemini model selection (default: gemini-3-flash-preview)
 - `system_instruction`: Behavioral guidelines
 - `attachment`: Optional image for multimodal input
+- `google_search`: Enable grounding with Google Search
+- `code_execution`: Enable built-in code execution
 - Advanced: `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `seed`
 
 **Implementation Notes**:
@@ -173,6 +179,8 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - Stores conversation in `self.conversations` dict
 - Uses `on_message` listener to handle follow-ups
 - Button controls pause/resume conversation
+- Tool select menu updates `conversation.params.tools` mid-conversation
+- Grounded responses may include a "Sources" embed built from `grounding_metadata`
 
 ### `/gemini image`
 
@@ -318,22 +326,22 @@ await ctx.send_followup(embed=embed, files=[File(path)])
 
 Discord enforces strict limits on embed content. The bot handles these automatically:
 
-| Limit | Value |
-|-------|-------|
-| Embed description | 4096 chars |
-| Total embed content | 6000 chars |
+| Limit               | Value       |
+|---------------------|-------------|
+| Embed description   | 4096 chars  |
+| Total embed content | 6000 chars  |
 
 **Truncation strategy by command:**
 
-| Command | Field | Limit | Reason |
-|---------|-------|-------|--------|
-| converse | user prompt | 2000 chars | Leave room for metadata |
-| converse | model response | 3500 char chunks | Via `append_response_embeds()` |
-| image | user prompt | 2000 chars | Leave room for metadata |
-| image | model text response | 3800 chars | When no images generated |
-| video | user prompt | 2000 chars | Leave room for metadata |
-| tts | input text | 500 chars | Displayed in embed summary |
-| music | user prompt | 2000 chars | Leave room for metadata |
+| Command   | Field               | Limit             | Reason                          |
+|-----------|---------------------|-------------------|---------------------------------|
+| converse  | user prompt         | 2000 chars        | Leave room for metadata         |
+| converse  | model response      | 3500 char chunks  | Via `append_response_embeds()`  |
+| image     | user prompt         | 2000 chars        | Leave room for metadata         |
+| image     | model text response | 3800 chars        | When no images generated        |
+| video     | user prompt         | 2000 chars        | Leave room for metadata         |
+| tts       | input text          | 500 chars         | Displayed in embed summary      |
+| music     | user prompt         | 2000 chars        | Leave room for metadata         |
 
 **Key functions:**
 
@@ -407,11 +415,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (43 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`).
+- **`test_util.py`** (44 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`), including conversation tools state coverage.
 
-- **`test_button_view.py`** (9 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) including user permission checks and conversation state management.
+- **`test_button_view.py`** (12 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior.
 
-- **`test_gemini_api.py`** (21 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, and image generation text/prompt truncation.
+- **`test_gemini_api.py`** (24 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, and tool metadata extraction.
 
 ### CI Pipeline
 
@@ -467,6 +475,7 @@ When making changes, also manually test:
 ### Issue: "Invalid Form Body - embed description must be 4096 or fewer" error
 
 **Solution**: All commands now automatically truncate content to fit Discord's 4096 character embed limit:
+
 - **User prompts**: Truncated to 2000 characters (with "..." indicator)
 - **Model text responses**: Truncated to 3800 characters (with "..." indicator)
 - This applies to all `/gemini` commands: converse, image, video, tts, music
@@ -486,6 +495,15 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### February 2026 - Converse Tool Calling
+
+- Added built-in Gemini tool support to `/gemini converse`:
+  - `google_search` slash option
+  - `code_execution` slash option
+- Added tool select dropdown in `ButtonView` for mid-conversation toggling
+- Added `tools` to `ChatCompletionParameters` for persisted per-conversation tool state
+- Added response tool metadata parsing and optional "Sources" embed for grounded citations
 
 ### December 2025 - Image Generation Fixes
 

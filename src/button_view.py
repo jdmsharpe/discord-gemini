@@ -1,14 +1,18 @@
-from typing import Union, TYPE_CHECKING, cast
+from copy import deepcopy
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union, cast
 
 from discord import (
     ButtonStyle,
     Interaction,
     Member,
+    SelectOption,
     TextChannel,
     User,
 )
-from discord.ui import button, Button, View
+from discord.ui import Button, Select, View, button
 import logging
+
+from util import AVAILABLE_TOOLS, filter_supported_tools_for_model, resolve_tool_name
 
 if TYPE_CHECKING:
     from gemini_api import GeminiAPI
@@ -20,6 +24,7 @@ class ButtonView(View):
         cog: "GeminiAPI",
         conversation_starter: Union[Member, User],
         conversation_id: int,
+        initial_tools: Optional[List[Dict[str, Any]]] = None,
     ):
         """
         Initialize the ButtonView class.
@@ -28,8 +33,110 @@ class ButtonView(View):
         self.cog = cog
         self.conversation_starter = conversation_starter
         self.conversation_id = conversation_id
+        self._add_tool_select(initial_tools or [])
 
-    @button(emoji="🔄", style=ButtonStyle.green)
+    def _add_tool_select(self, initial_tools: List[Dict[str, Any]]) -> None:
+        selected_tools = {
+            tool_name
+            for tool_name, tool_config in AVAILABLE_TOOLS.items()
+            if tool_config in initial_tools
+        }
+        tool_select = Select(
+            placeholder="Toggle conversation tools",
+            min_values=0,
+            max_values=4,
+            row=1,
+            options=[
+                SelectOption(
+                    label="Google Search",
+                    value="google_search",
+                    description="Ground answers with live web results.",
+                    default="google_search" in selected_tools,
+                ),
+                SelectOption(
+                    label="Code Execution",
+                    value="code_execution",
+                    description="Run Python code for calculations.",
+                    default="code_execution" in selected_tools,
+                ),
+                SelectOption(
+                    label="Google Maps",
+                    value="google_maps",
+                    description="Ground answers with Maps place data.",
+                    default="google_maps" in selected_tools,
+                ),
+                SelectOption(
+                    label="URL Context",
+                    value="url_context",
+                    description="Retrieve and analyze provided URLs.",
+                    default="url_context" in selected_tools,
+                ),
+            ],
+        )
+        tool_select.callback = self.tool_select_callback
+        self.add_item(tool_select)
+
+    async def tool_select_callback(self, interaction: Interaction):
+        """
+        Toggle tool availability for this conversation.
+        """
+        if interaction.user != self.conversation_starter:
+            await interaction.response.send_message(
+                "You are not allowed to change tools for this conversation.",
+                ephemeral=True,
+            )
+            return
+
+        conversation = self.cog.conversations.get(self.conversation_id)
+        if conversation is None:
+            await interaction.response.send_message(
+                "No active conversation found.", ephemeral=True
+            )
+            return
+
+        selected_values: List[str] = []
+        if isinstance(interaction.data, dict):
+            raw_values = interaction.data.get("values", [])
+            if isinstance(raw_values, list):
+                selected_values = [
+                    value for value in raw_values if value in AVAILABLE_TOOLS
+                ]
+
+        requested_tools = [
+            deepcopy(AVAILABLE_TOOLS[tool_name]) for tool_name in selected_values
+        ]
+        supported_tools, unsupported_tools = filter_supported_tools_for_model(
+            conversation.params.model, requested_tools
+        )
+        conversation.params.tools = supported_tools
+        selected_tool_names = {
+            resolve_tool_name(tool_config)
+            for tool_config in supported_tools
+            if resolve_tool_name(tool_config) is not None
+        }
+
+        for child in self.children:
+            if isinstance(child, Select):
+                for option in child.options:
+                    option.default = option.value in selected_tool_names
+                break
+
+        if selected_tool_names:
+            tool_names = ", ".join(sorted(selected_tool_names))
+            message = f"Tools updated: {tool_names}."
+        else:
+            message = "Tools disabled for this conversation."
+        if unsupported_tools:
+            unsupported_text = ", ".join(sorted(set(unsupported_tools)))
+            message += (
+                f" Skipped for model `{conversation.params.model}`: {unsupported_text}."
+            )
+
+        await interaction.response.send_message(
+            message, ephemeral=True, delete_after=3
+        )
+
+    @button(emoji="🔄", style=ButtonStyle.green, row=0)
     async def regenerate_button(self, _: Button, interaction: Interaction):
         """
         Regenerate the last response for the current conversation.
@@ -118,7 +225,7 @@ class ButtonView(View):
                     "An error occurred while regenerating the response.", ephemeral=True
                 )
 
-    @button(emoji="⏯️", style=ButtonStyle.gray)
+    @button(emoji="⏯️", style=ButtonStyle.gray, row=0)
     async def play_pause_button(self, button: Button, interaction: Interaction):
         """
         Pause or resume the conversation.
@@ -148,7 +255,7 @@ class ButtonView(View):
                 "No active conversation found.", ephemeral=True
             )
 
-    @button(emoji="⏹️", style=ButtonStyle.blurple)
+    @button(emoji="⏹️", style=ButtonStyle.blurple, row=0)
     async def stop_button(self, button: Button, interaction: Interaction):
         """
         End the conversation.
