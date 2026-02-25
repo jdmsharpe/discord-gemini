@@ -1,6 +1,11 @@
 import unittest
 from util import (
+    TOOL_CODE_EXECUTION,
+    TOOL_GOOGLE_MAPS,
+    TOOL_GOOGLE_SEARCH,
+    TOOL_URL_CONTEXT,
     ChatCompletionParameters,
+    filter_supported_tools_for_model,
     ImageGenerationParameters,
     VideoGenerationParameters,
     SpeechGenerationParameters,
@@ -25,6 +30,7 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertIsNone(params.channel_id)
         self.assertFalse(params.paused)
         self.assertEqual(params.history, [])
+        self.assertEqual(params.tools, [])
 
     def test_all_parameters(self):
         params = ChatCompletionParameters(
@@ -38,6 +44,12 @@ class TestChatCompletionParameters(unittest.TestCase):
             conversation_id=123456,
             channel_id=789012,
             paused=True,
+            tools=[
+                TOOL_GOOGLE_SEARCH,
+                TOOL_CODE_EXECUTION,
+                TOOL_GOOGLE_MAPS,
+                TOOL_URL_CONTEXT,
+            ],
         )
         self.assertEqual(params.model, "gemini-2.5-flash")
         self.assertEqual(params.system_instruction, "You are a helpful assistant.")
@@ -49,6 +61,15 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertEqual(params.conversation_id, 123456)
         self.assertEqual(params.channel_id, 789012)
         self.assertTrue(params.paused)
+        self.assertEqual(
+            params.tools,
+            [
+                TOOL_GOOGLE_SEARCH,
+                TOOL_CODE_EXECUTION,
+                TOOL_GOOGLE_MAPS,
+                TOOL_URL_CONTEXT,
+            ],
+        )
 
     def test_history_default_isolated(self):
         """Test that history list is isolated between instances."""
@@ -57,6 +78,31 @@ class TestChatCompletionParameters(unittest.TestCase):
         params_two = ChatCompletionParameters(model="gemini-3-flash-preview")
         self.assertEqual(params_two.history, [])
         self.assertIsNot(params_one.history, params_two.history)
+
+    def test_tools_default_isolated(self):
+        """Test that tools list is isolated between instances."""
+        params_one = ChatCompletionParameters(model="gemini-3-flash-preview")
+        params_one.tools.append(TOOL_GOOGLE_SEARCH)
+        params_two = ChatCompletionParameters(model="gemini-3-flash-preview")
+        self.assertEqual(params_two.tools, [])
+        self.assertIsNot(params_one.tools, params_two.tools)
+
+    def test_filter_supported_tools_for_model(self):
+        """Test model-based filtering for tool compatibility."""
+        tools = [
+            TOOL_GOOGLE_SEARCH,
+            TOOL_CODE_EXECUTION,
+            TOOL_GOOGLE_MAPS,
+            TOOL_URL_CONTEXT,
+        ]
+        supported, unsupported = filter_supported_tools_for_model(
+            "gemini-3-flash-preview", tools
+        )
+        self.assertEqual(
+            supported,
+            [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION, TOOL_URL_CONTEXT],
+        )
+        self.assertEqual(unsupported, ["google_maps"])
 
 
 class TestImageGenerationParameters(unittest.TestCase):

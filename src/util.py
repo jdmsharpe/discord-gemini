@@ -1,7 +1,36 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Union
+from copy import deepcopy
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from discord import Member, User
+
+TOOL_GOOGLE_SEARCH = {"google_search": {}}
+TOOL_CODE_EXECUTION = {"code_execution": {}}
+TOOL_GOOGLE_MAPS = {"google_maps": {}}
+TOOL_URL_CONTEXT = {"url_context": {}}
+AVAILABLE_TOOLS = {
+    "google_search": TOOL_GOOGLE_SEARCH,
+    "code_execution": TOOL_CODE_EXECUTION,
+    "google_maps": TOOL_GOOGLE_MAPS,
+    "url_context": TOOL_URL_CONTEXT,
+}
+
+# Model-specific compatibility constraints for tools that are not universally supported.
+TOOL_MODEL_COMPATIBILITY: Dict[str, Set[str]] = {
+    "google_maps": {
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+    },
+    "url_context": {
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    },
+}
 
 
 @dataclass
@@ -19,7 +48,8 @@ class ChatCompletionParameters:
     conversation_id: Optional[int] = None
     channel_id: Optional[int] = None
     paused: Optional[bool] = False
-    history: List[Dict[str, str]] = field(default_factory=list)
+    history: List[Dict[str, Any]] = field(default_factory=list)
+    tools: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -216,6 +246,41 @@ class EmbeddingParameters:
     prompt: str
     model: str = "gemini-embedding-exp"
     model_options: Literal["gemini-embedding-exp"] = "gemini-embedding-exp"
+
+
+def resolve_tool_name(tool_config: Dict[str, Any]) -> Optional[str]:
+    """
+    Resolve a tool config dictionary back to its canonical tool name.
+    """
+    for tool_name, available_config in AVAILABLE_TOOLS.items():
+        if tool_config == available_config:
+            return tool_name
+    return None
+
+
+def filter_supported_tools_for_model(
+    model: str, tools: List[Dict[str, Any]]
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Return model-compatible tools and a list of unsupported tool names.
+    """
+    supported_tools: List[Dict[str, Any]] = []
+    unsupported_tools: List[str] = []
+
+    for tool_config in tools:
+        tool_name = resolve_tool_name(tool_config)
+        if tool_name is None:
+            supported_tools.append(deepcopy(tool_config))
+            continue
+
+        supported_models = TOOL_MODEL_COMPATIBILITY.get(tool_name)
+        if supported_models is not None and model not in supported_models:
+            unsupported_tools.append(tool_name)
+            continue
+
+        supported_tools.append(deepcopy(tool_config))
+
+    return supported_tools, unsupported_tools
 
 
 def chunk_text(text: str, chunk_size: int = 4096) -> List[str]:
