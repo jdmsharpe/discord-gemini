@@ -19,7 +19,7 @@ All commands are grouped under `/gemini` for clean namespacing.
 - Built-in tool calling support:
   - `google_search`
   - `code_execution`
-  - `google_maps` (model-dependent)
+  - `google_maps` (model-dependent, no longer supported by Gemini 3 onward)
   - `url_context` (model-dependent)
 - Tools can be enabled:
   - In the initial slash command options
@@ -30,21 +30,6 @@ All commands are grouped under `/gemini` for clean namespacing.
   - Search queries
   - URL Context retrieval metadata
 - Multimodal support (text + images)
-
-### Converse Tool Compatibility
-
-Tool compatibility varies by model for some built-in tools:
-
-- `google_search`: all models
-- `code_execution`: all models
-- `google_maps`: compatible with gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash
-- `url_context`: compatible with gemini-3-pro-preview, gemini-3-flash-preview, gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite
-
-Notes:
-
-- `google_search` and `code_execution` are available as general built-in tools.
-- If a selected model does not support a chosen tool, the bot automatically omits that tool for the request.
-- `google_maps` is no longer supported by Gemini 3 onward.
 
 ### Image Generation
 

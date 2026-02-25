@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from discord import (
     ButtonStyle,
@@ -9,19 +9,16 @@ from discord import (
     TextChannel,
     User,
 )
-from discord.ui import Button, Select, View, button
 import logging
+from discord.ui import Button, Select, View, button
 
 from util import AVAILABLE_TOOLS, filter_supported_tools_for_model, resolve_tool_name
-
-if TYPE_CHECKING:
-    from gemini_api import GeminiAPI
 
 
 class ButtonView(View):
     def __init__(
         self,
-        cog: "GeminiAPI",
+        cog: Any,
         conversation_starter: Union[Member, User],
         conversation_id: int,
         initial_tools: Optional[List[Dict[str, Any]]] = None,
@@ -110,9 +107,9 @@ class ButtonView(View):
         )
         conversation.params.tools = supported_tools
         selected_tool_names = {
-            resolve_tool_name(tool_config)
+            tool_name
             for tool_config in supported_tools
-            if resolve_tool_name(tool_config) is not None
+            if (tool_name := resolve_tool_name(tool_config)) is not None
         }
 
         for child in self.children:
@@ -132,9 +129,7 @@ class ButtonView(View):
                 f" Skipped for model `{conversation.params.model}`: {unsupported_text}."
             )
 
-        await interaction.response.send_message(
-            message, ephemeral=True, delete_after=3
-        )
+        await interaction.response.send_message(message, ephemeral=True, delete_after=3)
 
     @button(emoji="🔄", style=ButtonStyle.green, row=0)
     async def regenerate_button(self, _: Button, interaction: Interaction):
