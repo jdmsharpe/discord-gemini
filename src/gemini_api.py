@@ -634,6 +634,7 @@ class GeminiAPI(commands.Cog):
         description="Choose from the following Gemini models. (default: Gemini 3.0 Flash)",
         required=False,
         choices=[
+            OptionChoice(name="Gemini 3.1 Pro", value="gemini-3.1-pro-preview"),
             OptionChoice(name="Gemini 3.0 Flash", value="gemini-3-flash-preview"),
             OptionChoice(name="Gemini 3.0 Pro", value="gemini-3-pro-preview"),
             OptionChoice(name="Gemini 2.5 Pro", value="gemini-2.5-pro"),

@@ -24,6 +24,7 @@ TOOL_MODEL_COMPATIBILITY: Dict[str, Set[str]] = {
         "gemini-2.0-flash",
     },
     "url_context": {
+        "gemini-3.1-pro-preview",
         "gemini-3-pro-preview",
         "gemini-3-flash-preview",
         "gemini-2.5-pro",
