@@ -33,16 +33,17 @@ discord-gemini/
 
 ## Core Dependencies
 
-- **google-genai** ~1.48: Google's Gemini API client library
+- **google-genai** ~1.65: Google's Gemini API client library
 - **py-cord** ~2.6: Discord bot framework (fork of discord.py)
 - **Pillow** ~12.0: Image processing library
 - **aiohttp**: Async HTTP client for downloading attachments
 
-## Available Models (As of December 2025)
+## Available Models (As of February 2026)
 
 ### Text Generation Models (`/gemini converse`)
 
-- `gemini-3-flash-preview` - Gemini 3.0 Flash (default)
+- `gemini-3.1-pro-preview` - Gemini 3.1 Pro (default)
+- `gemini-3-flash-preview` - Gemini 3.0 Flash
 - `gemini-3-pro-preview` - Gemini 3.0 Pro
 - `gemini-2.5-pro` - State-of-the-art reasoning model
 - `gemini-2.5-flash` - Best price-performance
@@ -167,7 +168,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - Total parameters: 11 (1 required + 10 optional)
 
 - `prompt` (required): Initial message
-- `model`: Gemini model selection (default: gemini-3-flash-preview)
+- `model`: Gemini model selection (default: gemini-3.1-pro-preview)
 - `system_instruction`: Behavioral guidelines
 - `attachment`: Optional image for multimodal input
 - `google_search`: Enable grounding with Google Search
@@ -522,6 +523,11 @@ If you see truncated content, either shorten your input or the model returned an
 - Removed deprecated Imagen 3 (no longer available in API)
 - Improved resource cleanup in `cog_unload()` with proper client shutdown
 
+### February 2026 - Gemini 3.1 Pro
+
+- Added `gemini-3.1-pro-preview` for text generation (new default)
+- Updated google-genai from ~1.64 to ~1.65
+
 ### November 2025 - Gemini 3.0 Pro
 
 - Added `gemini-3-pro-preview` for text generation (new default)
@@ -567,5 +573,5 @@ python src/bot.py
 
 ---
 
-**Last Updated**: December 2025
+**Last Updated**: February 2026
 **Maintained by**: AI Assistant (Claude)
