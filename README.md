@@ -35,7 +35,8 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 - **`/gemini image`**: Generate images from text prompts
 - Multiple model options:
-  - Gemini 3.0 Pro Image (Default)
+  - Gemini 3.1 Flash Image (Default)
+  - Gemini 3.0 Pro Image
   - Gemini 2.5 Flash Image
   - Imagen 4, 4 Ultra, and 4 Fast
 - Multiple aspect ratios and image count options (1-4 images)

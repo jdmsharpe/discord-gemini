@@ -56,7 +56,8 @@ discord-gemini/
 
 ### Image Generation Models (`/gemini image`)
 
-- `gemini-3-pro-image-preview` - Gemini 3.0 Pro Image (default, supports editing)
+- `gemini-3.1-flash-image-preview` - Gemini 3.1 Flash Image (default, supports editing)
+- `gemini-3-pro-image-preview` - Gemini 3.0 Pro Image (supports editing)
 - `gemini-2.5-flash-image` - Gemini 2.5 Flash Image (supports editing)
 - `imagen-4.0-generate-001` - Imagen 4 standard
 - `imagen-4.0-ultra-generate-001` - Imagen 4 ultra quality
@@ -496,6 +497,10 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - Gemini 3.1 Flash Image Release
+
+- Added `gemini-3.1-flash-image-preview` for image generation (new default)
 
 ### February 2026 - Converse Tool Calling
 
