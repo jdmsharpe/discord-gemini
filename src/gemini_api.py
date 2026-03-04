@@ -977,9 +977,10 @@ class GeminiAPI(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Choose between Gemini or Imagen models. (default: Gemini 3.0 Pro Image)",
+        description="Choose between Gemini or Imagen models. (default: Gemini 3.1 Flash Image Preview)",
         required=False,
         choices=[
+            OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"),
             OptionChoice(
                 name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"
             ),
@@ -1052,7 +1053,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3-pro-image-preview",
+        model: str = "gemini-3.1-flash-image-preview",
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         person_generation: str = "allow_adult",
