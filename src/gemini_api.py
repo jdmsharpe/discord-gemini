@@ -74,8 +74,7 @@ class ToolInfo(TypedDict):
 
 
 class PermissionAwareChannel(Protocol):
-    def permissions_for(self, member: Any) -> Any:
-        ...
+    def permissions_for(self, member: Any) -> Any: ...
 
 
 def append_response_embeds(embeds, response_text):
@@ -182,9 +181,7 @@ def extract_tool_info(response) -> ToolInfo:
 
     url_context_metadata = getattr(candidate, "url_context_metadata", None)
     if url_context_metadata is not None:
-        url_metadata_entries = (
-            getattr(url_context_metadata, "url_metadata", None) or []
-        )
+        url_metadata_entries = getattr(url_context_metadata, "url_metadata", None) or []
         parsed_sources: List[UrlContextInfo] = []
         for entry in url_metadata_entries:
             retrieved_url = getattr(entry, "retrieved_url", None)
@@ -237,9 +234,7 @@ def append_sources_embed(embeds: List[Embed], tool_info: ToolInfo) -> None:
             "\n\n**Maps Widget:** `google_maps_widget_context_token` returned."
         )
 
-    embeds.append(
-        Embed(title="Sources", description=description, color=Colour.blue())
-    )
+    embeds.append(Embed(title="Sources", description=description, color=Colour.blue()))
 
 
 class GeminiAPI(commands.Cog):
@@ -617,7 +612,6 @@ class GeminiAPI(commands.Cog):
         else:
             await ctx.respond("Bot is missing necessary permissions in this channel.")
 
-
     @gemini.command(
         name="converse",
         description="Starts a conversation with a model.",
@@ -880,24 +874,15 @@ class GeminiAPI(commands.Cog):
             description += f"**Temperature:** {temperature}\n" if temperature else ""
             description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
             requested_tool_labels = [
-                name
-                for name, (enabled, _) in selected_tool_names.items()
-                if enabled
+                name for name, (enabled, _) in selected_tool_names.items() if enabled
             ]
             active_tool_labels = [
-                resolve_tool_name(tool_config) or "unknown"
-                for tool_config in tools
+                resolve_tool_name(tool_config) or "unknown" for tool_config in tools
             ]
-            description += (
-                f"**Tools Requested:** {', '.join(requested_tool_labels) if requested_tool_labels else 'none'}\n"
-            )
-            description += (
-                f"**Tools Active:** {', '.join(active_tool_labels) if active_tool_labels else 'none'}\n"
-            )
+            description += f"**Tools Requested:** {', '.join(requested_tool_labels) if requested_tool_labels else 'none'}\n"
+            description += f"**Tools Active:** {', '.join(active_tool_labels) if active_tool_labels else 'none'}\n"
             if unsupported_tools:
-                description += (
-                    f"**Tools Skipped (model unsupported):** {', '.join(sorted(set(unsupported_tools)))}\n"
-                )
+                description += f"**Tools Skipped (model unsupported):** {', '.join(sorted(set(unsupported_tools)))}\n"
 
             # Assemble all embeds for a single message
             embeds = [
@@ -978,10 +963,12 @@ class GeminiAPI(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Choose between Gemini or Imagen models. (default: Gemini 3.1 Flash Image Preview)",
+        description="Choose between Gemini or Imagen models. (default: Gemini 3.1 Flash Image)",
         required=False,
         choices=[
-            OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"),
+            OptionChoice(
+                name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"
+            ),
             OptionChoice(
                 name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"
             ),
@@ -1162,9 +1149,7 @@ class GeminiAPI(commands.Cog):
                     truncated_text = truncate_text(text_response, 3800)
                     embed_description += f"Text response: {truncated_text}\n"
                 elif is_gemini_model:
-                    embed_description += (
-                        f"Try asking explicitly for image generation (e.g., 'a red car').\n"
-                    )
+                    embed_description += f"Try asking explicitly for image generation (e.g., 'a red car').\n"
                 else:
                     embed_description += f"Imagen models should generate images. Check your prompt or try different parameters.\n"
 
