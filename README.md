@@ -9,7 +9,7 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 ### Text Generation
 
-- **`/gemini converse`**: Have conversations with Gemini AI models
+- **`/gemini chat`**: Have conversations with Gemini AI models
 - Support for multiple Gemini models:
   - Gemini 3.1 Pro (Default), 3.0 Flash, 3.0 Pro
   - Gemini 2.5 Pro, 2.5 Flash, 2.5 Flash Lite
