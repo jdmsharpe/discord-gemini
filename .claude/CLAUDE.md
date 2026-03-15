@@ -40,7 +40,7 @@ discord-gemini/
 
 ## Available Models (As of February 2026)
 
-### Text Generation Models (`/gemini converse`)
+### Text Generation Models (`/gemini chat`)
 
 - `gemini-3.1-pro-preview` - Gemini 3.1 Pro (default)
 - `gemini-3.1-flash-lite-preview` - Gemini 3.1 Flash Lite
@@ -160,9 +160,9 @@ typing_task.cancel()
 
 ## Slash Commands Reference
 
-All commands are grouped under `/gemini` using `SlashCommandGroup` for clean namespacing. This allows multiple AI provider bots to coexist (e.g., `/gemini converse` vs `/openai converse`).
+All commands are grouped under `/gemini` using `SlashCommandGroup` for clean namespacing. This allows multiple AI provider bots to coexist (e.g., `/gemini chat` vs `/openai chat`).
 
-### `/gemini converse`
+### `/gemini chat`
 
 **Purpose**: Multi-turn conversations with context preservation
 **Parameters**:
@@ -338,8 +338,8 @@ Discord enforces strict limits on embed content. The bot handles these automatic
 
 | Command   | Field               | Limit             | Reason                          |
 |-----------|---------------------|-------------------|---------------------------------|
-| converse  | user prompt         | 2000 chars        | Leave room for metadata         |
-| converse  | model response      | 3500 char chunks  | Via `append_response_embeds()`  |
+| chat      | user prompt         | 2000 chars        | Leave room for metadata         |
+| chat      | model response      | 3500 char chunks  | Via `append_response_embeds()`  |
 | image     | user prompt         | 2000 chars        | Leave room for metadata         |
 | image     | model text response | 3800 chars        | When no images generated        |
 | video     | user prompt         | 2000 chars        | Leave room for metadata         |
@@ -481,7 +481,7 @@ When making changes, also manually test:
 
 - **User prompts**: Truncated to 2000 characters (with "..." indicator)
 - **Model text responses**: Truncated to 3800 characters (with "..." indicator)
-- This applies to all `/gemini` commands: converse, image, video, tts, music
+- This applies to all `/gemini` commands: chat, image, video, tts, music
 
 If you see truncated content, either shorten your input or the model returned an unusually long response.
 
@@ -503,9 +503,9 @@ If you see truncated content, either shorten your input or the model returned an
 
 - Added `gemini-3.1-flash-image-preview` for image generation (new default)
 
-### February 2026 - Converse Tool Calling
+### February 2026 - Chat Tool Calling
 
-- Added built-in Gemini tool support to `/gemini converse`:
+- Added built-in Gemini tool support to `/gemini chat`:
   - `google_search` slash option
   - `code_execution` slash option
 - Added tool select dropdown in `ButtonView` for mid-conversation toggling
