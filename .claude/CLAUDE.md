@@ -43,6 +43,7 @@ discord-gemini/
 ### Text Generation Models (`/gemini converse`)
 
 - `gemini-3.1-pro-preview` - Gemini 3.1 Pro (default)
+- `gemini-3.1-flash-lite-preview` - Gemini 3.1 Flash Lite
 - `gemini-3-flash-preview` - Gemini 3.0 Flash
 - `gemini-3-pro-preview` - Gemini 3.0 Pro
 - `gemini-2.5-pro` - State-of-the-art reasoning model
