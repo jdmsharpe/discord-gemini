@@ -31,7 +31,12 @@ from google.genai import types
 
 # Local imports
 from button_view import ButtonView
-from config.auth import GEMINI_API_KEY, GEMINI_FILE_SEARCH_STORE_IDS, GUILD_IDS
+from config.auth import (
+    GEMINI_API_KEY,
+    GEMINI_FILE_SEARCH_STORE_IDS,
+    GUILD_IDS,
+    SHOW_COST_EMBEDS,
+)
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
@@ -57,6 +62,9 @@ from util import (
     resolve_tool_name,
     truncate_text,
 )
+
+# Google Gemini brand blue (#4285F4) used for all response embeds
+GEMINI_BLUE = Colour(0x4285F4)
 
 
 @dataclass
@@ -102,7 +110,7 @@ def append_response_embeds(embeds, response_text):
             Embed(
                 title="Response" + f" (Part {index})" if index > 1 else "Response",
                 description=chunk,
-                color=Colour.dark_blue(),
+                color=GEMINI_BLUE,
             )
         )
 
@@ -271,7 +279,7 @@ def append_pricing_embed(
     description = (
         f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out · daily ${daily_cost:.2f}"
     )
-    embeds.append(Embed(description=description, color=Colour.orange()))
+    embeds.append(Embed(description=description, color=GEMINI_BLUE))
 
 
 class GeminiAPI(commands.Cog):
@@ -701,15 +709,16 @@ class GeminiAPI(commands.Cog):
             append_sources_embed(embeds, tool_info)
 
             # Append pricing embed with token usage
-            usage = getattr(response, "usage_metadata", None)
-            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-            daily_cost = self._track_daily_cost(
-                message.author.id, params.model, input_tokens, output_tokens
-            )
-            append_pricing_embed(
-                embeds, params.model, input_tokens, output_tokens, daily_cost
-            )
+            if SHOW_COST_EMBEDS:
+                usage = getattr(response, "usage_metadata", None)
+                input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+                output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+                daily_cost = self._track_daily_cost(
+                    message.author.id, params.model, input_tokens, output_tokens
+                )
+                append_pricing_embed(
+                    embeds, params.model, input_tokens, output_tokens, daily_cost
+                )
 
             view = self.views.get(message.author)
             main_conversation_id = conversation_wrapper.params.conversation_id
@@ -972,6 +981,17 @@ class GeminiAPI(commands.Cog):
         type=float,
     )
     @option(
+        "media_resolution",
+        description="Resolution for media inputs (images, video, PDFs). (default: not set)",
+        required=False,
+        choices=[
+            OptionChoice(name="Low", value="MEDIA_RESOLUTION_LOW"),
+            OptionChoice(name="Medium", value="MEDIA_RESOLUTION_MEDIUM"),
+            OptionChoice(name="High", value="MEDIA_RESOLUTION_HIGH"),
+        ],
+        type=str,
+    )
+    @option(
         "google_search",
         description="Enable Google Search grounding for current web information. (default: false)",
         required=False,
@@ -1001,17 +1021,6 @@ class GeminiAPI(commands.Cog):
         required=False,
         type=bool,
     )
-    @option(
-        "media_resolution",
-        description="Resolution for media inputs (images, video, PDFs). (default: not set)",
-        required=False,
-        choices=[
-            OptionChoice(name="Low", value="MEDIA_RESOLUTION_LOW"),
-            OptionChoice(name="Medium", value="MEDIA_RESOLUTION_MEDIUM"),
-            OptionChoice(name="High", value="MEDIA_RESOLUTION_HIGH"),
-        ],
-        type=str,
-    )
     async def chat(
         self,
         ctx: ApplicationContext,
@@ -1025,12 +1034,12 @@ class GeminiAPI(commands.Cog):
         url: Optional[str] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
+        media_resolution: Optional[str] = None,
         google_search: bool = False,
         code_execution: bool = False,
         google_maps: bool = False,
         url_context: bool = False,
         file_search: bool = False,
-        media_resolution: Optional[str] = None,
     ):
         """
         Creates a persistent conversation session with a Gemini model.
@@ -1266,15 +1275,16 @@ class GeminiAPI(commands.Cog):
             append_sources_embed(embeds, tool_info)
 
             # Append pricing embed with token usage
-            usage = getattr(response, "usage_metadata", None)
-            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-            daily_cost = self._track_daily_cost(
-                ctx.author.id, model, input_tokens, output_tokens
-            )
-            append_pricing_embed(
-                embeds, model, input_tokens, output_tokens, daily_cost
-            )
+            if SHOW_COST_EMBEDS:
+                usage = getattr(response, "usage_metadata", None)
+                input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+                output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+                daily_cost = self._track_daily_cost(
+                    ctx.author.id, model, input_tokens, output_tokens
+                )
+                append_pricing_embed(
+                    embeds, model, input_tokens, output_tokens, daily_cost
+                )
 
             if len(embeds) == 1:
                 await ctx.send_followup("No response generated.")
@@ -1901,7 +1911,7 @@ class GeminiAPI(commands.Cog):
                 embed = Embed(
                     title="Text-to-Speech Generation",
                     description=description,
-                    color=Colour.dark_blue(),
+                    color=GEMINI_BLUE,
                 )
 
                 # Send the audio file
@@ -2084,7 +2094,7 @@ class GeminiAPI(commands.Cog):
                 embed = Embed(
                     title="Music Generation",
                     description=description,
-                    color=Colour.dark_blue(),
+                    color=GEMINI_BLUE,
                 )
 
                 # Send the audio file
@@ -2405,7 +2415,7 @@ class GeminiAPI(commands.Cog):
         embed = Embed(
             title=f"{'Gemini' if is_gemini_model else 'Imagen'} Image Generation",
             description=description,
-            color=Colour.dark_blue(),
+            color=GEMINI_BLUE,
         )
 
         if files:
@@ -2548,7 +2558,7 @@ class GeminiAPI(commands.Cog):
         embed = Embed(
             title="Video Generation",
             description=description,
-            color=Colour.dark_blue(),
+            color=GEMINI_BLUE,
         )
 
         return embed, files
@@ -2835,7 +2845,7 @@ class GeminiAPI(commands.Cog):
             Embed(
                 title="Deep Research",
                 description=description,
-                color=Colour.dark_blue(),
+                color=GEMINI_BLUE,
             )
         )
 

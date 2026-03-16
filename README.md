@@ -96,6 +96,7 @@ All commands are grouped under `/gemini` for clean namespacing.
    - `GUILD_IDS`: Comma-separated list of Discord server IDs
    - `GEMINI_API_KEY`: Your Google Gemini API key
    - `GEMINI_FILE_SEARCH_STORE_IDS` (optional): Comma-separated File Search store IDs for RAG
+   - `SHOW_COST_EMBEDS` (optional): Show per-request cost embeds in chat responses (default: `true`)
 3. Set up Discord bot permissions in your server
 4. Run the bot: `python src/bot.py`
 
