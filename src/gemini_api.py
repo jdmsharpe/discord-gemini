@@ -41,6 +41,7 @@ from util import (
     ChatCompletionParameters,
     ImageGenerationParameters,
     MusicGenerationParameters,
+    ResearchParameters,
     SpeechGenerationParameters,
     VideoGenerationParameters,
     chunk_text,
@@ -1878,6 +1879,74 @@ class GeminiAPI(commands.Cog):
                 )
             )
 
+    @gemini.command(
+        name="research",
+        description="Run a deep research task that autonomously searches, reads, and synthesizes a detailed report.",
+    )
+    @option(
+        "prompt",
+        description="Research question or topic to investigate.",
+        required=True,
+        type=str,
+    )
+    @option(
+        "file_search",
+        description="Also search your uploaded document stores (File Search / RAG). (default: False)",
+        required=False,
+        type=bool,
+    )
+    async def research(
+        self,
+        ctx: ApplicationContext,
+        prompt: str,
+        file_search: bool = False,
+    ):
+        """
+        Run a deep research task using the Gemini Deep Research agent.
+
+        The agent autonomously plans, searches the web, reads sources, and
+        synthesizes a detailed, cited report. Research tasks typically take
+        2-10 minutes to complete.
+
+        Args:
+            ctx: Discord application context
+            prompt: Research question or topic to investigate
+            file_search: Whether to additionally search uploaded document stores
+        """
+        await ctx.defer()
+
+        try:
+            research_params = ResearchParameters(
+                prompt=prompt,
+                file_search=file_search,
+            )
+
+            report_text = await self._run_deep_research(research_params)
+
+            if report_text:
+                embeds = self._create_research_response_embeds(
+                    research_params, report_text
+                )
+                await ctx.send_followup(embeds=embeds)
+            else:
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="No Research Results",
+                        description="The research agent did not produce any output. Please try again with a different prompt.",
+                        color=Colour.orange(),
+                    )
+                )
+
+        except Exception as e:
+            description = str(e)
+            self.logger.error(
+                f"Error in research: {description}",
+                exc_info=True,
+            )
+            await ctx.send_followup(
+                embed=Embed(title="Error", description=description, color=Colour.red())
+            )
+
     async def _generate_image_with_gemini(
         self,
         prompt: str,
@@ -2424,3 +2493,99 @@ class GeminiAPI(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error generating speech with Gemini: {e}")
             raise
+
+    async def _run_deep_research(
+        self, research_params: ResearchParameters
+    ) -> Optional[str]:
+        """
+        Run a deep research task using the Interactions API.
+
+        Starts a background research task and polls until completion.
+        Typically takes 2-10 minutes.
+
+        Returns:
+            The final research report text, or None if no output was produced.
+        """
+        kwargs: Dict[str, Any] = {
+            "input": research_params.prompt,
+            "agent": research_params.agent,
+            "background": True,
+        }
+
+        if research_params.file_search:
+            if not GEMINI_FILE_SEARCH_STORE_IDS:
+                raise Exception(
+                    "File Search requires GEMINI_FILE_SEARCH_STORE_IDS "
+                    "to be set in your .env file."
+                )
+            kwargs["tools"] = [
+                {
+                    "type": "file_search",
+                    "file_search_store_names": GEMINI_FILE_SEARCH_STORE_IDS.copy(),
+                }
+            ]
+
+        interaction = await self.client.aio.interactions.create(**kwargs)
+        self.logger.info(f"Started deep research: {interaction.id}")
+
+        max_wait_time = 1200  # 20 minutes timeout
+        start_time = time.time()
+        poll_interval = 15
+
+        while interaction.status not in ("completed", "failed", "cancelled"):
+            if time.time() - start_time > max_wait_time:
+                raise Exception("Deep research timed out after 20 minutes")
+
+            await asyncio.sleep(poll_interval)
+            interaction = await self.client.aio.interactions.get(interaction.id)
+            self.logger.debug(
+                f"Research {interaction.id} status: {interaction.status}"
+            )
+
+        if interaction.status == "failed":
+            raise Exception(f"Research failed: {interaction.status}")
+
+        if interaction.status == "cancelled":
+            raise Exception("Research was cancelled")
+
+        # Extract text from outputs
+        if interaction.outputs:
+            for output in reversed(interaction.outputs):
+                text = getattr(output, "text", None)
+                if text:
+                    return text
+
+        return None
+
+    def _create_research_response_embeds(
+        self,
+        research_params: ResearchParameters,
+        report_text: str,
+    ) -> List[Embed]:
+        """
+        Create Discord embeds for a deep research report.
+
+        Returns:
+            List of embeds containing the prompt info and report text.
+        """
+        embeds: List[Embed] = []
+
+        # Header embed with parameters
+        truncated_prompt = truncate_text(research_params.prompt, 2000)
+        description = f"**Prompt:** {truncated_prompt}\n"
+        description += f"**Agent:** {research_params.agent}\n"
+        if research_params.file_search:
+            description += "**File Search:** Enabled\n"
+
+        embeds.append(
+            Embed(
+                title="Deep Research",
+                description=description,
+                color=Colour.dark_blue(),
+            )
+        )
+
+        # Report body — use the same chunking pattern as chat responses
+        append_response_embeds(embeds, report_text)
+
+        return embeds

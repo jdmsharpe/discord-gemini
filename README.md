@@ -76,6 +76,15 @@ All commands are grouped under `/gemini` for clean namespacing.
 - High-quality stereo audio output (48kHz, 16-bit)
 - Support for various genres, instruments, and moods
 
+### Deep Research
+
+- **`/gemini research`**: Run autonomous deep research tasks
+- Powered by the Deep Research agent (`deep-research-pro-preview-12-2025`)
+- Agent autonomously plans, searches the web, reads sources, and synthesizes detailed, cited reports
+- Research tasks typically take 2-10 minutes
+- Optional `file_search` to also search your uploaded document stores
+- Great for market analysis, literature reviews, due diligence, and competitive landscaping
+
 ## Setup
 
 1. Install dependencies: `pip install -r requirements.txt`

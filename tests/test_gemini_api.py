@@ -590,6 +590,204 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(embed_description), 4096)
 
 
+class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
+    """Tests for deep research helper methods."""
+
+    async def asyncSetUp(self):
+        self.auth_patcher = patch.dict(
+            "sys.modules",
+            {
+                "config.auth": MagicMock(
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
+                )
+            },
+        )
+        self.auth_patcher.start()
+
+        self.genai_patcher = patch("gemini_api.genai.Client")
+        self.mock_genai_client = self.genai_patcher.start()
+
+        mock_client_instance = self.mock_genai_client.return_value
+        mock_client_instance.aio.aclose = AsyncMock()
+        mock_client_instance.close = MagicMock()
+        mock_client_instance.aio.interactions.create = AsyncMock()
+        mock_client_instance.aio.interactions.get = AsyncMock()
+
+        from gemini_api import GeminiAPI
+
+        intents = Intents.default()
+        intents.message_content = True
+        self.bot = Bot(intents=intents)
+        self.cog = GeminiAPI(bot=self.bot)
+
+    async def asyncTearDown(self):
+        self.auth_patcher.stop()
+        self.genai_patcher.stop()
+
+    async def test_run_deep_research_success(self):
+        """Test _run_deep_research with a successful completion."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="Research AI safety")
+
+        # First call returns in_progress, second returns completed
+        interaction_started = SimpleNamespace(
+            id="interaction-1", status="in_progress", outputs=None
+        )
+        interaction_done = SimpleNamespace(
+            id="interaction-1",
+            status="completed",
+            outputs=[SimpleNamespace(text="# AI Safety Report\n\nDetailed findings...")],
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_started
+        self.cog.client.aio.interactions.get.return_value = interaction_done
+
+        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.cog._run_deep_research(params)
+
+        self.assertEqual(result, "# AI Safety Report\n\nDetailed findings...")
+        self.cog.client.aio.interactions.create.assert_called_once_with(
+            input="Research AI safety",
+            agent="deep-research-pro-preview-12-2025",
+            background=True,
+        )
+
+    async def test_run_deep_research_with_file_search(self):
+        """Test _run_deep_research passes file_search tools when enabled."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="Analyze report", file_search=True)
+
+        interaction_done = SimpleNamespace(
+            id="interaction-2",
+            status="completed",
+            outputs=[SimpleNamespace(text="Report analysis...")],
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.cog._run_deep_research(params)
+
+        call_kwargs = self.cog.client.aio.interactions.create.call_args
+        self.assertIn("tools", call_kwargs.kwargs)
+        self.assertEqual(
+            call_kwargs.kwargs["tools"][0]["type"], "file_search"
+        )
+        self.assertEqual(
+            call_kwargs.kwargs["tools"][0]["file_search_store_names"],
+            ["store-1", "store-2"],
+        )
+
+    async def test_run_deep_research_file_search_no_store_ids(self):
+        """Test _run_deep_research raises when file_search enabled but no store IDs."""
+        import gemini_api
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="test", file_search=True)
+
+        original = gemini_api.GEMINI_FILE_SEARCH_STORE_IDS
+        gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = []
+        try:
+            with self.assertRaises(Exception) as ctx:
+                await self.cog._run_deep_research(params)
+            self.assertIn("GEMINI_FILE_SEARCH_STORE_IDS", str(ctx.exception))
+        finally:
+            gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = original
+
+    async def test_run_deep_research_failed(self):
+        """Test _run_deep_research raises on failure."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="test")
+
+        interaction_failed = SimpleNamespace(
+            id="interaction-3", status="failed", outputs=None
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_failed
+
+        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+            with self.assertRaises(Exception) as ctx:
+                await self.cog._run_deep_research(params)
+            self.assertIn("failed", str(ctx.exception))
+
+    async def test_run_deep_research_no_output(self):
+        """Test _run_deep_research returns None when no text output."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="test")
+
+        interaction_done = SimpleNamespace(
+            id="interaction-4", status="completed", outputs=[]
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.cog._run_deep_research(params)
+
+        self.assertIsNone(result)
+
+    async def test_create_research_response_embeds(self):
+        """Test _create_research_response_embeds creates proper embeds."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="Research quantum computing")
+        report = "This is the research report."
+
+        embeds = self.cog._create_research_response_embeds(params, report)
+
+        # First embed is the header
+        self.assertEqual(embeds[0].title, "Deep Research")
+        self.assertIn("Research quantum computing", embeds[0].description)
+        self.assertIn("deep-research-pro-preview-12-2025", embeds[0].description)
+
+        # Second embed is the report body
+        self.assertEqual(embeds[1].title, "Response")
+        self.assertEqual(embeds[1].description, report)
+
+    async def test_create_research_response_embeds_with_file_search(self):
+        """Test _create_research_response_embeds shows file search status."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(
+            prompt="Analyze docs", file_search=True
+        )
+        report = "Analysis report."
+
+        embeds = self.cog._create_research_response_embeds(params, report)
+
+        self.assertIn("File Search", embeds[0].description)
+
+    async def test_create_research_response_embeds_long_report(self):
+        """Test _create_research_response_embeds chunks long reports."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="test")
+        report = "A" * 8000  # Over the 3500 chunk limit
+
+        embeds = self.cog._create_research_response_embeds(params, report)
+
+        # 1 header + 3 body chunks (8000 / 3500 = ~2.3, rounds up to 3)
+        self.assertEqual(len(embeds), 4)
+
+    async def test_create_research_response_embeds_truncates_prompt(self):
+        """Test _create_research_response_embeds truncates long prompts."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="X" * 3000)
+        report = "Short report."
+
+        embeds = self.cog._create_research_response_embeds(params, report)
+
+        # Prompt should be truncated to 2000 + "..."
+        self.assertIn("...", embeds[0].description)
+
+
 class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
     """Tests for explicit context caching logic."""
 

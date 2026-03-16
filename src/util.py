@@ -265,6 +265,15 @@ class MusicGenerationParameters:
 
 
 @dataclass
+class ResearchParameters:
+    """A dataclass to store the parameters for a deep research task."""
+
+    prompt: str
+    agent: str = "deep-research-pro-preview-12-2025"
+    file_search: bool = False
+
+
+@dataclass
 class EmbeddingParameters:
     """A dataclass to store the parameters for an embedding."""
 
