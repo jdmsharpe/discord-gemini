@@ -264,6 +264,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         mock_conversation = MagicMock()
         self.cog.conversations[self.conversation_id] = mock_conversation
         self.cog._delete_conversation_cache = AsyncMock()
+        self.cog._cleanup_uploaded_files = AsyncMock()
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter

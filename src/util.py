@@ -20,6 +20,12 @@ CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {
 }
 
 CACHE_TTL = "1800s"  # 30-minute TTL for explicit caches
+
+# Attachment size limits for Gemini API file input (bytes)
+ATTACHMENT_MAX_INLINE_SIZE = 100 * 1024 * 1024  # 100 MB general inline limit
+ATTACHMENT_PDF_MAX_INLINE_SIZE = 50 * 1024 * 1024  # 50 MB PDF inline limit
+ATTACHMENT_FILE_API_THRESHOLD = 20 * 1024 * 1024  # 20 MB — prefer File API above this
+ATTACHMENT_FILE_API_MAX_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB File API limit
 AVAILABLE_TOOLS = {
     "google_search": TOOL_GOOGLE_SEARCH,
     "code_execution": TOOL_CODE_EXECUTION,
@@ -76,6 +82,7 @@ class ChatCompletionParameters:
     tools: List[Dict[str, Any]] = field(default_factory=list)
     cache_name: Optional[str] = None
     cached_history_length: int = 0
+    uploaded_file_names: List[str] = field(default_factory=list)
 
 
 @dataclass

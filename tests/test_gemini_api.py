@@ -448,6 +448,186 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
         finally:
             gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = original
 
+    async def test_validate_attachment_size_within_limit(self):
+        """Test that attachments within limits pass validation."""
+        attachment = MagicMock()
+        attachment.size = 10 * 1024 * 1024  # 10 MB
+        attachment.content_type = "image/png"
+
+        result = self.cog._validate_attachment_size(attachment)
+        self.assertIsNone(result)
+
+    async def test_validate_attachment_size_exceeds_file_api_max(self):
+        """Test that attachments over 2 GB are rejected."""
+        attachment = MagicMock()
+        attachment.size = 3 * 1024 * 1024 * 1024  # 3 GB
+        attachment.content_type = "video/mp4"
+
+        result = self.cog._validate_attachment_size(attachment)
+        self.assertIsNotNone(result)
+        self.assertIn("too large", result)
+        self.assertIn("2 GB", result)
+
+    async def test_prepare_attachment_part_inline_small_file(self):
+        """Test that small files use inline data."""
+        attachment = MagicMock()
+        attachment.size = 1 * 1024 * 1024  # 1 MB (under 20 MB threshold)
+        attachment.content_type = "image/png"
+        attachment.url = "https://cdn.example.com/image.png"
+        attachment.filename = "image.png"
+
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"image data")
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_context)
+        self.cog._http_session = mock_session
+
+        result = await self.cog._prepare_attachment_part(attachment)
+
+        self.assertIsNotNone(result)
+        self.assertIn("inline_data", result)
+        self.assertEqual(result["inline_data"]["mime_type"], "image/png")
+        self.assertEqual(result["inline_data"]["data"], b"image data")
+
+    async def test_prepare_attachment_part_file_api_large_file(self):
+        """Test that large files use the File API."""
+        attachment = MagicMock()
+        attachment.size = 25 * 1024 * 1024  # 25 MB (over 20 MB threshold)
+        attachment.content_type = "application/pdf"
+        attachment.url = "https://cdn.example.com/doc.pdf"
+        attachment.filename = "doc.pdf"
+
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"pdf data")
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_context)
+        self.cog._http_session = mock_session
+
+        mock_uploaded_file = SimpleNamespace(
+            name="files/abc123",
+            uri="https://generativelanguage.googleapis.com/files/abc123",
+            mime_type="application/pdf",
+        )
+        self.cog.client.aio.files.upload = AsyncMock(
+            return_value=mock_uploaded_file
+        )
+
+        uploaded_names = []
+        result = await self.cog._prepare_attachment_part(
+            attachment, uploaded_names
+        )
+
+        self.assertIsNotNone(result)
+        self.assertIn("file_data", result)
+        self.assertEqual(result["file_data"]["mime_type"], "application/pdf")
+        self.assertEqual(uploaded_names, ["files/abc123"])
+
+    async def test_prepare_attachment_part_file_api_fallback_to_inline(self):
+        """Test that File API failure falls back to inline data."""
+        attachment = MagicMock()
+        attachment.size = 25 * 1024 * 1024  # 25 MB
+        attachment.content_type = "audio/mpeg"
+        attachment.url = "https://cdn.example.com/audio.mp3"
+        attachment.filename = "audio.mp3"
+
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"audio data")
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_context)
+        self.cog._http_session = mock_session
+
+        self.cog.client.aio.files.upload = AsyncMock(
+            side_effect=Exception("Upload failed")
+        )
+
+        result = await self.cog._prepare_attachment_part(attachment)
+
+        self.assertIsNotNone(result)
+        self.assertIn("inline_data", result)
+        self.assertEqual(result["inline_data"]["mime_type"], "audio/mpeg")
+
+    async def test_prepare_attachment_part_fetch_failure(self):
+        """Test that download failure returns None."""
+        attachment = MagicMock()
+        attachment.size = 1 * 1024 * 1024
+        attachment.content_type = "image/png"
+        attachment.url = "https://cdn.example.com/broken.png"
+        attachment.filename = "broken.png"
+
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_response = AsyncMock()
+        mock_response.status = 500
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_context)
+        self.cog._http_session = mock_session
+
+        result = await self.cog._prepare_attachment_part(attachment)
+        self.assertIsNone(result)
+
+    async def test_cleanup_uploaded_files(self):
+        """Test that _cleanup_uploaded_files deletes all tracked files."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-3-flash-preview",
+            uploaded_file_names=["files/abc", "files/def"],
+        )
+
+        self.cog.client.aio.files.delete = AsyncMock()
+
+        await self.cog._cleanup_uploaded_files(params)
+
+        self.assertEqual(self.cog.client.aio.files.delete.call_count, 2)
+        self.assertEqual(params.uploaded_file_names, [])
+
+    async def test_cleanup_uploaded_files_handles_errors(self):
+        """Test that _cleanup_uploaded_files handles API errors gracefully."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-3-flash-preview",
+            uploaded_file_names=["files/abc", "files/def"],
+        )
+
+        self.cog.client.aio.files.delete = AsyncMock(
+            side_effect=Exception("Not found")
+        )
+
+        # Should not raise
+        await self.cog._cleanup_uploaded_files(params)
+
+        self.assertEqual(params.uploaded_file_names, [])
+
+    async def test_cleanup_uploaded_files_noop_when_empty(self):
+        """Test that _cleanup_uploaded_files is a no-op with no files."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
+
+        self.cog.client.aio.files.delete = AsyncMock()
+
+        await self.cog._cleanup_uploaded_files(params)
+
+        self.cog.client.aio.files.delete.assert_not_called()
+
 
 class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
     """Tests for image generation text response handling and truncation."""

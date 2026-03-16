@@ -295,6 +295,7 @@ class ButtonView(View):
         if self.conversation_id in self.cog.conversations:
             conversation = self.cog.conversations[self.conversation_id]
             await self.cog._delete_conversation_cache(conversation.params)
+            await self.cog._cleanup_uploaded_files(conversation.params)
             del self.cog.conversations[self.conversation_id]
             button.disabled = True
             await interaction.response.send_message(

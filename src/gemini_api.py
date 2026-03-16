@@ -1,6 +1,7 @@
 # Standard library imports
 import asyncio
 import logging
+import mimetypes
 import time
 import wave
 from copy import deepcopy
@@ -31,6 +32,10 @@ from google.genai import types
 from button_view import ButtonView
 from config.auth import GEMINI_API_KEY, GEMINI_FILE_SEARCH_STORE_IDS, GUILD_IDS
 from util import (
+    ATTACHMENT_FILE_API_MAX_SIZE,
+    ATTACHMENT_FILE_API_THRESHOLD,
+    ATTACHMENT_MAX_INLINE_SIZE,
+    ATTACHMENT_PDF_MAX_INLINE_SIZE,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
     TOOL_CODE_EXECUTION,
@@ -305,6 +310,109 @@ class GeminiAPI(commands.Cog):
             )
         return None
 
+    def _validate_attachment_size(self, attachment: Attachment) -> Optional[str]:
+        """Validate an attachment's size against Gemini API limits.
+
+        Returns an error message string if the attachment is too large,
+        otherwise None.
+        """
+        if attachment.size > ATTACHMENT_FILE_API_MAX_SIZE:
+            size_mb = attachment.size / (1024 * 1024)
+            return (
+                f"Attachment is too large ({size_mb:.1f} MB). "
+                f"Maximum file size is 2 GB."
+            )
+        return None
+
+    async def _prepare_attachment_part(
+        self,
+        attachment: Attachment,
+        uploaded_file_names: Optional[List[str]] = None,
+    ) -> Optional[Dict]:
+        """Prepare a Discord attachment as a Gemini API content part.
+
+        Uses inline data for small files and the File API for files
+        exceeding ATTACHMENT_FILE_API_THRESHOLD.  Appends uploaded file
+        names to uploaded_file_names for cleanup when provided.
+
+        Returns a dict part (inline_data or file_data), or None on failure.
+        """
+        content_type = attachment.content_type or "application/octet-stream"
+        use_file_api = attachment.size > ATTACHMENT_FILE_API_THRESHOLD
+
+        attachment_data = await self._fetch_attachment_bytes(attachment)
+        if attachment_data is None:
+            return None
+
+        if use_file_api:
+            uploaded_file = await self._upload_attachment_to_file_api(
+                attachment_data, attachment.filename, content_type
+            )
+            if uploaded_file:
+                if uploaded_file_names is not None:
+                    uploaded_file_names.append(uploaded_file.name)
+                return {
+                    "file_data": {
+                        "file_uri": uploaded_file.uri,
+                        "mime_type": uploaded_file.mime_type,
+                    }
+                }
+            # Fall back to inline data if upload fails
+            self.logger.warning(
+                "File API upload failed, falling back to inline data"
+            )
+
+        return {
+            "inline_data": {
+                "mime_type": content_type,
+                "data": attachment_data,
+            }
+        }
+
+    async def _upload_attachment_to_file_api(
+        self, data: bytes, filename: str, mime_type: str
+    ) -> Optional[Any]:
+        """Upload attachment bytes to the Gemini File API.
+
+        Saves to a temporary file, uploads, then cleans up the temp file.
+        Returns the uploaded file object, or None on failure.
+        """
+        temp_path = Path(f"temp_upload_{filename}")
+        try:
+            temp_path.write_bytes(data)
+            uploaded_file = await self.client.aio.files.upload(
+                file=str(temp_path),
+                config={"mime_type": mime_type},
+            )
+            self.logger.info(
+                "Uploaded %s to File API: %s (%d bytes)",
+                filename,
+                uploaded_file.name,
+                len(data),
+            )
+            return uploaded_file
+        except Exception as e:
+            self.logger.warning(
+                "Failed to upload %s to File API: %s", filename, e
+            )
+            return None
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    async def _cleanup_uploaded_files(
+        self, params: ChatCompletionParameters
+    ) -> None:
+        """Delete files uploaded to the File API for a conversation."""
+        for file_name in params.uploaded_file_names:
+            try:
+                await self.client.aio.files.delete(name=file_name)
+                self.logger.info("Deleted uploaded file %s", file_name)
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to delete uploaded file %s: %s", file_name, e
+                )
+        params.uploaded_file_names.clear()
+
     def enrich_file_search_tools(
         self, tools: List[Dict[str, Any]]
     ) -> Optional[str]:
@@ -400,11 +508,16 @@ class GeminiAPI(commands.Cog):
                     new_loop.close()
         self._http_session = None
 
-        # Delete any active caches
+        # Delete any active caches and uploaded files
         for conversation in self.conversations.values():
             cache_name = conversation.params.cache_name
             if cache_name and loop and loop.is_running():
                 loop.create_task(self.client.aio.caches.delete(name=cache_name))
+            for file_name in conversation.params.uploaded_file_names:
+                if loop and loop.is_running():
+                    loop.create_task(
+                        self.client.aio.files.delete(name=file_name)
+                    )
 
         # Close Gemini clients
         if loop and loop.is_running():
@@ -443,17 +556,23 @@ class GeminiAPI(commands.Cog):
             user_parts: List[Union[str, Dict]] = [{"text": message.content}]
             if message.attachments:
                 for attachment in message.attachments:
-                    image_data = await self._fetch_attachment_bytes(attachment)
-                    if image_data is None:
-                        continue
-                    user_parts.append(
-                        {
-                            "inline_data": {
-                                "mime_type": attachment.content_type,
-                                "data": image_data,
-                            }
-                        }
+                    validation_error = self._validate_attachment_size(attachment)
+                    if validation_error:
+                        await message.reply(
+                            embed=Embed(
+                                title="Error",
+                                description=validation_error,
+                                color=Colour.red(),
+                            )
+                        )
+                        return
+
+                    attachment_part = await self._prepare_attachment_part(
+                        attachment, params.uploaded_file_names
                     )
+                    if attachment_part is None:
+                        continue
+                    user_parts.append(attachment_part)
 
             history.append({"role": "user", "parts": user_parts})
 
@@ -773,9 +892,15 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "attachment",
-        description="Attachment to append to the prompt. (default: not set)",
+        description="File to include (image, PDF, audio, video, document). Max 2 GB. (default: not set)",
         required=False,
         type=Attachment,
+    )
+    @option(
+        "url",
+        description="URL to a file (PDF, image, etc.) for the model to read. Gemini 2.5+ only. (default: not set)",
+        required=False,
+        type=str,
     )
     @option(
         "frequency_penalty",
@@ -858,6 +983,7 @@ class GeminiAPI(commands.Cog):
         presence_penalty: Optional[float] = None,
         seed: Optional[int] = None,
         attachment: Optional[Attachment] = None,
+        url: Optional[str] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         google_search: bool = False,
@@ -871,7 +997,7 @@ class GeminiAPI(commands.Cog):
         Creates a persistent conversation session with a Gemini model.
 
         Initiates an interactive conversation with context preservation across multiple exchanges.
-        Supports multimodal inputs (text + images) and provides interactive UI controls for
+        Supports multimodal inputs (text + files) and provides interactive UI controls for
         conversation management.
 
         Args:
@@ -882,7 +1008,8 @@ class GeminiAPI(commands.Cog):
             frequency_penalty: Controls repetition reduction (experimental)
             presence_penalty: Controls topic focus (experimental)
             seed: Random seed for deterministic responses
-            attachment: Optional image attachment for multimodal input
+            attachment: Optional file attachment for multimodal input (image, PDF, audio, etc.)
+            url: URL to a file for the model to process (Gemini 2.5+ only)
             temperature: Response creativity (0.0 conservative → 2.0 creative)
             top_p: Nucleus sampling threshold (0.0 focused → 1.0 diverse)
             google_search: Enable Google Search grounding
@@ -933,17 +1060,39 @@ class GeminiAPI(commands.Cog):
             typing_task = asyncio.create_task(self.keep_typing(channel))
 
             parts: List[Dict] = [{"text": prompt}]
+            uploaded_file_names: List[str] = []
             if attachment:
-                image_data = await self._fetch_attachment_bytes(attachment)
-                if image_data is not None:
-                    parts.append(
-                        {
-                            "inline_data": {
-                                "mime_type": attachment.content_type,
-                                "data": image_data,
-                            }
-                        }
+                validation_error = self._validate_attachment_size(attachment)
+                if validation_error:
+                    await ctx.send_followup(
+                        embed=Embed(
+                            title="Error",
+                            description=validation_error,
+                            color=Colour.red(),
+                        )
                     )
+                    if typing_task:
+                        typing_task.cancel()
+                    return
+
+                attachment_part = await self._prepare_attachment_part(
+                    attachment, uploaded_file_names
+                )
+                if attachment_part is not None:
+                    parts.append(attachment_part)
+
+            if url:
+                mime_type, _ = mimetypes.guess_type(url)
+                if mime_type is None:
+                    mime_type = "application/octet-stream"
+                parts.append(
+                    {
+                        "file_data": {
+                            "file_uri": url,
+                            "mime_type": mime_type,
+                        }
+                    }
+                )
 
             selected_tool_names = {
                 "google_search": (google_search, TOOL_GOOGLE_SEARCH),
@@ -1007,6 +1156,13 @@ class GeminiAPI(commands.Cog):
                     elif "inline_data" in part:
                         formatted_parts.append(
                             types.Part(inline_data=part["inline_data"])
+                        )
+                    elif "file_data" in part:
+                        formatted_parts.append(
+                            types.Part.from_uri(
+                                file_uri=part["file_data"]["file_uri"],
+                                mime_type=part["file_data"]["mime_type"],
+                            )
                         )
                 else:
                     # Assume it's a string or other supported type
@@ -1110,6 +1266,7 @@ class GeminiAPI(commands.Cog):
                 top_p=top_p,
                 media_resolution=media_resolution,
                 tools=tools,
+                uploaded_file_names=uploaded_file_names,
             )
             history = [
                 {"role": "user", "parts": parts},
@@ -1266,6 +1423,18 @@ class GeminiAPI(commands.Cog):
         """
         await ctx.defer()
         try:
+            if attachment:
+                validation_error = self._validate_attachment_size(attachment)
+                if validation_error:
+                    await ctx.send_followup(
+                        embed=Embed(
+                            title="Error",
+                            description=validation_error,
+                            color=Colour.red(),
+                        )
+                    )
+                    return
+
             # Create ImageGenerationParameters for clean parameter handling
             image_params = ImageGenerationParameters(
                 prompt=prompt,
@@ -1488,6 +1657,18 @@ class GeminiAPI(commands.Cog):
         """
         await ctx.defer()
         try:
+            if attachment:
+                validation_error = self._validate_attachment_size(attachment)
+                if validation_error:
+                    await ctx.send_followup(
+                        embed=Embed(
+                            title="Error",
+                            description=validation_error,
+                            color=Colour.red(),
+                        )
+                    )
+                    return
+
             # Create VideoGenerationParameters for clean parameter handling
             video_params = VideoGenerationParameters(
                 prompt=prompt,

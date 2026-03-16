@@ -1,5 +1,9 @@
 import unittest
 from util import (
+    ATTACHMENT_FILE_API_MAX_SIZE,
+    ATTACHMENT_FILE_API_THRESHOLD,
+    ATTACHMENT_MAX_INLINE_SIZE,
+    ATTACHMENT_PDF_MAX_INLINE_SIZE,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
@@ -41,6 +45,7 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertIsNone(params.media_resolution)
         self.assertIsNone(params.cache_name)
         self.assertEqual(params.cached_history_length, 0)
+        self.assertEqual(params.uploaded_file_names, [])
 
     def test_all_parameters(self):
         params = ChatCompletionParameters(
@@ -82,6 +87,14 @@ class TestChatCompletionParameters(unittest.TestCase):
                 TOOL_URL_CONTEXT,
             ],
         )
+
+    def test_uploaded_file_names_default_isolated(self):
+        """Test that uploaded_file_names list is isolated between instances."""
+        params_one = ChatCompletionParameters(model="gemini-3-flash-preview")
+        params_one.uploaded_file_names.append("files/abc123")
+        params_two = ChatCompletionParameters(model="gemini-3-flash-preview")
+        self.assertEqual(params_two.uploaded_file_names, [])
+        self.assertIsNot(params_one.uploaded_file_names, params_two.uploaded_file_names)
 
     def test_history_default_isolated(self):
         """Test that history list is isolated between instances."""
@@ -694,6 +707,32 @@ class TestChatCompletionParametersCaching(unittest.TestCase):
         params.cached_history_length = 0
         self.assertIsNone(params.cache_name)
         self.assertEqual(params.cached_history_length, 0)
+
+
+class TestAttachmentSizeConstants(unittest.TestCase):
+    """Tests for attachment size limit constants."""
+
+    def test_inline_max_size(self):
+        """Test that inline data max is 100 MB."""
+        self.assertEqual(ATTACHMENT_MAX_INLINE_SIZE, 100 * 1024 * 1024)
+
+    def test_pdf_inline_max_size(self):
+        """Test that PDF inline max is 50 MB."""
+        self.assertEqual(ATTACHMENT_PDF_MAX_INLINE_SIZE, 50 * 1024 * 1024)
+
+    def test_file_api_threshold(self):
+        """Test that File API threshold is 20 MB."""
+        self.assertEqual(ATTACHMENT_FILE_API_THRESHOLD, 20 * 1024 * 1024)
+
+    def test_file_api_max_size(self):
+        """Test that File API max is 2 GB."""
+        self.assertEqual(ATTACHMENT_FILE_API_MAX_SIZE, 2 * 1024 * 1024 * 1024)
+
+    def test_threshold_ordering(self):
+        """Test that size limits are in correct ascending order."""
+        self.assertLess(ATTACHMENT_FILE_API_THRESHOLD, ATTACHMENT_PDF_MAX_INLINE_SIZE)
+        self.assertLess(ATTACHMENT_PDF_MAX_INLINE_SIZE, ATTACHMENT_MAX_INLINE_SIZE)
+        self.assertLess(ATTACHMENT_MAX_INLINE_SIZE, ATTACHMENT_FILE_API_MAX_SIZE)
 
 
 if __name__ == "__main__":
