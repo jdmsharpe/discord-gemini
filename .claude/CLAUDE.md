@@ -569,6 +569,7 @@ If you see truncated content, either shorten your input or the model returned an
 
 - Added per-request cost and daily cost tracking to `/gemini chat` responses
 - Each chat response (initial and follow-up) shows a pricing embed: `$cost · N in / N out · daily $total`
+- Pricing and sources embeds are sent as a separate auxiliary message so the view (buttons) stays with the response content
 - Pricing embed color matches the response embed color (dark blue)
 - Pricing embeds are configurable via `SHOW_COST_EMBEDS` env var (default: `true`)
 - Added `MODEL_PRICING` dict to `util.py` with per-million-token rates for all 8 chat models

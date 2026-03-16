@@ -710,9 +710,11 @@ class GeminiAPI(commands.Cog):
             await self._maybe_create_cache(params, history, response)
 
             append_response_embeds(embeds, response_text)
-            append_sources_embed(embeds, tool_info)
 
-            # Append pricing embed with token usage
+            # Auxiliary embeds (sources, cost) sent separately so view stays with response
+            aux_embeds: list[Embed] = []
+            append_sources_embed(aux_embeds, tool_info)
+
             if SHOW_COST_EMBEDS:
                 usage = getattr(response, "usage_metadata", None)
                 input_tokens = getattr(usage, "prompt_token_count", 0) or 0
@@ -721,7 +723,7 @@ class GeminiAPI(commands.Cog):
                     message.author.id, params.model, input_tokens, output_tokens
                 )
                 append_pricing_embed(
-                    embeds, params.model, input_tokens, output_tokens, daily_cost
+                    aux_embeds, params.model, input_tokens, output_tokens, daily_cost
                 )
 
             view = self.views.get(message.author)
@@ -741,9 +743,9 @@ class GeminiAPI(commands.Cog):
                     pass  # Message may have been deleted
 
             if embeds:
-                # Send the first embed (actual response) as a reply with the view
+                # Send response embeds with view
                 try:
-                    reply_message = await message.reply(embed=embeds[0], view=view)
+                    reply_message = await message.reply(embeds=embeds, view=view)
                     self.message_to_conversation_id[reply_message.id] = (
                         main_conversation_id
                     )
@@ -761,24 +763,12 @@ class GeminiAPI(commands.Cog):
                     )
                     self.last_view_messages[main_conversation_id] = reply_message
 
-                # Send remaining embeds (sources, cost) without the view
-                for embed in embeds[1:]:
+                # Send auxiliary embeds (sources, cost) separately without the view
+                if aux_embeds:
                     try:
-                        followup_message = await message.channel.send(
-                            embed=embed
-                        )
-                        self.message_to_conversation_id[followup_message.id] = (
-                            main_conversation_id
-                        )
+                        await message.channel.send(embeds=aux_embeds)
                     except Exception as embed_error:
-                        # If embed fails, send as plain text
-                        self.logger.warning(f"Followup embed failed: {embed_error}")
-                        followup_message = await message.channel.send(
-                            content=f"**Response (continued):**\n{embed.description[:1900]}{'...' if len(embed.description) > 1900 else ''}",
-                        )
-                        self.message_to_conversation_id[followup_message.id] = (
-                            main_conversation_id
-                        )
+                        self.logger.warning(f"Aux embeds failed: {embed_error}")
 
                 self.logger.debug("Replied with generated response.")
             else:
@@ -1285,9 +1275,11 @@ class GeminiAPI(commands.Cog):
                 )
             ]
             append_response_embeds(embeds, response_text)
-            append_sources_embed(embeds, tool_info)
 
-            # Append pricing embed with token usage
+            # Auxiliary embeds (sources, cost) sent separately so view stays with response
+            aux_embeds: list[Embed] = []
+            append_sources_embed(aux_embeds, tool_info)
+
             if SHOW_COST_EMBEDS:
                 usage = getattr(response, "usage_metadata", None)
                 input_tokens = getattr(usage, "prompt_token_count", 0) or 0
@@ -1296,7 +1288,7 @@ class GeminiAPI(commands.Cog):
                     ctx.author.id, model, input_tokens, output_tokens
                 )
                 append_pricing_embed(
-                    embeds, model, input_tokens, output_tokens, daily_cost
+                    aux_embeds, model, input_tokens, output_tokens, daily_cost
                 )
 
             if len(embeds) == 1:
@@ -1324,10 +1316,13 @@ class GeminiAPI(commands.Cog):
             )
             self.views[ctx.author] = view
 
-            # Send all embeds as a single message with buttons
+            # Send response embeds with view, then auxiliary embeds separately
             message = await ctx.send_followup(embeds=embeds, view=view)
             self.message_to_conversation_id[message.id] = main_conversation_id
             self.last_view_messages[main_conversation_id] = message
+
+            if aux_embeds:
+                await ctx.send_followup(embeds=aux_embeds)
 
             # Store the conversation details
             params = ChatCompletionParameters(
