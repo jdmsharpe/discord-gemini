@@ -4,7 +4,7 @@ This document serves as a comprehensive reference for future development work on
 
 ## Project Overview
 
-A Discord bot that integrates Google's Gemini AI API to provide text generation, image generation, video generation, text-to-speech, and music generation capabilities through Discord slash commands.
+A Discord bot that integrates Google's Gemini AI API to provide text generation, image generation, video generation, text-to-speech, music generation, and deep research capabilities through Discord slash commands.
 
 ## Project Structure
 
@@ -12,7 +12,7 @@ A Discord bot that integrates Google's Gemini AI API to provide text generation,
 discord-gemini/
 ├── src/
 │   ├── bot.py                 # Main bot entry point
-│   ├── gemini_api.py          # Core API integration & slash commands (1960+ lines)
+│   ├── gemini_api.py          # Core API integration & slash commands (2590+ lines)
 │   ├── button_view.py         # Discord UI button controls
 │   ├── util.py                # Data classes and utility functions
 │   └── config/
@@ -77,6 +77,10 @@ discord-gemini/
 
 - `lyria-realtime-exp` - Lyria RealTime experimental model
 
+### Deep Research Agent (`/gemini research`)
+
+- `deep-research-pro-preview-12-2025` - Gemini Deep Research (powered by Gemini 3.1 Pro)
+
 ## Architecture Overview
 
 ### Main Components
@@ -100,6 +104,7 @@ discord-gemini/
    - `VideoGenerationParameters`: Video generation config
    - `SpeechGenerationParameters`: TTS config
    - `MusicGenerationParameters`: Music generation config
+   - `ResearchParameters`: Deep research config (prompt, agent, file_search flag)
    - `chunk_text()`: Splits long text for Discord embeds
 
 ### Key Design Patterns
@@ -122,6 +127,8 @@ response = await self.client.aio.models.generate_content(
 # - client.aio.models.generate_videos()
 # - client.aio.operations.get()
 # - client.aio.files.download()  # Note: only accepts str|File, not Video
+# - client.aio.interactions.create()  # Deep Research (Interactions API)
+# - client.aio.interactions.get()     # Poll research status
 ```
 
 #### 2. HTTP Session Management
@@ -272,6 +279,26 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - Collects audio chunks in real-time
 - Outputs stereo WAV (48kHz, 16-bit)
 - Requires special API client with `api_version='v1alpha'`
+
+### `/gemini research`
+
+**Purpose**: Run autonomous deep research tasks that produce detailed, cited reports
+**Parameters**:
+
+- `prompt` (required): Research question or topic to investigate
+- `file_search`: Also search uploaded document stores (default: False)
+
+**Implementation Notes**:
+
+- Uses the Interactions API (`client.aio.interactions.create/get`), not `generate_content`
+- Runs as a background task with polling (every 15 seconds, 20-minute timeout)
+- Agent is `deep-research-pro-preview-12-2025` (powered by Gemini 3.1 Pro)
+- Agent autonomously plans, searches the web, reads sources, and synthesizes a report
+- Typical research tasks take 2-10 minutes to complete
+- No typing indicator (too long-running)
+- Report output chunked using `append_response_embeds()` same as chat
+- Optional `file_search` support requires `GEMINI_FILE_SEARCH_STORE_IDS` env var
+- Estimated cost: $2-5 per task depending on complexity
 
 ## Common Implementation Patterns
 
@@ -433,11 +460,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (60 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`), including conversation tools state, file search model compatibility, caching constants, and cache field coverage.
+- **`test_util.py`** (62 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`), including conversation tools state, file search model compatibility, caching constants, and cache field coverage.
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (40 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, and explicit context caching (create/delete/error handling).
+- **`test_gemini_api.py`** (49 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, deep research (`_run_deep_research()`, `_create_research_response_embeds()`), and explicit context caching (create/delete/error handling).
 
 ### CI Pipeline
 
@@ -513,6 +540,16 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - Deep Research
+
+- Added `/gemini research` command for autonomous multi-step research tasks
+- Uses the Interactions API with `deep-research-pro-preview-12-2025` agent
+- Agent autonomously plans, searches the web, reads sources, and synthesizes detailed reports
+- Background polling with 15-second intervals and 20-minute timeout
+- Optional `file_search` parameter to also search uploaded document stores
+- Added `ResearchParameters` dataclass to `util.py`
+- Added `_run_deep_research()` and `_create_research_response_embeds()` helper methods
 
 ### March 2026 - File Search (RAG)
 
@@ -621,5 +658,5 @@ python src/bot.py
 
 ---
 
-**Last Updated**: February 2026
+**Last Updated**: March 2026
 **Maintained by**: AI Assistant (Claude)

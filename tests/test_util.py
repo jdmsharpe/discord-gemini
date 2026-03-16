@@ -16,6 +16,7 @@ from util import (
     VideoGenerationParameters,
     SpeechGenerationParameters,
     MusicGenerationParameters,
+    ResearchParameters,
     EmbeddingParameters,
     chunk_text,
 )
@@ -488,6 +489,24 @@ class TestMusicGenerationParameters(unittest.TestCase):
         )
         result = params.to_music_config()
         self.assertTrue(result["only_bass_and_drums"])
+
+
+class TestResearchParameters(unittest.TestCase):
+    def test_defaults(self):
+        params = ResearchParameters(prompt="Research quantum computing")
+        self.assertEqual(params.prompt, "Research quantum computing")
+        self.assertEqual(params.agent, "deep-research-pro-preview-12-2025")
+        self.assertFalse(params.file_search)
+
+    def test_all_parameters(self):
+        params = ResearchParameters(
+            prompt="Compare EV batteries",
+            agent="deep-research-pro-preview-12-2025",
+            file_search=True,
+        )
+        self.assertEqual(params.prompt, "Compare EV batteries")
+        self.assertEqual(params.agent, "deep-research-pro-preview-12-2025")
+        self.assertTrue(params.file_search)
 
 
 class TestEmbeddingParameters(unittest.TestCase):
