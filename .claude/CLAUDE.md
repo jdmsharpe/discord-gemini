@@ -154,6 +154,8 @@ Conversations are tracked using dictionaries:
 - `self.conversations`: Maps conversation ID → Conversation object
 - `self.message_to_conversation_id`: Maps message ID → conversation ID
 - `self.views`: Maps user → ButtonView UI
+- `self.last_view_messages`: Maps user → last Discord message with buttons (for stripping previous view)
+- `_strip_previous_view(user)`: Removes buttons from the previous turn's message; called in both chat command and on_message
 
 #### 4. Explicit Context Caching
 
@@ -599,7 +601,7 @@ If you see truncated content, either shorten your input or the model returned an
 - Each chat response (initial and follow-up) shows a pricing embed: `$cost · N in / N out · daily $total`
 - Pricing and sources embeds are sent as a separate auxiliary message so the view (buttons) stays with the response content
 - Pricing embed color matches the response embed color (dark blue)
-- Pricing embeds are configurable via `SHOW_COST_EMBEDS` env var (default: `true`)
+- Pricing embeds are configurable via `SHOW_COST_EMBEDS` env var (default: `true`); daily cost is always tracked regardless of this setting
 - Added `MODEL_PRICING` dict to `util.py` with per-million-token rates for all 8 chat models
 - Added `calculate_cost()` utility function in `util.py`
 - Added `append_pricing_embed()` standalone function in `gemini_api.py`

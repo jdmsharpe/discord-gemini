@@ -342,7 +342,7 @@ def append_sources_embed(embeds: List[Embed], tool_info: ToolInfo) -> None:
             "\n\n**Maps Widget:** `google_maps_widget_context_token` returned."
         )
 
-    embeds.append(Embed(title="Sources", description=description, color=Colour.blue()))
+    embeds.append(Embed(title="Sources", description=description, color=GEMINI_BLUE))
 
 
 def append_pricing_embed(
@@ -392,8 +392,8 @@ class GeminiAPI(commands.Cog):
         self.message_to_conversation_id: Dict[int, int] = {}
         # Dictionary to store UI views for each conversation
         self.views = {}
-        # Track the last message carrying the view per conversation for cleanup
-        self.last_view_messages: Dict[int, Any] = {}
+        # Track the last message carrying the view per user for cleanup
+        self.last_view_messages: Dict[Any, Any] = {}
         # Daily cost tracking: (user_id, date_iso) -> cumulative cost
         self.daily_costs: Dict[tuple, float] = {}
         self._http_session: Optional[aiohttp.ClientSession] = None
@@ -654,6 +654,15 @@ class GeminiAPI(commands.Cog):
             loop.create_task(self.client.aio.aclose())
         self.client.close()
 
+    async def _strip_previous_view(self, user) -> None:
+        """Remove the button view from the previous turn's message for a user."""
+        prev_view_msg = self.last_view_messages.pop(user, None)
+        if prev_view_msg is not None:
+            try:
+                await prev_view_msg.edit(view=None)
+            except Exception:
+                pass  # Message may have been deleted
+
     async def handle_new_message_in_conversation(
         self, message, conversation_wrapper: Conversation
     ):
@@ -818,14 +827,14 @@ class GeminiAPI(commands.Cog):
             aux_embeds: list[Embed] = []
             append_sources_embed(aux_embeds, tool_info)
 
+            usage = getattr(response, "usage_metadata", None)
+            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+            thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+            daily_cost = self._track_daily_cost(
+                message.author.id, params.model, input_tokens, output_tokens, thinking_tokens
+            )
             if SHOW_COST_EMBEDS:
-                usage = getattr(response, "usage_metadata", None)
-                input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-                output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-                thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
-                daily_cost = self._track_daily_cost(
-                    message.author.id, params.model, input_tokens, output_tokens, thinking_tokens
-                )
                 append_pricing_embed(
                     aux_embeds, params.model, input_tokens, output_tokens, daily_cost, thinking_tokens
                 )
@@ -839,12 +848,7 @@ class GeminiAPI(commands.Cog):
                 return
 
             # Remove the view from the previous turn's message to reduce clutter
-            prev_view_msg = self.last_view_messages.get(main_conversation_id)
-            if prev_view_msg is not None:
-                try:
-                    await prev_view_msg.edit(view=None)
-                except Exception:
-                    pass  # Message may have been deleted
+            await self._strip_previous_view(message.author)
 
             if embeds:
                 # Send response embeds with view
@@ -853,7 +857,7 @@ class GeminiAPI(commands.Cog):
                     self.message_to_conversation_id[reply_message.id] = (
                         main_conversation_id
                     )
-                    self.last_view_messages[main_conversation_id] = reply_message
+                    self.last_view_messages[message.author] = reply_message
                 except Exception as embed_error:
                     # If embed fails due to size, try sending as plain text
                     self.logger.warning(f"Embed failed, sending as text: {embed_error}")
@@ -865,7 +869,7 @@ class GeminiAPI(commands.Cog):
                     self.message_to_conversation_id[reply_message.id] = (
                         main_conversation_id
                     )
-                    self.last_view_messages[main_conversation_id] = reply_message
+                    self.last_view_messages[message.author] = reply_message
 
                 # Send auxiliary embeds (sources, cost) separately without the view
                 if aux_embeds:
@@ -1364,7 +1368,11 @@ class GeminiAPI(commands.Cog):
             truncated_prompt = truncate_text(prompt, 2000)
             description = f"**Prompt:** {truncated_prompt}\n"
             description += f"**Model:** {model}\n"
-            description += f"**System Instruction:** {system_instruction}\n"
+            description += (
+                f"**System Instruction:** {system_instruction}\n"
+                if system_instruction
+                else ""
+            )
             description += (
                 f"**Frequency Penalty:** {frequency_penalty}\n"
                 if frequency_penalty
@@ -1422,14 +1430,14 @@ class GeminiAPI(commands.Cog):
             aux_embeds: list[Embed] = []
             append_sources_embed(aux_embeds, tool_info)
 
+            usage = getattr(response, "usage_metadata", None)
+            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+            thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+            daily_cost = self._track_daily_cost(
+                ctx.author.id, model, input_tokens, output_tokens, thinking_tokens
+            )
             if SHOW_COST_EMBEDS:
-                usage = getattr(response, "usage_metadata", None)
-                input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-                output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-                thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
-                daily_cost = self._track_daily_cost(
-                    ctx.author.id, model, input_tokens, output_tokens, thinking_tokens
-                )
                 append_pricing_embed(
                     aux_embeds, model, input_tokens, output_tokens, daily_cost, thinking_tokens
                 )
@@ -1459,10 +1467,13 @@ class GeminiAPI(commands.Cog):
             )
             self.views[ctx.author] = view
 
+            # Strip buttons from previous conversation's last message
+            await self._strip_previous_view(ctx.author)
+
             # Send response embeds with view, then auxiliary embeds separately
             message = await ctx.send_followup(embeds=embeds, view=view)
             self.message_to_conversation_id[message.id] = main_conversation_id
-            self.last_view_messages[main_conversation_id] = message
+            self.last_view_messages[ctx.author] = message
 
             if aux_embeds:
                 await ctx.send_followup(embeds=aux_embeds)
