@@ -7,12 +7,14 @@ from util import (
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
+    MODEL_PRICING,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
     TOOL_GOOGLE_SEARCH,
     TOOL_URL_CONTEXT,
     ChatCompletionParameters,
+    calculate_cost,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
     resolve_tool_name,
@@ -733,6 +735,63 @@ class TestAttachmentSizeConstants(unittest.TestCase):
         self.assertLess(ATTACHMENT_FILE_API_THRESHOLD, ATTACHMENT_PDF_MAX_INLINE_SIZE)
         self.assertLess(ATTACHMENT_PDF_MAX_INLINE_SIZE, ATTACHMENT_MAX_INLINE_SIZE)
         self.assertLess(ATTACHMENT_MAX_INLINE_SIZE, ATTACHMENT_FILE_API_MAX_SIZE)
+
+
+class TestModelPricing(unittest.TestCase):
+    """Tests for MODEL_PRICING and calculate_cost."""
+
+    def test_pricing_contains_all_chat_models(self):
+        """Test that MODEL_PRICING includes all chat models."""
+        expected_models = [
+            "gemini-3.1-pro-preview",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3-flash-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+        ]
+        for model in expected_models:
+            self.assertIn(model, MODEL_PRICING, f"{model} missing from MODEL_PRICING")
+
+    def test_pricing_values_are_positive(self):
+        """Test that all pricing values are positive."""
+        for model, (input_price, output_price) in MODEL_PRICING.items():
+            self.assertGreater(input_price, 0, f"{model} input price should be positive")
+            self.assertGreater(output_price, 0, f"{model} output price should be positive")
+
+    def test_pricing_output_greater_than_input(self):
+        """Test that output pricing is always >= input pricing."""
+        for model, (input_price, output_price) in MODEL_PRICING.items():
+            self.assertGreaterEqual(
+                output_price, input_price,
+                f"{model} output price should be >= input price"
+            )
+
+    def test_calculate_cost_known_model(self):
+        """Test cost calculation for a known model."""
+        # gemini-2.0-flash: $0.10/M input, $0.40/M output
+        cost = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000)
+        self.assertAlmostEqual(cost, 0.50)  # $0.10 + $0.40
+
+    def test_calculate_cost_zero_tokens(self):
+        """Test cost calculation with zero tokens."""
+        cost = calculate_cost("gemini-2.5-pro", 0, 0)
+        self.assertAlmostEqual(cost, 0.0)
+
+    def test_calculate_cost_unknown_model_uses_default(self):
+        """Test that unknown models fall back to default pricing."""
+        cost = calculate_cost("unknown-model", 1_000_000, 1_000_000)
+        # Default is (2.0, 12.0)
+        self.assertAlmostEqual(cost, 14.0)
+
+    def test_calculate_cost_small_token_count(self):
+        """Test cost calculation with realistic small token counts."""
+        # gemini-3.1-pro-preview: $2.00/M input, $12.00/M output
+        cost = calculate_cost("gemini-3.1-pro-preview", 500, 200)
+        expected = (500 / 1_000_000) * 2.0 + (200 / 1_000_000) * 12.0
+        self.assertAlmostEqual(cost, expected)
 
 
 if __name__ == "__main__":
