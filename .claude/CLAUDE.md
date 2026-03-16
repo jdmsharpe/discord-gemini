@@ -568,12 +568,15 @@ If you see truncated content, either shorten your input or the model returned an
 ### March 2026 - Pricing Feedback
 
 - Added per-request cost and daily cost tracking to `/gemini chat` responses
-- Each chat response (initial and follow-up) now shows an orange pricing embed: `$cost · N in / N out · daily $total`
+- Each chat response (initial and follow-up) shows a pricing embed: `$cost · N in / N out · daily $total`
+- Pricing embed color matches the response embed color (dark blue)
+- Pricing embeds are configurable via `SHOW_COST_EMBEDS` env var (default: `true`)
 - Added `MODEL_PRICING` dict to `util.py` with per-million-token rates for all 8 chat models
 - Added `calculate_cost()` utility function in `util.py`
 - Added `append_pricing_embed()` standalone function in `gemini_api.py`
 - Added `daily_costs` dict and `_track_daily_cost()` method to `GeminiAPI` for per-user daily accumulation
 - Token counts extracted from `response.usage_metadata` (`prompt_token_count`, `candidates_token_count`)
+- Added `SHOW_COST_EMBEDS` to `config/auth.py` (default: `true`)
 
 ### March 2026 - Media Resolution
 

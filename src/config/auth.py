@@ -12,3 +12,4 @@ GEMINI_FILE_SEARCH_STORE_IDS = [
     for store_id in os.getenv("GEMINI_FILE_SEARCH_STORE_IDS", "").split(",")
     if store_id
 ]
+SHOW_COST_EMBEDS = os.getenv("SHOW_COST_EMBEDS", "true").lower() in ("true", "1", "yes")
