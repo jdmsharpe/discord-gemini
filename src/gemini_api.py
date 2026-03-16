@@ -887,9 +887,8 @@ class GeminiAPI(commands.Cog):
             append_thinking_embeds(embeds, thinking_text)
             append_response_embeds(embeds, response_text)
 
-            # Auxiliary embeds (sources, cost) sent separately so view stays with response
-            aux_embeds: list[Embed] = []
-            append_sources_embed(aux_embeds, tool_info)
+            # Append sources and pricing embeds to main embeds (before buttons)
+            append_sources_embed(embeds, tool_info)
 
             usage = getattr(response, "usage_metadata", None)
             input_tokens = getattr(usage, "prompt_token_count", 0) or 0
@@ -900,7 +899,7 @@ class GeminiAPI(commands.Cog):
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
-                    aux_embeds, params.model, input_tokens, output_tokens, daily_cost, thinking_tokens
+                    embeds, params.model, input_tokens, output_tokens, daily_cost, thinking_tokens
                 )
 
             view = self.views.get(message.author)
@@ -934,13 +933,6 @@ class GeminiAPI(commands.Cog):
                         main_conversation_id
                     )
                     self.last_view_messages[message.author] = reply_message
-
-                # Send auxiliary embeds (sources, cost) separately without the view
-                if aux_embeds:
-                    try:
-                        await message.channel.send(embeds=aux_embeds)
-                    except Exception as embed_error:
-                        self.logger.warning(f"Aux embeds failed: {embed_error}")
 
                 self.logger.debug("Replied with generated response.")
             else:
@@ -1485,11 +1477,12 @@ class GeminiAPI(commands.Cog):
             ]
             thinking_text = extract_thinking_text(response)
             append_thinking_embeds(embeds, thinking_text)
+            embed_count_before_response = len(embeds)
             append_response_embeds(embeds, response_text)
+            has_response = len(embeds) > embed_count_before_response
 
-            # Auxiliary embeds (sources, cost) sent separately so view stays with response
-            aux_embeds: list[Embed] = []
-            append_sources_embed(aux_embeds, tool_info)
+            # Append sources and pricing embeds to main embeds (before buttons)
+            append_sources_embed(embeds, tool_info)
 
             usage = getattr(response, "usage_metadata", None)
             input_tokens = getattr(usage, "prompt_token_count", 0) or 0
@@ -1500,10 +1493,10 @@ class GeminiAPI(commands.Cog):
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
-                    aux_embeds, model, input_tokens, output_tokens, daily_cost, thinking_tokens
+                    embeds, model, input_tokens, output_tokens, daily_cost, thinking_tokens
                 )
 
-            if len(embeds) == 1:
+            if not has_response:
                 await ctx.send_followup("No response generated.")
                 return
 
@@ -1531,13 +1524,10 @@ class GeminiAPI(commands.Cog):
             # Strip buttons from previous conversation's last message
             await self._strip_previous_view(ctx.author)
 
-            # Send response embeds with view, then auxiliary embeds separately
+            # Send all embeds with view in a single message
             message = await ctx.send_followup(embeds=embeds, view=view)
             self.message_to_conversation_id[message.id] = main_conversation_id
             self.last_view_messages[ctx.author] = message
-
-            if aux_embeds:
-                await ctx.send_followup(embeds=aux_embeds)
 
             # Store the conversation details
             params = ChatCompletionParameters(
