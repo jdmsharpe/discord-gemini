@@ -664,21 +664,19 @@ class TestCacheConstants(unittest.TestCase):
     """Tests for explicit caching constants."""
 
     def test_cache_min_token_count_contains_expected_models(self):
-        """Test that CACHE_MIN_TOKEN_COUNT includes known cacheable models."""
+        """Test that CACHE_MIN_TOKEN_COUNT includes only Gemini 3.x models."""
         self.assertIn("gemini-3.1-pro-preview", CACHE_MIN_TOKEN_COUNT)
         self.assertIn("gemini-3-flash-preview", CACHE_MIN_TOKEN_COUNT)
-        self.assertIn("gemini-2.5-pro", CACHE_MIN_TOKEN_COUNT)
-        self.assertIn("gemini-2.5-flash", CACHE_MIN_TOKEN_COUNT)
 
     def test_cache_min_token_count_values(self):
         """Test that token thresholds are correct per model tier."""
         self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-3.1-pro-preview"], 4096)
         self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-3-flash-preview"], 1024)
-        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-2.5-pro"], 4096)
-        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-2.5-flash"], 1024)
 
-    def test_cache_min_token_count_excludes_unsupported_models(self):
-        """Test that models without caching support are not listed."""
+    def test_cache_min_token_count_excludes_implicit_only_models(self):
+        """Test that 2.5 and below models rely on implicit caching."""
+        self.assertNotIn("gemini-2.5-pro", CACHE_MIN_TOKEN_COUNT)
+        self.assertNotIn("gemini-2.5-flash", CACHE_MIN_TOKEN_COUNT)
         self.assertNotIn("gemini-2.0-flash", CACHE_MIN_TOKEN_COUNT)
         self.assertNotIn("gemini-2.0-flash-lite", CACHE_MIN_TOKEN_COUNT)
 

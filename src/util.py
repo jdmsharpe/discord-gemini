@@ -36,12 +36,11 @@ def calculate_cost(
     ) * output_price
 
 # Minimum input token counts required for explicit context caching per model.
-# Models not listed here do not support explicit caching.
+# Models not listed here rely on implicit caching (automatic, no dev work).
+# Only Gemini 3.x models use explicit caching; 2.5 and below use implicit.
 CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {
     "gemini-3.1-pro-preview": 4096,
     "gemini-3-flash-preview": 1024,
-    "gemini-2.5-pro": 4096,
-    "gemini-2.5-flash": 1024,
 }
 
 CACHE_TTL = "1800s"  # 30-minute TTL for explicit caches

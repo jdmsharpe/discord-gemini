@@ -97,7 +97,7 @@ discord-gemini/
 
 3. **Utility Classes** (`src/util.py`)
    - `ChatCompletionParameters`: Conversation state (includes `tools` list, `cache_name`, `cached_history_length`, `uploaded_file_names`, `thinking_level`, `thinking_budget`)
-   - Cache constants: `CACHE_MIN_TOKEN_COUNT` (model → min tokens), `CACHE_TTL` (default 30 min)
+   - Cache constants: `CACHE_MIN_TOKEN_COUNT` (Gemini 3.x models → min tokens), `CACHE_TTL` (default 30 min)
    - Attachment size constants: `ATTACHMENT_MAX_INLINE_SIZE` (100 MB), `ATTACHMENT_PDF_MAX_INLINE_SIZE` (50 MB), `ATTACHMENT_FILE_API_THRESHOLD` (20 MB), `ATTACHMENT_FILE_API_MAX_SIZE` (2 GB)
    - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `TOOL_FILE_SEARCH`, `AVAILABLE_TOOLS`
    - `FILE_SEARCH_INCOMPATIBLE_TOOLS`: Tools that cannot be combined with file_search
@@ -159,11 +159,13 @@ Conversations are tracked using dictionaries:
 
 #### 4. Explicit Context Caching
 
-Long conversations automatically use Gemini's explicit caching to reduce cost. After each response, `_maybe_create_cache()` checks `usage_metadata.prompt_token_count` against the model's minimum threshold (`CACHE_MIN_TOKEN_COUNT`). When crossed, a cache is created containing the system instruction and conversation history so far. Subsequent turns send only the uncached portion of history with `cached_content` in the config, falling back to full history if the cache expires.
+Long conversations on Gemini 3.x models automatically use explicit caching to reduce cost. Gemini 2.5 and below rely on implicit caching (automatic, no dev work). After each response, `_maybe_create_cache()` checks `usage_metadata.prompt_token_count` against the model's minimum threshold (`CACHE_MIN_TOKEN_COUNT`). When crossed, a cache is created containing the system instruction and conversation history so far. Subsequent turns send only the uncached portion of history with `cached_content` in the config, falling back to full history if the cache expires.
 
-- Cache is created once per conversation when the token threshold is first exceeded
+- Cache is created when the token threshold is first exceeded on a supported model
 - System instruction is included in the cache, so it's omitted from per-request config when a cache is active
-- TTL is 30 minutes (`CACHE_TTL`); if the cache expires, the next request retries transparently with full history
+- TTL is 30 minutes (`CACHE_TTL`); refreshed on each turn via `_refresh_cache_ttl()` using `caches.update()`
+- If the cache expires despite TTL refresh, the next request retries transparently with full history
+- When the uncached tail grows large enough (≥ model threshold), `_recache()` replaces the old cache with a new one covering the full history
 - Caches are deleted when the conversation ends (stop button) or when the cog unloads
 - `_delete_conversation_cache()` handles cleanup and is called from both `ButtonView.stop_button` and `cog_unload`
 
@@ -482,7 +484,7 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (90 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
+- **`test_gemini_api.py`** (95 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
 
 ### CI Pipeline
 
@@ -642,14 +644,17 @@ If you see truncated content, either shorten your input or the model returned an
 
 ### March 2026 - Explicit Context Caching
 
-- Added automatic explicit caching for `/gemini chat` conversations
+- Added automatic explicit caching for `/gemini chat` conversations on Gemini 3.x models
 - When prompt token count exceeds the model's minimum threshold, conversation history is cached to reduce cost
-- Supported models: `gemini-3.1-pro-preview` (4096), `gemini-3-flash-preview` (1024), `gemini-2.5-pro` (4096), `gemini-2.5-flash` (1024)
-- Cache TTL of 30 minutes with transparent fallback if cache expires
+- Supported models: `gemini-3.1-pro-preview` (4096), `gemini-3-flash-preview` (1024)
+- Gemini 2.5 and below rely on implicit caching (automatic, no dev work needed)
+- TTL refresh on each turn via `_refresh_cache_ttl()` using `caches.update()` prevents cache expiration between turns
+- Periodic re-caching via `_recache()`: when the uncached tail exceeds the model's token threshold, the old cache is replaced with a new one covering the full conversation history
+- Transparent fallback to full history if the cache expires despite TTL refresh
 - Caches are cleaned up on conversation end and cog unload
 - Added `CACHE_MIN_TOKEN_COUNT`, `CACHE_TTL` constants to `util.py`
 - Added `cache_name`, `cached_history_length` fields to `ChatCompletionParameters`
-- Added `_maybe_create_cache()`, `_delete_conversation_cache()` methods to `GeminiAPI`
+- Added `_maybe_create_cache()`, `_recache()`, `_refresh_cache_ttl()`, `_delete_conversation_cache()` methods to `GeminiAPI`
 
 ### March 2026 - Gemini 3.1 Flash Image Release & Deprecation Cleanup
 
