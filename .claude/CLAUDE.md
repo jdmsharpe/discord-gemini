@@ -106,6 +106,7 @@ discord-gemini/
    - `SpeechGenerationParameters`: TTS config
    - `MusicGenerationParameters`: Music generation config
    - `ResearchParameters`: Deep research config (prompt, agent, file_search flag)
+   - Pricing constants: `MODEL_PRICING` (model → (input, output) per million tokens), `calculate_cost()`
    - `chunk_text()`: Splits long text for Discord embeds
 
 ### Key Design Patterns
@@ -468,11 +469,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (68 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, and `uploaded_file_names` isolation.
+- **`test_util.py`** (75 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, and `MODEL_PRICING` validation.
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (58 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), and explicit context caching (create/delete/error handling).
+- **`test_gemini_api.py`** (63 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/error handling), and pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation).
 
 ### CI Pipeline
 
@@ -563,6 +564,16 @@ If you see truncated content, either shorten your input or the model returned an
 - Added `ATTACHMENT_MAX_INLINE_SIZE` (100 MB), `ATTACHMENT_PDF_MAX_INLINE_SIZE` (50 MB), `ATTACHMENT_FILE_API_THRESHOLD` (20 MB), `ATTACHMENT_FILE_API_MAX_SIZE` (2 GB) constants to `util.py`
 - Added `_validate_attachment_size()`, `_prepare_attachment_part()`, `_upload_attachment_to_file_api()`, `_cleanup_uploaded_files()` methods to `GeminiAPI`
 - Parts conversion logic in chat now handles `file_data` dicts via `types.Part.from_uri()`
+
+### March 2026 - Pricing Feedback
+
+- Added per-request cost and daily cost tracking to `/gemini chat` responses
+- Each chat response (initial and follow-up) now shows an orange pricing embed: `$cost · N in / N out · daily $total`
+- Added `MODEL_PRICING` dict to `util.py` with per-million-token rates for all 8 chat models
+- Added `calculate_cost()` utility function in `util.py`
+- Added `append_pricing_embed()` standalone function in `gemini_api.py`
+- Added `daily_costs` dict and `_track_daily_cost()` method to `GeminiAPI` for per-user daily accumulation
+- Token counts extracted from `response.usage_metadata` (`prompt_token_count`, `candidates_token_count`)
 
 ### March 2026 - Media Resolution
 

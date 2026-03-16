@@ -10,6 +10,24 @@ TOOL_GOOGLE_MAPS = {"google_maps": {}}
 TOOL_URL_CONTEXT = {"url_context": {}}
 TOOL_FILE_SEARCH = {"file_search": {}}
 
+# Per-million-token pricing: (input_cost, output_cost)
+MODEL_PRICING: Dict[str, Tuple[float, float]] = {
+    "gemini-3.1-pro-preview": (2.0, 12.0),
+    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
+    "gemini-3-flash-preview": (0.50, 3.0),
+    "gemini-2.5-pro": (1.25, 10.0),
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-2.0-flash-lite": (0.075, 0.30),
+}
+
+
+def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Calculate the cost in dollars for a given model and token usage."""
+    input_price, output_price = MODEL_PRICING.get(model, (2.0, 12.0))
+    return (input_tokens / 1_000_000) * input_price + (output_tokens / 1_000_000) * output_price
+
 # Minimum input token counts required for explicit context caching per model.
 # Models not listed here do not support explicit caching.
 CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {

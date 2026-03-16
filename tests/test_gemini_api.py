@@ -32,12 +32,14 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         from gemini_api import (
             GeminiAPI,
             Conversation,
+            append_pricing_embed,
             append_response_embeds,
             extract_tool_info,
         )
 
         self.GeminiAPI = GeminiAPI
         self.Conversation = Conversation
+        self.append_pricing_embed = append_pricing_embed
         self.append_response_embeds = append_response_embeds
         self.extract_tool_info = extract_tool_info
 
@@ -966,6 +968,103 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
 
         # Prompt should be truncated to 2000 + "..."
         self.assertIn("...", embeds[0].description)
+
+
+class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
+    """Tests for pricing embed and daily cost tracking."""
+
+    async def asyncSetUp(self):
+        self.auth_patcher = patch.dict(
+            "sys.modules",
+            {
+                "config.auth": MagicMock(
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
+                )
+            },
+        )
+        self.auth_patcher.start()
+
+        self.genai_patcher = patch("gemini_api.genai.Client")
+        self.mock_genai_client = self.genai_patcher.start()
+
+        mock_client_instance = self.mock_genai_client.return_value
+        mock_client_instance.aio.aclose = AsyncMock()
+        mock_client_instance.close = MagicMock()
+
+        from gemini_api import GeminiAPI, append_pricing_embed
+
+        self.append_pricing_embed = append_pricing_embed
+
+        intents = Intents.default()
+        intents.message_content = True
+        self.bot = Bot(intents=intents)
+        self.cog = GeminiAPI(bot=self.bot)
+
+    async def asyncTearDown(self):
+        self.auth_patcher.stop()
+        self.genai_patcher.stop()
+
+    async def test_cog_init_daily_costs(self):
+        """Test that GeminiAPI cog initializes daily_costs dict."""
+        self.assertEqual(self.cog.daily_costs, {})
+
+    async def test_track_daily_cost_accumulates(self):
+        """Test that _track_daily_cost accumulates costs for the same user and day."""
+        daily1 = self.cog._track_daily_cost(
+            user_id=12345, model="gemini-2.0-flash",
+            input_tokens=1_000_000, output_tokens=1_000_000,
+        )
+        # gemini-2.0-flash: $0.10/M in, $0.40/M out = $0.50
+        self.assertAlmostEqual(daily1, 0.50)
+
+        # Second call same user — should accumulate
+        daily2 = self.cog._track_daily_cost(
+            user_id=12345, model="gemini-2.0-flash",
+            input_tokens=1_000_000, output_tokens=1_000_000,
+        )
+        self.assertAlmostEqual(daily2, 1.00)
+
+    async def test_track_daily_cost_separate_users(self):
+        """Test that _track_daily_cost tracks users independently."""
+        self.cog._track_daily_cost(
+            user_id=111, model="gemini-2.0-flash",
+            input_tokens=1_000_000, output_tokens=0,
+        )
+        daily_user2 = self.cog._track_daily_cost(
+            user_id=222, model="gemini-2.0-flash",
+            input_tokens=1_000_000, output_tokens=0,
+        )
+        self.assertAlmostEqual(daily_user2, 0.10)
+
+    async def test_append_pricing_embed(self):
+        """Test that append_pricing_embed creates an orange embed with cost info."""
+        embeds = []
+        self.append_pricing_embed(
+            embeds, "gemini-2.0-flash",
+            input_tokens=500_000, output_tokens=200_000,
+            daily_cost=1.25,
+        )
+        self.assertEqual(len(embeds), 1)
+        embed = embeds[0]
+        self.assertIn("$", embed.description)
+        self.assertIn("500,000 in", embed.description)
+        self.assertIn("200,000 out", embed.description)
+        self.assertIn("daily $1.25", embed.description)
+
+    async def test_append_pricing_embed_zero_tokens(self):
+        """Test pricing embed with zero tokens."""
+        embeds = []
+        self.append_pricing_embed(
+            embeds, "gemini-2.5-pro",
+            input_tokens=0, output_tokens=0,
+            daily_cost=0.0,
+        )
+        self.assertEqual(len(embeds), 1)
+        self.assertIn("$0.0000", embeds[0].description)
+        self.assertIn("0 in", embeds[0].description)
+        self.assertIn("0 out", embeds[0].description)
 
 
 class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):

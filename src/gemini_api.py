@@ -6,6 +6,7 @@ import time
 import wave
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, cast
@@ -49,6 +50,7 @@ from util import (
     ResearchParameters,
     SpeechGenerationParameters,
     VideoGenerationParameters,
+    calculate_cost,
     chunk_text,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
@@ -257,6 +259,21 @@ def append_sources_embed(embeds: List[Embed], tool_info: ToolInfo) -> None:
     embeds.append(Embed(title="Sources", description=description, color=Colour.blue()))
 
 
+def append_pricing_embed(
+    embeds: List[Embed],
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    daily_cost: float,
+) -> None:
+    """Append a compact pricing embed showing cost and token usage."""
+    cost = calculate_cost(model, input_tokens, output_tokens)
+    description = (
+        f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out · daily ${daily_cost:.2f}"
+    )
+    embeds.append(Embed(description=description, color=Colour.orange()))
+
+
 class GeminiAPI(commands.Cog):
     # Slash command group for all Gemini commands: /gemini <subcommand>
     gemini = SlashCommandGroup("gemini", "Gemini AI commands", guild_ids=GUILD_IDS)
@@ -282,8 +299,19 @@ class GeminiAPI(commands.Cog):
         self.message_to_conversation_id: Dict[int, int] = {}
         # Dictionary to store UI views for each conversation
         self.views = {}
+        # Daily cost tracking: (user_id, date_iso) -> cumulative cost
+        self.daily_costs: Dict[tuple, float] = {}
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._session_lock = asyncio.Lock()
+
+    def _track_daily_cost(
+        self, user_id: int, model: str, input_tokens: int, output_tokens: int
+    ) -> float:
+        """Add this request's cost to the user's daily total and return the new daily total."""
+        cost = calculate_cost(model, input_tokens, output_tokens)
+        key = (user_id, date.today().isoformat())
+        self.daily_costs[key] = self.daily_costs.get(key, 0.0) + cost
+        return self.daily_costs[key]
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self._http_session and not self._http_session.closed:
@@ -671,6 +699,17 @@ class GeminiAPI(commands.Cog):
 
             append_response_embeds(embeds, response_text)
             append_sources_embed(embeds, tool_info)
+
+            # Append pricing embed with token usage
+            usage = getattr(response, "usage_metadata", None)
+            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+            daily_cost = self._track_daily_cost(
+                message.author.id, params.model, input_tokens, output_tokens
+            )
+            append_pricing_embed(
+                embeds, params.model, input_tokens, output_tokens, daily_cost
+            )
 
             view = self.views.get(message.author)
             main_conversation_id = conversation_wrapper.params.conversation_id
@@ -1225,6 +1264,17 @@ class GeminiAPI(commands.Cog):
             ]
             append_response_embeds(embeds, response_text)
             append_sources_embed(embeds, tool_info)
+
+            # Append pricing embed with token usage
+            usage = getattr(response, "usage_metadata", None)
+            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+            daily_cost = self._track_daily_cost(
+                ctx.author.id, model, input_tokens, output_tokens
+            )
+            append_pricing_embed(
+                embeds, model, input_tokens, output_tokens, daily_cost
+            )
 
             if len(embeds) == 1:
                 await ctx.send_followup("No response generated.")
