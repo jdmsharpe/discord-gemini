@@ -1,11 +1,17 @@
 import unittest
 from util import (
+    CACHE_MIN_TOKEN_COUNT,
+    CACHE_TTL,
+    FILE_SEARCH_INCOMPATIBLE_TOOLS,
     TOOL_CODE_EXECUTION,
+    TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
     TOOL_GOOGLE_SEARCH,
     TOOL_URL_CONTEXT,
     ChatCompletionParameters,
+    filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
+    resolve_tool_name,
     ImageGenerationParameters,
     VideoGenerationParameters,
     SpeechGenerationParameters,
@@ -31,6 +37,8 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertFalse(params.paused)
         self.assertEqual(params.history, [])
         self.assertEqual(params.tools, [])
+        self.assertIsNone(params.cache_name)
+        self.assertEqual(params.cached_history_length, 0)
 
     def test_all_parameters(self):
         params = ChatCompletionParameters(
@@ -103,6 +111,82 @@ class TestChatCompletionParameters(unittest.TestCase):
             [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION, TOOL_URL_CONTEXT],
         )
         self.assertEqual(unsupported, ["google_maps"])
+
+    def test_filter_supported_tools_file_search_supported_model(self):
+        """Test that file_search is supported on compatible models."""
+        tools = [TOOL_FILE_SEARCH]
+        supported, unsupported = filter_supported_tools_for_model(
+            "gemini-2.5-pro", tools
+        )
+        self.assertEqual(supported, [TOOL_FILE_SEARCH])
+        self.assertEqual(unsupported, [])
+
+    def test_filter_supported_tools_file_search_unsupported_model(self):
+        """Test that file_search is filtered out for unsupported models."""
+        tools = [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
+        supported, unsupported = filter_supported_tools_for_model(
+            "gemini-2.0-flash", tools
+        )
+        self.assertEqual(supported, [TOOL_CODE_EXECUTION])
+        self.assertEqual(unsupported, ["file_search"])
+
+
+class TestResolveToolName(unittest.TestCase):
+    def test_resolve_standard_tools(self):
+        """Test resolving standard tool configs to names."""
+        self.assertEqual(resolve_tool_name(TOOL_GOOGLE_SEARCH), "google_search")
+        self.assertEqual(resolve_tool_name(TOOL_CODE_EXECUTION), "code_execution")
+        self.assertEqual(resolve_tool_name(TOOL_FILE_SEARCH), "file_search")
+
+    def test_resolve_enriched_file_search(self):
+        """Test resolving file_search config with injected store IDs."""
+        enriched = {
+            "file_search": {
+                "file_search_store_names": ["store1", "store2"]
+            }
+        }
+        self.assertEqual(resolve_tool_name(enriched), "file_search")
+
+    def test_resolve_unknown_tool(self):
+        """Test that unknown tool configs return None."""
+        self.assertIsNone(resolve_tool_name({"unknown_tool": {}}))
+
+
+class TestFilterFileSearchIncompatibleTools(unittest.TestCase):
+    def test_no_file_search_returns_unchanged(self):
+        """Test that tools are unchanged when file_search is not present."""
+        tools = [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION]
+        filtered, removed = filter_file_search_incompatible_tools(tools)
+        self.assertEqual(filtered, tools)
+        self.assertEqual(removed, [])
+
+    def test_file_search_removes_incompatible_tools(self):
+        """Test that incompatible tools are removed when file_search is present."""
+        tools = [
+            TOOL_FILE_SEARCH,
+            TOOL_GOOGLE_SEARCH,
+            TOOL_CODE_EXECUTION,
+            TOOL_URL_CONTEXT,
+        ]
+        filtered, removed = filter_file_search_incompatible_tools(tools)
+        self.assertEqual(filtered, [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION])
+        self.assertIn("google_search", removed)
+        self.assertIn("url_context", removed)
+
+    def test_file_search_alone_no_removals(self):
+        """Test file_search with only compatible tools."""
+        tools = [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
+        filtered, removed = filter_file_search_incompatible_tools(tools)
+        self.assertEqual(filtered, [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION])
+        self.assertEqual(removed, [])
+
+    def test_file_search_incompatible_tools_constant(self):
+        """Test that the incompatible tools set contains expected tools."""
+        self.assertIn("google_search", FILE_SEARCH_INCOMPATIBLE_TOOLS)
+        self.assertIn("google_maps", FILE_SEARCH_INCOMPATIBLE_TOOLS)
+        self.assertIn("url_context", FILE_SEARCH_INCOMPATIBLE_TOOLS)
+        self.assertNotIn("code_execution", FILE_SEARCH_INCOMPATIBLE_TOOLS)
+        self.assertNotIn("file_search", FILE_SEARCH_INCOMPATIBLE_TOOLS)
 
 
 class TestImageGenerationParameters(unittest.TestCase):
@@ -535,6 +619,59 @@ class TestTruncateText(unittest.TestCase):
         result = truncate_text(long_response, 3500)
         self.assertEqual(len(result), 3503)  # 3500 + "..."
         self.assertTrue(result.endswith("..."))
+
+
+class TestCacheConstants(unittest.TestCase):
+    """Tests for explicit caching constants."""
+
+    def test_cache_min_token_count_contains_expected_models(self):
+        """Test that CACHE_MIN_TOKEN_COUNT includes known cacheable models."""
+        self.assertIn("gemini-3.1-pro-preview", CACHE_MIN_TOKEN_COUNT)
+        self.assertIn("gemini-3-flash-preview", CACHE_MIN_TOKEN_COUNT)
+        self.assertIn("gemini-2.5-pro", CACHE_MIN_TOKEN_COUNT)
+        self.assertIn("gemini-2.5-flash", CACHE_MIN_TOKEN_COUNT)
+
+    def test_cache_min_token_count_values(self):
+        """Test that token thresholds are correct per model tier."""
+        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-3.1-pro-preview"], 4096)
+        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-3-flash-preview"], 1024)
+        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-2.5-pro"], 4096)
+        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-2.5-flash"], 1024)
+
+    def test_cache_min_token_count_excludes_unsupported_models(self):
+        """Test that models without caching support are not listed."""
+        self.assertNotIn("gemini-2.0-flash", CACHE_MIN_TOKEN_COUNT)
+        self.assertNotIn("gemini-2.0-flash-lite", CACHE_MIN_TOKEN_COUNT)
+
+    def test_cache_ttl_is_valid(self):
+        """Test that CACHE_TTL is a valid duration string."""
+        self.assertEqual(CACHE_TTL, "1800s")
+
+
+class TestChatCompletionParametersCaching(unittest.TestCase):
+    """Tests for cache-related fields on ChatCompletionParameters."""
+
+    def test_cache_fields_with_values(self):
+        """Test that cache fields can be set."""
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash",
+            cache_name="cachedContents/abc123",
+            cached_history_length=4,
+        )
+        self.assertEqual(params.cache_name, "cachedContents/abc123")
+        self.assertEqual(params.cached_history_length, 4)
+
+    def test_cache_fields_reset(self):
+        """Test that cache fields can be cleared."""
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash",
+            cache_name="cachedContents/abc123",
+            cached_history_length=4,
+        )
+        params.cache_name = None
+        params.cached_history_length = 0
+        self.assertIsNone(params.cache_name)
+        self.assertEqual(params.cached_history_length, 0)
 
 
 if __name__ == "__main__":

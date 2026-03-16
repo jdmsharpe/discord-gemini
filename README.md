@@ -20,14 +20,18 @@ All commands are grouped under `/gemini` for clean namespacing.
   - `code_execution`
   - `google_maps` (model-dependent, no longer supported by Gemini 3 onward)
   - `url_context` (model-dependent)
+  - `file_search` (model-dependent, RAG over uploaded document stores)
 - Tools can be enabled:
   - In the initial slash command options
   - Mid-conversation via the tool select dropdown
 - Tool/model compatibility is enforced automatically (unsupported tools are skipped with a user-visible message)
+- File Search cannot be combined with Google Search, Google Maps, or URL Context (incompatible tools are automatically disabled)
 - Responses can include a Sources embed with:
   - Web and Maps citations
   - Search queries
   - URL Context retrieval metadata
+  - File Search document citations
+- Automatic explicit context caching for long conversations (reduces API costs on supported models)
 - Multimodal support (text + images)
 
 ### Image Generation
@@ -79,6 +83,7 @@ All commands are grouped under `/gemini` for clean namespacing.
    - `BOT_TOKEN`: Your Discord bot token
    - `GUILD_IDS`: Comma-separated list of Discord server IDs
    - `GEMINI_API_KEY`: Your Google Gemini API key
+   - `GEMINI_FILE_SEARCH_STORE_IDS` (optional): Comma-separated File Search store IDs for RAG
 3. Set up Discord bot permissions in your server
 4. Run the bot: `python src/bot.py`
 

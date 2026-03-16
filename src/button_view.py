@@ -12,7 +12,12 @@ from discord import (
 import logging
 from discord.ui import Button, Select, View, button
 
-from util import AVAILABLE_TOOLS, filter_supported_tools_for_model, resolve_tool_name
+from util import (
+    AVAILABLE_TOOLS,
+    filter_file_search_incompatible_tools,
+    filter_supported_tools_for_model,
+    resolve_tool_name,
+)
 
 
 class ButtonView(View):
@@ -34,14 +39,14 @@ class ButtonView(View):
 
     def _add_tool_select(self, initial_tools: List[Dict[str, Any]]) -> None:
         selected_tools = {
-            tool_name
-            for tool_name, tool_config in AVAILABLE_TOOLS.items()
-            if tool_config in initial_tools
+            name
+            for tool in initial_tools
+            if (name := resolve_tool_name(tool)) is not None
         }
         tool_select = Select(
             placeholder="Toggle conversation tools",
             min_values=0,
-            max_values=4,
+            max_values=5,
             row=1,
             options=[
                 SelectOption(
@@ -67,6 +72,12 @@ class ButtonView(View):
                     value="url_context",
                     description="Retrieve and analyze provided URLs.",
                     default="url_context" in selected_tools,
+                ),
+                SelectOption(
+                    label="File Search",
+                    value="file_search",
+                    description="Search over uploaded document stores.",
+                    default="file_search" in selected_tools,
                 ),
             ],
         )
@@ -105,6 +116,16 @@ class ButtonView(View):
         supported_tools, unsupported_tools = filter_supported_tools_for_model(
             conversation.params.model, requested_tools
         )
+        supported_tools, incompatible_tools = filter_file_search_incompatible_tools(
+            supported_tools
+        )
+
+        # Enrich file_search tools with store IDs via the cog
+        enrich_error = self.cog.enrich_file_search_tools(supported_tools)
+        if enrich_error:
+            await interaction.response.send_message(enrich_error, ephemeral=True)
+            return
+
         conversation.params.tools = supported_tools
         selected_tool_names = {
             tool_name
@@ -127,6 +148,11 @@ class ButtonView(View):
             unsupported_text = ", ".join(sorted(set(unsupported_tools)))
             message += (
                 f" Skipped for model `{conversation.params.model}`: {unsupported_text}."
+            )
+        if incompatible_tools:
+            incompatible_text = ", ".join(sorted(set(incompatible_tools)))
+            message += (
+                f" Disabled (incompatible with file_search): {incompatible_text}."
             )
 
         await interaction.response.send_message(message, ephemeral=True, delete_after=3)
@@ -267,6 +293,8 @@ class ButtonView(View):
 
         # End the conversation
         if self.conversation_id in self.cog.conversations:
+            conversation = self.cog.conversations[self.conversation_id]
+            await self.cog._delete_conversation_cache(conversation.params)
             del self.cog.conversations[self.conversation_id]
             button.disabled = True
             await interaction.response.send_message(
