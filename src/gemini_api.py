@@ -277,7 +277,7 @@ def append_pricing_embed(
     """Append a compact pricing embed showing cost and token usage."""
     cost = calculate_cost(model, input_tokens, output_tokens)
     description = (
-        f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out · daily ${daily_cost:.2f}"
+        f"${cost:.4f} · {input_tokens:,} tokens in / {output_tokens:,} tokens out · daily ${daily_cost:.2f}"
     )
     embeds.append(Embed(description=description, color=GEMINI_BLUE))
 
@@ -307,6 +307,8 @@ class GeminiAPI(commands.Cog):
         self.message_to_conversation_id: Dict[int, int] = {}
         # Dictionary to store UI views for each conversation
         self.views = {}
+        # Track the last message carrying the view per conversation for cleanup
+        self.last_view_messages: Dict[int, Any] = {}
         # Daily cost tracking: (user_id, date_iso) -> cumulative cost
         self.daily_costs: Dict[tuple, float] = {}
         self._http_session: Optional[aiohttp.ClientSession] = None
@@ -555,6 +557,8 @@ class GeminiAPI(commands.Cog):
                         self.client.aio.files.delete(name=file_name)
                     )
 
+        self.last_view_messages.clear()
+
         # Close Gemini clients
         if loop and loop.is_running():
             loop.create_task(self.client.aio.aclose())
@@ -728,13 +732,22 @@ class GeminiAPI(commands.Cog):
                 self.logger.error("Conversation ID is None, cannot track message")
                 return
 
+            # Remove the view from the previous turn's message to reduce clutter
+            prev_view_msg = self.last_view_messages.get(main_conversation_id)
+            if prev_view_msg is not None:
+                try:
+                    await prev_view_msg.edit(view=None)
+                except Exception:
+                    pass  # Message may have been deleted
+
             if embeds:
-                # Send the first embed as a direct reply to the user's message
+                # Send the first embed (actual response) as a reply with the view
                 try:
                     reply_message = await message.reply(embed=embeds[0], view=view)
                     self.message_to_conversation_id[reply_message.id] = (
                         main_conversation_id
                     )
+                    self.last_view_messages[main_conversation_id] = reply_message
                 except Exception as embed_error:
                     # If embed fails due to size, try sending as plain text
                     self.logger.warning(f"Embed failed, sending as text: {embed_error}")
@@ -746,12 +759,13 @@ class GeminiAPI(commands.Cog):
                     self.message_to_conversation_id[reply_message.id] = (
                         main_conversation_id
                     )
+                    self.last_view_messages[main_conversation_id] = reply_message
 
-                # Send any remaining embeds as separate messages in the same channel
+                # Send remaining embeds (sources, cost) without the view
                 for embed in embeds[1:]:
                     try:
                         followup_message = await message.channel.send(
-                            embed=embed, view=view
+                            embed=embed
                         )
                         self.message_to_conversation_id[followup_message.id] = (
                             main_conversation_id
@@ -761,7 +775,6 @@ class GeminiAPI(commands.Cog):
                         self.logger.warning(f"Followup embed failed: {embed_error}")
                         followup_message = await message.channel.send(
                             content=f"**Response (continued):**\n{embed.description[:1900]}{'...' if len(embed.description) > 1900 else ''}",
-                            view=view,
                         )
                         self.message_to_conversation_id[followup_message.id] = (
                             main_conversation_id
@@ -1314,6 +1327,7 @@ class GeminiAPI(commands.Cog):
             # Send all embeds as a single message with buttons
             message = await ctx.send_followup(embeds=embeds, view=view)
             self.message_to_conversation_id[message.id] = main_conversation_id
+            self.last_view_messages[main_conversation_id] = message
 
             # Store the conversation details
             params = ChatCompletionParameters(

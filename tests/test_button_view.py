@@ -17,6 +17,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         self.cog = MagicMock()
         self.cog.conversations = {}
+        self.cog.last_view_messages = {}
         self.cog.handle_new_message_in_conversation = AsyncMock()
 
         self.conversation_starter = MagicMock()
@@ -265,6 +266,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.cog.conversations[self.conversation_id] = mock_conversation
         self.cog._delete_conversation_cache = AsyncMock()
         self.cog._cleanup_uploaded_files = AsyncMock()
+        self.cog.last_view_messages[self.conversation_id] = MagicMock()
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -275,6 +277,8 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         # Verify conversation was deleted
         self.assertNotIn(self.conversation_id, self.cog.conversations)
+        # Verify last_view_messages entry was cleaned up
+        self.assertNotIn(self.conversation_id, self.cog.last_view_messages)
 
         # Verify response was sent
         call_kwargs = interaction.response.send_message.call_args.kwargs
