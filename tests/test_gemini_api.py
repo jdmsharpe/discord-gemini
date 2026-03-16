@@ -34,14 +34,22 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             Conversation,
             append_pricing_embed,
             append_response_embeds,
+            append_thinking_embeds,
+            extract_thinking_text,
             extract_tool_info,
+            _get_response_content_parts,
+            _build_thinking_config,
         )
 
         self.GeminiAPI = GeminiAPI
         self.Conversation = Conversation
         self.append_pricing_embed = append_pricing_embed
         self.append_response_embeds = append_response_embeds
+        self.append_thinking_embeds = append_thinking_embeds
+        self.extract_thinking_text = extract_thinking_text
         self.extract_tool_info = extract_tool_info
+        self._get_response_content_parts = _get_response_content_parts
+        self._build_thinking_config = _build_thinking_config
 
         # Setting up the bot with the GeminiAPI cog
         intents = Intents.default()
@@ -1258,6 +1266,305 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         # Fields should still be cleared even on API error
         self.assertIsNone(params.cache_name)
         self.assertEqual(params.cached_history_length, 0)
+
+
+class TestGuessUrlMimeType(unittest.TestCase):
+    """Tests for _guess_url_mime_type YouTube detection and fallback."""
+
+    def setUp(self):
+        from gemini_api import _guess_url_mime_type
+
+        self._guess_url_mime_type = _guess_url_mime_type
+
+    def test_youtube_long_url(self):
+        result = self._guess_url_mime_type("https://www.youtube.com/watch?v=abc123")
+        self.assertEqual(result, "video/mp4")
+
+    def test_youtube_short_url(self):
+        result = self._guess_url_mime_type("https://youtu.be/abc123")
+        self.assertEqual(result, "video/mp4")
+
+    def test_youtube_no_scheme(self):
+        result = self._guess_url_mime_type("youtube.com/watch?v=abc123")
+        self.assertEqual(result, "video/mp4")
+
+    def test_youtube_http(self):
+        result = self._guess_url_mime_type("http://www.youtube.com/watch?v=abc123")
+        self.assertEqual(result, "video/mp4")
+
+    def test_regular_image_url(self):
+        result = self._guess_url_mime_type("https://example.com/photo.jpg")
+        self.assertEqual(result, "image/jpeg")
+
+    def test_regular_pdf_url(self):
+        result = self._guess_url_mime_type("https://example.com/doc.pdf")
+        self.assertEqual(result, "application/pdf")
+
+    def test_unknown_url_fallback(self):
+        result = self._guess_url_mime_type("https://example.com/api/data")
+        self.assertEqual(result, "application/octet-stream")
+
+
+class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
+    """Tests for thinking config, thinking embeds, and response part extraction."""
+
+    async def asyncSetUp(self):
+        self.auth_patcher = patch.dict(
+            "sys.modules",
+            {
+                "config.auth": MagicMock(
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1"],
+                )
+            },
+        )
+        self.auth_patcher.start()
+
+        self.genai_patcher = patch("gemini_api.genai.Client")
+        self.mock_genai_client = self.genai_patcher.start()
+
+        mock_client_instance = self.mock_genai_client.return_value
+        mock_client_instance.aio.aclose = AsyncMock()
+        mock_client_instance.close = MagicMock()
+
+        from gemini_api import (
+            GeminiAPI,
+            append_thinking_embeds,
+            append_pricing_embed,
+            extract_thinking_text,
+            _get_response_content_parts,
+            _build_thinking_config,
+        )
+
+        self.append_thinking_embeds = append_thinking_embeds
+        self.append_pricing_embed = append_pricing_embed
+        self.extract_thinking_text = extract_thinking_text
+        self._get_response_content_parts = _get_response_content_parts
+        self._build_thinking_config = _build_thinking_config
+
+        intents = Intents.default()
+        intents.message_content = True
+        self.bot = Bot(intents=intents)
+        self.cog = GeminiAPI(bot=self.bot)
+
+    async def asyncTearDown(self):
+        self.auth_patcher.stop()
+        self.genai_patcher.stop()
+
+    # --- _build_thinking_config ---
+
+    async def test_build_thinking_config_none_when_no_params(self):
+        """Test that _build_thinking_config returns None when both params are None."""
+        result = self._build_thinking_config(None, None)
+        self.assertIsNone(result)
+
+    async def test_build_thinking_config_with_level(self):
+        """Test that _build_thinking_config sets thinking_level and include_thoughts."""
+        result = self._build_thinking_config("high", None)
+        self.assertIsNotNone(result)
+        # SDK converts string to ThinkingLevel enum
+        self.assertIn("HIGH", str(result.thinking_level))
+        self.assertTrue(result.include_thoughts)
+
+    async def test_build_thinking_config_with_budget(self):
+        """Test that _build_thinking_config sets thinking_budget and include_thoughts."""
+        result = self._build_thinking_config(None, 1024)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.thinking_budget, 1024)
+        self.assertTrue(result.include_thoughts)
+
+    async def test_build_thinking_config_with_both(self):
+        """Test that _build_thinking_config sets both level and budget."""
+        result = self._build_thinking_config("low", 512)
+        self.assertIsNotNone(result)
+        self.assertIn("LOW", str(result.thinking_level))
+        self.assertEqual(result.thinking_budget, 512)
+        self.assertTrue(result.include_thoughts)
+
+    async def test_build_thinking_config_budget_zero(self):
+        """Test that _build_thinking_config handles budget=0 (disable thinking)."""
+        result = self._build_thinking_config(None, 0)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.thinking_budget, 0)
+
+    async def test_build_thinking_config_budget_dynamic(self):
+        """Test that _build_thinking_config handles budget=-1 (dynamic)."""
+        result = self._build_thinking_config(None, -1)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.thinking_budget, -1)
+
+    # --- extract_thinking_text ---
+
+    async def test_extract_thinking_text_with_thoughts(self):
+        """Test extracting thought summaries from response parts."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(thought=True, text="Let me think..."),
+                            SimpleNamespace(thought=False, text="The answer is 42."),
+                        ]
+                    )
+                )
+            ]
+        )
+        result = self.extract_thinking_text(response)
+        self.assertEqual(result, "Let me think...")
+
+    async def test_extract_thinking_text_multiple_thought_parts(self):
+        """Test extracting multiple thought summary parts."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(thought=True, text="Step 1: analyze"),
+                            SimpleNamespace(thought=True, text="Step 2: compute"),
+                            SimpleNamespace(thought=False, text="Result: 7"),
+                        ]
+                    )
+                )
+            ]
+        )
+        result = self.extract_thinking_text(response)
+        self.assertEqual(result, "Step 1: analyze\n\nStep 2: compute")
+
+    async def test_extract_thinking_text_no_thoughts(self):
+        """Test that no thinking text is returned when there are no thought parts."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(thought=False, text="Hello!"),
+                        ]
+                    )
+                )
+            ]
+        )
+        result = self.extract_thinking_text(response)
+        self.assertEqual(result, "")
+
+    async def test_extract_thinking_text_empty_response(self):
+        """Test extracting thinking text from an empty response."""
+        response = SimpleNamespace(candidates=[])
+        result = self.extract_thinking_text(response)
+        self.assertEqual(result, "")
+
+    async def test_extract_thinking_text_no_candidates(self):
+        """Test extracting thinking text when candidates is None."""
+        response = SimpleNamespace(candidates=None)
+        result = self.extract_thinking_text(response)
+        self.assertEqual(result, "")
+
+    # --- _get_response_content_parts ---
+
+    async def test_get_response_content_parts_returns_parts(self):
+        """Test that response parts are extracted correctly."""
+        part1 = SimpleNamespace(text="Hello", thought=False)
+        part2 = SimpleNamespace(text="Thinking...", thought=True)
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(content=SimpleNamespace(parts=[part1, part2]))
+            ]
+        )
+        result = self._get_response_content_parts(response)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 2)
+        self.assertIs(result[0], part1)
+        self.assertIs(result[1], part2)
+
+    async def test_get_response_content_parts_empty_candidates(self):
+        """Test that None is returned for empty candidates."""
+        response = SimpleNamespace(candidates=[])
+        result = self._get_response_content_parts(response)
+        self.assertIsNone(result)
+
+    async def test_get_response_content_parts_no_content(self):
+        """Test that None is returned when content is None."""
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=None)]
+        )
+        result = self._get_response_content_parts(response)
+        self.assertIsNone(result)
+
+    async def test_get_response_content_parts_no_parts(self):
+        """Test that None is returned when parts is empty."""
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))]
+        )
+        result = self._get_response_content_parts(response)
+        self.assertIsNone(result)
+
+    # --- append_thinking_embeds ---
+
+    async def test_append_thinking_embeds_with_text(self):
+        """Test that thinking embed is created with spoilered text."""
+        embeds = []
+        self.append_thinking_embeds(embeds, "My thought process")
+        self.assertEqual(len(embeds), 1)
+        self.assertEqual(embeds[0].title, "Thinking")
+        self.assertEqual(embeds[0].description, "||My thought process||")
+        # Check it uses light grey color
+        from discord import Colour
+        self.assertEqual(embeds[0].color, Colour.light_grey())
+
+    async def test_append_thinking_embeds_empty_text(self):
+        """Test that no embed is created for empty thinking text."""
+        embeds = []
+        self.append_thinking_embeds(embeds, "")
+        self.assertEqual(len(embeds), 0)
+
+    async def test_append_thinking_embeds_truncates_long_text(self):
+        """Test that long thinking text is truncated."""
+        embeds = []
+        long_text = "A" * 4000  # Over 3500 limit
+        self.append_thinking_embeds(embeds, long_text)
+        self.assertEqual(len(embeds), 1)
+        self.assertIn("[thinking truncated]", embeds[0].description)
+        # Check total length is under Discord limit (spoiler markers add 4 chars)
+        self.assertLessEqual(len(embeds[0].description), 3600)
+
+    # --- pricing with thinking tokens ---
+
+    async def test_append_pricing_embed_with_thinking_tokens(self):
+        """Test pricing embed shows thinking token count."""
+        embeds = []
+        self.append_pricing_embed(
+            embeds, "gemini-3-flash-preview",
+            input_tokens=100_000, output_tokens=50_000,
+            daily_cost=0.50, thinking_tokens=200_000,
+        )
+        self.assertEqual(len(embeds), 1)
+        self.assertIn("200,000 thinking", embeds[0].description)
+        self.assertIn("100,000 in", embeds[0].description)
+        self.assertIn("50,000 out", embeds[0].description)
+
+    async def test_append_pricing_embed_zero_thinking_tokens(self):
+        """Test pricing embed omits thinking when zero."""
+        embeds = []
+        self.append_pricing_embed(
+            embeds, "gemini-2.5-flash",
+            input_tokens=100_000, output_tokens=50_000,
+            daily_cost=0.10, thinking_tokens=0,
+        )
+        self.assertEqual(len(embeds), 1)
+        self.assertNotIn("thinking", embeds[0].description)
+        self.assertIn("tokens in", embeds[0].description)
+
+    async def test_track_daily_cost_with_thinking_tokens(self):
+        """Test that _track_daily_cost includes thinking tokens in cost."""
+        # gemini-2.0-flash: $0.10/M in, $0.40/M out
+        # thinking tokens billed at output rate
+        daily = self.cog._track_daily_cost(
+            user_id=99, model="gemini-2.0-flash",
+            input_tokens=1_000_000, output_tokens=500_000,
+            thinking_tokens=500_000,
+        )
+        # $0.10 + ($0.40 * 1.0) = $0.50
+        self.assertAlmostEqual(daily, 0.50)
 
 
 if __name__ == "__main__":

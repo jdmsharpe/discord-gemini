@@ -31,9 +31,14 @@ All commands are grouped under `/gemini` for clean namespacing.
   - Search queries
   - URL Context retrieval metadata
   - File Search document citations
+- Thinking configuration:
+  - `thinking_level` for Gemini 3 models (Minimal, Low, Medium, High)
+  - `thinking_budget` for Gemini 2.5 models (token budget, -1 for dynamic, 0 to disable)
+  - Thought summaries displayed as spoilered embeds when thinking params are set
+- Thought signatures preserved in conversation history for multi-turn reasoning context
 - Automatic explicit context caching for long conversations (reduces API costs on supported models)
 - Multimodal support (text + images, PDFs, audio, video, documents)
-- External URL file input (pass a URL to a PDF, image, etc. directly to the model)
+- External URL file input (pass a URL to a PDF, image, YouTube video, etc. directly to the model)
 - Automatic File API routing for large attachments (>20 MB) with transparent fallback
 - Attachment size validation (max 2 GB via File API)
 

@@ -45,6 +45,8 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertEqual(params.history, [])
         self.assertEqual(params.tools, [])
         self.assertIsNone(params.media_resolution)
+        self.assertIsNone(params.thinking_level)
+        self.assertIsNone(params.thinking_budget)
         self.assertIsNone(params.cache_name)
         self.assertEqual(params.cached_history_length, 0)
         self.assertEqual(params.uploaded_file_names, [])
@@ -792,6 +794,74 @@ class TestModelPricing(unittest.TestCase):
         cost = calculate_cost("gemini-3.1-pro-preview", 500, 200)
         expected = (500 / 1_000_000) * 2.0 + (200 / 1_000_000) * 12.0
         self.assertAlmostEqual(cost, expected)
+
+    def test_calculate_cost_with_thinking_tokens(self):
+        """Test that thinking tokens are billed at the output token rate."""
+        # gemini-2.5-flash: $0.30/M input, $2.50/M output
+        cost = calculate_cost("gemini-2.5-flash", 1_000_000, 500_000, thinking_tokens=500_000)
+        # 1M * $0.30 + (500K + 500K) * $2.50 = $0.30 + $2.50 = $2.80
+        self.assertAlmostEqual(cost, 2.80)
+
+    def test_calculate_cost_with_zero_thinking_tokens(self):
+        """Test that zero thinking tokens doesn't affect cost."""
+        cost_without = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000)
+        cost_with = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000, thinking_tokens=0)
+        self.assertAlmostEqual(cost_without, cost_with)
+
+    def test_calculate_cost_thinking_only(self):
+        """Test cost when output is mostly thinking tokens."""
+        # gemini-3-flash-preview: $0.50/M input, $3.00/M output
+        cost = calculate_cost("gemini-3-flash-preview", 100_000, 50_000, thinking_tokens=1_000_000)
+        expected = (100_000 / 1_000_000) * 0.50 + ((50_000 + 1_000_000) / 1_000_000) * 3.0
+        self.assertAlmostEqual(cost, expected)
+
+
+class TestChatCompletionParametersThinking(unittest.TestCase):
+    """Tests for thinking-related fields on ChatCompletionParameters."""
+
+    def test_thinking_fields_default_none(self):
+        """Test that thinking fields default to None."""
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
+        self.assertIsNone(params.thinking_level)
+        self.assertIsNone(params.thinking_budget)
+
+    def test_thinking_level_set(self):
+        """Test setting thinking_level."""
+        params = ChatCompletionParameters(
+            model="gemini-3-flash-preview", thinking_level="high"
+        )
+        self.assertEqual(params.thinking_level, "high")
+        self.assertIsNone(params.thinking_budget)
+
+    def test_thinking_budget_set(self):
+        """Test setting thinking_budget."""
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash", thinking_budget=1024
+        )
+        self.assertIsNone(params.thinking_level)
+        self.assertEqual(params.thinking_budget, 1024)
+
+    def test_thinking_budget_zero(self):
+        """Test thinking_budget=0 (disable thinking)."""
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash", thinking_budget=0
+        )
+        self.assertEqual(params.thinking_budget, 0)
+
+    def test_thinking_budget_dynamic(self):
+        """Test thinking_budget=-1 (dynamic)."""
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash", thinking_budget=-1
+        )
+        self.assertEqual(params.thinking_budget, -1)
+
+    def test_both_thinking_params(self):
+        """Test setting both thinking_level and thinking_budget."""
+        params = ChatCompletionParameters(
+            model="gemini-3-flash-preview", thinking_level="low", thinking_budget=512
+        )
+        self.assertEqual(params.thinking_level, "low")
+        self.assertEqual(params.thinking_budget, 512)
 
 
 if __name__ == "__main__":

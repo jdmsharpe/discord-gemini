@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import mimetypes
+import re
 import time
 import wave
 from copy import deepcopy
@@ -97,6 +98,19 @@ class PermissionAwareChannel(Protocol):
     def permissions_for(self, member: Any) -> Any: ...
 
 
+_YOUTUBE_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:youtube\.com/|youtu\.be/)", re.IGNORECASE
+)
+
+
+def _guess_url_mime_type(url: str) -> str:
+    """Guess MIME type for a URL, with special handling for YouTube URLs."""
+    if _YOUTUBE_URL_RE.match(url):
+        return "video/mp4"
+    mime_type, _ = mimetypes.guess_type(url)
+    return mime_type if mime_type is not None else "application/octet-stream"
+
+
 def append_response_embeds(embeds, response_text):
     # Ensure each chunk is no larger than 3500 characters to stay well under Discord's 6000 char limit
     # If response is extremely long (>20000 chars), truncate it to prevent too many embeds
@@ -113,6 +127,70 @@ def append_response_embeds(embeds, response_text):
                 color=GEMINI_BLUE,
             )
         )
+
+
+def append_thinking_embeds(embeds: list[Embed], thinking_text: str) -> None:
+    """Append thinking summary as a spoilered Discord embed."""
+    if not thinking_text:
+        return
+
+    if len(thinking_text) > 3500:
+        thinking_text = thinking_text[:3450] + "\n\n... [thinking truncated]"
+
+    embeds.append(
+        Embed(
+            title="Thinking",
+            description=f"||{thinking_text}||",
+            color=Colour.light_grey(),
+        )
+    )
+
+
+def extract_thinking_text(response) -> str:
+    """Extract thought summary text from a Gemini response."""
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return ""
+    content = getattr(candidates[0], "content", None)
+    parts = getattr(content, "parts", None) if content else None
+    if not parts:
+        return ""
+    thinking_parts = []
+    for part in parts:
+        if getattr(part, "thought", False) and getattr(part, "text", None):
+            thinking_parts.append(part.text)
+    return "\n\n".join(thinking_parts)
+
+
+def _get_response_content_parts(response) -> Optional[list]:
+    """Get the raw content parts from a Gemini response for history storage.
+
+    Preserves all parts including thought signatures for multi-turn context.
+    """
+    candidates = getattr(response, "candidates", None)
+    if not candidates:
+        return None
+    content = getattr(candidates[0], "content", None)
+    if content is None:
+        return None
+    parts = getattr(content, "parts", None)
+    if not parts:
+        return None
+    return list(parts)
+
+
+def _build_thinking_config(
+    thinking_level: Optional[str], thinking_budget: Optional[int]
+):
+    """Build a ThinkingConfig from user parameters, or return None."""
+    if thinking_level is None and thinking_budget is None:
+        return None
+    kwargs: Dict[str, Any] = {"include_thoughts": True}
+    if thinking_level is not None:
+        kwargs["thinking_level"] = thinking_level
+    if thinking_budget is not None:
+        kwargs["thinking_budget"] = thinking_budget
+    return types.ThinkingConfig(**kwargs)
 
 
 def extract_tool_info(response) -> ToolInfo:
@@ -273,12 +351,19 @@ def append_pricing_embed(
     input_tokens: int,
     output_tokens: int,
     daily_cost: float,
+    thinking_tokens: int = 0,
 ) -> None:
     """Append a compact pricing embed showing cost and token usage."""
-    cost = calculate_cost(model, input_tokens, output_tokens)
-    description = (
-        f"${cost:.4f} · {input_tokens:,} tokens in / {output_tokens:,} tokens out · daily ${daily_cost:.2f}"
-    )
+    cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens)
+    if thinking_tokens > 0:
+        description = (
+            f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out / "
+            f"{thinking_tokens:,} thinking · daily ${daily_cost:.2f}"
+        )
+    else:
+        description = (
+            f"${cost:.4f} · {input_tokens:,} tokens in / {output_tokens:,} tokens out · daily ${daily_cost:.2f}"
+        )
     embeds.append(Embed(description=description, color=GEMINI_BLUE))
 
 
@@ -315,10 +400,15 @@ class GeminiAPI(commands.Cog):
         self._session_lock = asyncio.Lock()
 
     def _track_daily_cost(
-        self, user_id: int, model: str, input_tokens: int, output_tokens: int
+        self,
+        user_id: int,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        thinking_tokens: int = 0,
     ) -> float:
         """Add this request's cost to the user's daily total and return the new daily total."""
-        cost = calculate_cost(model, input_tokens, output_tokens)
+        cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens)
         key = (user_id, date.today().isoformat())
         self.daily_costs[key] = self.daily_costs.get(key, 0.0) + cost
         return self.daily_costs[key]
@@ -593,7 +683,8 @@ class GeminiAPI(commands.Cog):
             )
             typing_task = asyncio.create_task(self.keep_typing(message.channel))
 
-            user_parts: List[Union[str, Dict]] = [{"text": message.content}]
+            # Build parts with media first, text last (recommended by Gemini docs)
+            user_parts: List[Union[str, Dict]] = []
             if message.attachments:
                 for attachment in message.attachments:
                     validation_error = self._validate_attachment_size(attachment)
@@ -614,6 +705,7 @@ class GeminiAPI(commands.Cog):
                         continue
                     user_parts.append(attachment_part)
 
+            user_parts.append({"text": message.content})
             history.append({"role": "user", "parts": user_parts})
 
             self.logger.debug(f"Sending history to Gemini: {history}")
@@ -629,6 +721,11 @@ class GeminiAPI(commands.Cog):
                 config_args["top_p"] = params.top_p
             if params.media_resolution is not None:
                 config_args["media_resolution"] = params.media_resolution
+            thinking_config = _build_thinking_config(
+                params.thinking_level, params.thinking_budget
+            )
+            if thinking_config is not None:
+                config_args["thinking_config"] = thinking_config
             if params.tools:
                 supported_tools, unsupported_tools = filter_supported_tools_for_model(
                     params.model, params.tools
@@ -704,11 +801,17 @@ class GeminiAPI(commands.Cog):
                 response_text = "No response generated by the model."
                 self.logger.warning("Model returned None as response text")
 
-            history.append({"role": "model", "parts": [{"text": response_text}]})
+            # Store full response parts to preserve thought signatures for multi-turn context
+            response_parts = _get_response_content_parts(response)
+            history.append(
+                {"role": "model", "parts": response_parts or [{"text": response_text}]}
+            )
 
             # Create an explicit cache if the conversation is large enough
             await self._maybe_create_cache(params, history, response)
 
+            thinking_text = extract_thinking_text(response)
+            append_thinking_embeds(embeds, thinking_text)
             append_response_embeds(embeds, response_text)
 
             # Auxiliary embeds (sources, cost) sent separately so view stays with response
@@ -719,11 +822,12 @@ class GeminiAPI(commands.Cog):
                 usage = getattr(response, "usage_metadata", None)
                 input_tokens = getattr(usage, "prompt_token_count", 0) or 0
                 output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+                thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
                 daily_cost = self._track_daily_cost(
-                    message.author.id, params.model, input_tokens, output_tokens
+                    message.author.id, params.model, input_tokens, output_tokens, thinking_tokens
                 )
                 append_pricing_embed(
-                    aux_embeds, params.model, input_tokens, output_tokens, daily_cost
+                    aux_embeds, params.model, input_tokens, output_tokens, daily_cost, thinking_tokens
                 )
 
             view = self.views.get(message.author)
@@ -995,6 +1099,26 @@ class GeminiAPI(commands.Cog):
         type=str,
     )
     @option(
+        "thinking_level",
+        description="Thinking depth for Gemini 3 models: Minimal, Low, Medium, High. (default: not set / model default)",
+        required=False,
+        choices=[
+            OptionChoice(name="Minimal", value="minimal"),
+            OptionChoice(name="Low", value="low"),
+            OptionChoice(name="Medium", value="medium"),
+            OptionChoice(name="High", value="high"),
+        ],
+        type=str,
+    )
+    @option(
+        "thinking_budget",
+        description="(Advanced) Thinking token budget for Gemini 2.5 models. -1=dynamic, 0=off. (default: not set)",
+        required=False,
+        type=int,
+        min_value=-1,
+        max_value=32768,
+    )
+    @option(
         "google_search",
         description="Enable Google Search grounding for current web information. (default: false)",
         required=False,
@@ -1038,6 +1162,8 @@ class GeminiAPI(commands.Cog):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         media_resolution: Optional[str] = None,
+        thinking_level: Optional[str] = None,
+        thinking_budget: Optional[int] = None,
         google_search: bool = False,
         code_execution: bool = False,
         google_maps: bool = False,
@@ -1110,7 +1236,8 @@ class GeminiAPI(commands.Cog):
             # Start typing and keep it alive until the response is ready
             typing_task = asyncio.create_task(self.keep_typing(channel))
 
-            parts: List[Dict] = [{"text": prompt}]
+            # Build parts with media first, text last (recommended by Gemini docs)
+            parts: List[Dict] = []
             uploaded_file_names: List[str] = []
             if attachment:
                 validation_error = self._validate_attachment_size(attachment)
@@ -1133,9 +1260,7 @@ class GeminiAPI(commands.Cog):
                     parts.append(attachment_part)
 
             if url:
-                mime_type, _ = mimetypes.guess_type(url)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
+                mime_type = _guess_url_mime_type(url)
                 parts.append(
                     {
                         "file_data": {
@@ -1144,6 +1269,8 @@ class GeminiAPI(commands.Cog):
                         }
                     }
                 )
+
+            parts.append({"text": prompt})
 
             selected_tool_names = {
                 "google_search": (google_search, TOOL_GOOGLE_SEARCH),
@@ -1191,6 +1318,9 @@ class GeminiAPI(commands.Cog):
                 config_args["top_p"] = top_p
             if media_resolution is not None:
                 config_args["media_resolution"] = media_resolution
+            thinking_config = _build_thinking_config(thinking_level, thinking_budget)
+            if thinking_config is not None:
+                config_args["thinking_config"] = thinking_config
             if tools:
                 config_args["tools"] = tools
 
@@ -1253,6 +1383,16 @@ class GeminiAPI(commands.Cog):
                 if media_resolution
                 else ""
             )
+            description += (
+                f"**Thinking Level:** {thinking_level.capitalize()}\n"
+                if thinking_level
+                else ""
+            )
+            description += (
+                f"**Thinking Budget:** {thinking_budget}\n"
+                if thinking_budget is not None
+                else ""
+            )
             requested_tool_labels = [
                 name for name, (enabled, _) in selected_tool_names.items() if enabled
             ]
@@ -1274,6 +1414,8 @@ class GeminiAPI(commands.Cog):
                     color=Colour.green(),
                 )
             ]
+            thinking_text = extract_thinking_text(response)
+            append_thinking_embeds(embeds, thinking_text)
             append_response_embeds(embeds, response_text)
 
             # Auxiliary embeds (sources, cost) sent separately so view stays with response
@@ -1284,11 +1426,12 @@ class GeminiAPI(commands.Cog):
                 usage = getattr(response, "usage_metadata", None)
                 input_tokens = getattr(usage, "prompt_token_count", 0) or 0
                 output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+                thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
                 daily_cost = self._track_daily_cost(
-                    ctx.author.id, model, input_tokens, output_tokens
+                    ctx.author.id, model, input_tokens, output_tokens, thinking_tokens
                 )
                 append_pricing_embed(
-                    aux_embeds, model, input_tokens, output_tokens, daily_cost
+                    aux_embeds, model, input_tokens, output_tokens, daily_cost, thinking_tokens
                 )
 
             if len(embeds) == 1:
@@ -1334,12 +1477,16 @@ class GeminiAPI(commands.Cog):
                 temperature=temperature,
                 top_p=top_p,
                 media_resolution=media_resolution,
+                thinking_level=thinking_level,
+                thinking_budget=thinking_budget,
                 tools=tools,
                 uploaded_file_names=uploaded_file_names,
             )
+            # Store full response parts to preserve thought signatures for multi-turn context
+            response_parts = _get_response_content_parts(response)
             history = [
                 {"role": "user", "parts": parts},
-                {"role": "model", "parts": [{"text": response_text}]},
+                {"role": "model", "parts": response_parts or [{"text": response_text}]},
             ]
             conversation_wrapper = Conversation(params=params, history=history)
             self.conversations[main_conversation_id] = conversation_wrapper

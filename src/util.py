@@ -23,10 +23,17 @@ MODEL_PRICING: Dict[str, Tuple[float, float]] = {
 }
 
 
-def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Calculate the cost in dollars for a given model and token usage."""
+def calculate_cost(
+    model: str, input_tokens: int, output_tokens: int, thinking_tokens: int = 0
+) -> float:
+    """Calculate the cost in dollars for a given model and token usage.
+
+    Thinking tokens are billed at the output token rate.
+    """
     input_price, output_price = MODEL_PRICING.get(model, (2.0, 12.0))
-    return (input_tokens / 1_000_000) * input_price + (output_tokens / 1_000_000) * output_price
+    return (input_tokens / 1_000_000) * input_price + (
+        (output_tokens + thinking_tokens) / 1_000_000
+    ) * output_price
 
 # Minimum input token counts required for explicit context caching per model.
 # Models not listed here do not support explicit caching.
@@ -92,6 +99,8 @@ class ChatCompletionParameters:
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     media_resolution: Optional[str] = None
+    thinking_level: Optional[str] = None
+    thinking_budget: Optional[int] = None
     conversation_starter: Optional[Union[Member, User]] = None
     conversation_id: Optional[int] = None
     channel_id: Optional[int] = None
