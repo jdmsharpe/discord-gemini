@@ -96,8 +96,9 @@ discord-gemini/
    - Provides a tool select menu for Google Search and Code Execution toggling
 
 3. **Utility Classes** (`src/util.py`)
-   - `ChatCompletionParameters`: Conversation state (includes `tools` list, `cache_name` and `cached_history_length` for explicit caching)
+   - `ChatCompletionParameters`: Conversation state (includes `tools` list, `cache_name`, `cached_history_length`, `uploaded_file_names`)
    - Cache constants: `CACHE_MIN_TOKEN_COUNT` (model → min tokens), `CACHE_TTL` (default 30 min)
+   - Attachment size constants: `ATTACHMENT_MAX_INLINE_SIZE` (100 MB), `ATTACHMENT_PDF_MAX_INLINE_SIZE` (50 MB), `ATTACHMENT_FILE_API_THRESHOLD` (20 MB), `ATTACHMENT_FILE_API_MAX_SIZE` (2 GB)
    - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `TOOL_FILE_SEARCH`, `AVAILABLE_TOOLS`
    - `FILE_SEARCH_INCOMPATIBLE_TOOLS`: Tools that cannot be combined with file_search
    - `ImageGenerationParameters`: Image generation config
@@ -182,12 +183,13 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Purpose**: Multi-turn conversations with context preservation
 **Parameters**:
 
-- Total parameters: 15 (1 required + 14 optional)
+- Total parameters: 16 (1 required + 15 optional)
 
 - `prompt` (required): Initial message
 - `model`: Gemini model selection (default: gemini-3.1-pro-preview)
 - `system_instruction`: Behavioral guidelines
-- `attachment`: Optional image for multimodal input
+- `attachment`: File attachment for multimodal input (image, PDF, audio, video, document). Max 2 GB.
+- `url`: URL to a file (PDF, image, etc.) for the model to read. Gemini 2.5+ only.
 - `google_search`: Enable grounding with Google Search
 - `code_execution`: Enable built-in code execution
 - `google_maps`: Enable Google Maps grounding (model-dependent)
@@ -422,9 +424,13 @@ finally:
 
 ### Multimodal Input
 
-- Attachments converted to inline_data format for API
-- Format: `{"inline_data": {"mime_type": "...", "data": bytes}}`
-- Supported by most Gemini models
+- Supports all file types: images, PDFs, audio, video, documents, code
+- Small files (≤20 MB) use inline_data: `{"inline_data": {"mime_type": "...", "data": bytes}}`
+- Large files (>20 MB) automatically use the Gemini File API for efficiency
+- File API uploads are tracked in `ChatCompletionParameters.uploaded_file_names` and cleaned up on conversation end
+- External URLs use `Part.from_uri()` stored as `{"file_data": {"file_uri": "...", "mime_type": "..."}}`
+- Attachment size validated before download (max 2 GB via File API)
+- MIME types from Discord's `attachment.content_type`; URL MIME types inferred via `mimetypes.guess_type()`
 
 ### Response Handling
 
@@ -462,11 +468,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (62 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`), including conversation tools state, file search model compatibility, caching constants, and cache field coverage.
+- **`test_util.py`** (68 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, and `uploaded_file_names` isolation.
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (49 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, deep research (`_run_deep_research()`, `_create_research_response_embeds()`), and explicit context caching (create/delete/error handling).
+- **`test_gemini_api.py`** (58 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), and explicit context caching (create/delete/error handling).
 
 ### CI Pipeline
 
@@ -542,6 +548,21 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - File Input Methods & Attachment Improvements
+
+- **File size validation**: All attachment commands now validate size before downloading (max 2 GB)
+- **Multi-format support**: `/gemini chat` attachment param now accepts any file type (image, PDF, audio, video, document) — no longer image-only
+- **URL parameter**: New `url` option on `/gemini chat` for passing external file URLs directly to Gemini via `Part.from_uri()` (Gemini 2.5+ only)
+- **File API for large files**: Attachments over 20 MB automatically use the Gemini File API instead of inline data for efficiency
+  - `_prepare_attachment_part()` routes by size: ≤20 MB → inline, >20 MB → File API upload
+  - `_upload_attachment_to_file_api()` saves to temp file, uploads with explicit MIME type, cleans up
+  - Uploaded file names tracked in `ChatCompletionParameters.uploaded_file_names` for cleanup
+  - Files cleaned up on conversation end (stop button) and cog unload
+  - Falls back to inline data if File API upload fails
+- Added `ATTACHMENT_MAX_INLINE_SIZE` (100 MB), `ATTACHMENT_PDF_MAX_INLINE_SIZE` (50 MB), `ATTACHMENT_FILE_API_THRESHOLD` (20 MB), `ATTACHMENT_FILE_API_MAX_SIZE` (2 GB) constants to `util.py`
+- Added `_validate_attachment_size()`, `_prepare_attachment_part()`, `_upload_attachment_to_file_api()`, `_cleanup_uploaded_files()` methods to `GeminiAPI`
+- Parts conversion logic in chat now handles `file_data` dicts via `types.Part.from_uri()`
 
 ### March 2026 - Media Resolution
 

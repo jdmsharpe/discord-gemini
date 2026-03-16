@@ -32,7 +32,10 @@ All commands are grouped under `/gemini` for clean namespacing.
   - URL Context retrieval metadata
   - File Search document citations
 - Automatic explicit context caching for long conversations (reduces API costs on supported models)
-- Multimodal support (text + images)
+- Multimodal support (text + images, PDFs, audio, video, documents)
+- External URL file input (pass a URL to a PDF, image, etc. directly to the model)
+- Automatic File API routing for large attachments (>20 MB) with transparent fallback
+- Attachment size validation (max 2 GB via File API)
 
 ### Image Generation
 
