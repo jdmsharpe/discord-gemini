@@ -38,6 +38,7 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertFalse(params.paused)
         self.assertEqual(params.history, [])
         self.assertEqual(params.tools, [])
+        self.assertIsNone(params.media_resolution)
         self.assertIsNone(params.cache_name)
         self.assertEqual(params.cached_history_length, 0)
 
@@ -50,6 +51,7 @@ class TestChatCompletionParameters(unittest.TestCase):
             seed=42,
             temperature=0.8,
             top_p=0.9,
+            media_resolution="MEDIA_RESOLUTION_HIGH",
             conversation_id=123456,
             channel_id=789012,
             paused=True,
@@ -67,6 +69,7 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertEqual(params.seed, 42)
         self.assertEqual(params.temperature, 0.8)
         self.assertEqual(params.top_p, 0.9)
+        self.assertEqual(params.media_resolution, "MEDIA_RESOLUTION_HIGH")
         self.assertEqual(params.conversation_id, 123456)
         self.assertEqual(params.channel_id, 789012)
         self.assertTrue(params.paused)
