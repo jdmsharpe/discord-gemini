@@ -1401,18 +1401,15 @@ class GeminiAPI(commands.Cog):
                 if thinking_budget is not None
                 else ""
             )
-            requested_tool_labels = [
-                name for name, (enabled, _) in selected_tool_names.items() if enabled
-            ]
-            active_tool_labels = [
-                resolve_tool_name(tool_config) or "unknown" for tool_config in tools
-            ]
-            description += f"**Tools Requested:** {', '.join(requested_tool_labels) if requested_tool_labels else 'none'}\n"
-            description += f"**Tools Active:** {', '.join(active_tool_labels) if active_tool_labels else 'none'}\n"
-            if unsupported_tools:
-                description += f"**Tools Skipped (model unsupported):** {', '.join(sorted(set(unsupported_tools)))}\n"
-            if incompatible_tools:
-                description += f"**Tools Skipped (incompatible with file_search):** {', '.join(sorted(set(incompatible_tools)))}\n"
+            if tools:
+                active_tool_labels = [
+                    resolve_tool_name(tool_config) or "unknown" for tool_config in tools
+                ]
+                description += f"**Tools:** {', '.join(active_tool_labels)}\n"
+                if unsupported_tools:
+                    description += f"**Tools Skipped (model unsupported):** {', '.join(sorted(set(unsupported_tools)))}\n"
+                if incompatible_tools:
+                    description += f"**Tools Skipped (incompatible with file_search):** {', '.join(sorted(set(incompatible_tools)))}\n"
 
             # Assemble all embeds for a single message
             embeds = [
