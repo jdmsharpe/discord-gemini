@@ -780,6 +780,146 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         # Discord's limit is 4096 characters
         self.assertLessEqual(len(embed_description), 4096)
 
+    async def test_generate_image_with_gemini_default_config(self):
+        """Test that default config has response_modalities and no custom image_config/tools."""
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat",
+            model="gemini-3.1-flash-image-preview",
+        )
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs["config"]
+        self.assertEqual(config.response_modalities, ["TEXT", "IMAGE"])
+        # image_config may be auto-initialized but should have no custom values
+        if config.image_config:
+            self.assertIsNone(config.image_config.image_size)
+            self.assertIsNone(config.image_config.aspect_ratio)
+        self.assertIsNone(config.tools)
+
+    async def test_generate_image_with_gemini_image_size(self):
+        """Test that image_size is passed via image_config."""
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat",
+            model="gemini-3.1-flash-image-preview",
+            image_size="2k",
+        )
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs["config"]
+        self.assertIsNotNone(config.image_config)
+        self.assertEqual(config.image_config.image_size, "2k")
+
+    async def test_generate_image_with_gemini_aspect_ratio(self):
+        """Test that non-default aspect_ratio is passed via image_config."""
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat",
+            model="gemini-3.1-flash-image-preview",
+            aspect_ratio="16:9",
+        )
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs["config"]
+        self.assertIsNotNone(config.image_config)
+        self.assertEqual(config.image_config.aspect_ratio, "16:9")
+
+    async def test_generate_image_with_gemini_image_search(self):
+        """Test that google_image_search adds tools with search_types."""
+        from google.genai import types
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat",
+            model="gemini-3.1-flash-image-preview",
+            google_image_search=True,
+        )
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs["config"]
+        self.assertIsNotNone(config.tools)
+        self.assertEqual(len(config.tools), 1)
+        tool = config.tools[0]
+        self.assertIsNotNone(tool.google_search)
+        self.assertIsNotNone(tool.google_search.search_types)
+        self.assertIsNotNone(tool.google_search.search_types.image_search)
+        self.assertIsNotNone(tool.google_search.search_types.web_search)
+
+    async def test_generate_image_with_gemini_image_search_wrong_model(self):
+        """Test that google_image_search is ignored for non-3.1-flash-image models."""
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat",
+            model="gemini-3-pro-image-preview",
+            google_image_search=True,
+        )
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs["config"]
+        self.assertIsNone(config.tools)
+
+    async def test_generate_image_with_gemini_combined_config(self):
+        """Test that image_size, aspect_ratio, and google_image_search combine correctly."""
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat",
+            model="gemini-3.1-flash-image-preview",
+            aspect_ratio="9:16",
+            image_size="2k",
+            google_image_search=True,
+        )
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs["config"]
+        # image_config should have both aspect_ratio and image_size
+        self.assertEqual(config.image_config.aspect_ratio, "9:16")
+        self.assertEqual(config.image_config.image_size, "2k")
+        # tools should have google_search with image_search
+        self.assertEqual(len(config.tools), 1)
+        self.assertIsNotNone(config.tools[0].google_search.search_types.image_search)
+
 
 class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
     """Tests for deep research helper methods."""
