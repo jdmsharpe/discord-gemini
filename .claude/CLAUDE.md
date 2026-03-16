@@ -96,7 +96,7 @@ discord-gemini/
    - Provides a tool select menu for Google Search and Code Execution toggling
 
 3. **Utility Classes** (`src/util.py`)
-   - `ChatCompletionParameters`: Conversation state (includes `tools` list, `cache_name`, `cached_history_length`, `uploaded_file_names`)
+   - `ChatCompletionParameters`: Conversation state (includes `tools` list, `cache_name`, `cached_history_length`, `uploaded_file_names`, `thinking_level`, `thinking_budget`)
    - Cache constants: `CACHE_MIN_TOKEN_COUNT` (model → min tokens), `CACHE_TTL` (default 30 min)
    - Attachment size constants: `ATTACHMENT_MAX_INLINE_SIZE` (100 MB), `ATTACHMENT_PDF_MAX_INLINE_SIZE` (50 MB), `ATTACHMENT_FILE_API_THRESHOLD` (20 MB), `ATTACHMENT_FILE_API_MAX_SIZE` (2 GB)
    - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `TOOL_FILE_SEARCH`, `AVAILABLE_TOOLS`
@@ -106,7 +106,7 @@ discord-gemini/
    - `SpeechGenerationParameters`: TTS config
    - `MusicGenerationParameters`: Music generation config
    - `ResearchParameters`: Deep research config (prompt, agent, file_search flag)
-   - Pricing constants: `MODEL_PRICING` (model → (input, output) per million tokens), `calculate_cost()`
+   - Pricing constants: `MODEL_PRICING` (model → (input, output) per million tokens), `calculate_cost()` (accepts optional `thinking_tokens` billed at output rate)
    - `chunk_text()`: Splits long text for Discord embeds
 
 ### Key Design Patterns
@@ -184,13 +184,15 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Purpose**: Multi-turn conversations with context preservation
 **Parameters**:
 
-- Total parameters: 16 (1 required + 15 optional)
+- Total parameters: 18 (1 required + 17 optional)
 
 - `prompt` (required): Initial message
 - `model`: Gemini model selection (default: gemini-3.1-pro-preview)
 - `system_instruction`: Behavioral guidelines
 - `attachment`: File attachment for multimodal input (image, PDF, audio, video, document). Max 2 GB.
 - `url`: URL to a file (PDF, image, etc.) for the model to read. Gemini 2.5+ only.
+- `thinking_level`: Thinking depth for Gemini 3 models — Minimal, Low, Medium, High (default: not set / model default)
+- `thinking_budget`: Thinking token budget for Gemini 2.5 models — -1 for dynamic, 0 to disable (default: not set)
 - `google_search`: Enable grounding with Google Search
 - `code_execution`: Enable built-in code execution
 - `google_maps`: Enable Google Maps grounding (model-dependent)
@@ -211,6 +213,11 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - File Search store IDs are injected into the tool config at runtime via `enrich_file_search_tools()`
 - Supported models for File Search: gemini-3.1-pro-preview, gemini-3-flash-preview, gemini-2.5-pro, gemini-2.5-flash-lite
 - `media_resolution` is set globally on `GenerateContentConfig` and persists across follow-up messages in the conversation
+- `thinking_level` controls reasoning depth on Gemini 3 models (minimal, low, medium, high); defaults to "high" (dynamic) if not set
+- `thinking_budget` controls reasoning token count on Gemini 2.5 models; -1 for dynamic, 0 to disable
+- When either thinking param is set, `include_thoughts=True` is added to `ThinkingConfig` and thought summaries are shown as spoilered Discord embeds (light grey color)
+- Full response parts (including thought signatures) are stored in conversation history to preserve multi-turn reasoning context
+- Thinking tokens are tracked separately in pricing via `thoughts_token_count` from `usage_metadata`
 
 ### `/gemini image`
 
@@ -469,11 +476,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (75 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, and `MODEL_PRICING` validation.
+- **`test_util.py`** (85 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, `MODEL_PRICING` validation, thinking field defaults/isolation, and `calculate_cost()` with thinking tokens.
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (63 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/error handling), and pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation).
+- **`test_gemini_api.py`** (90 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
 
 ### CI Pipeline
 
@@ -549,6 +556,27 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - Thinking Configuration & Thought Signatures
+
+- Added `thinking_level` parameter to `/gemini chat` for Gemini 3 models (Minimal, Low, Medium, High)
+- Added `thinking_budget` parameter to `/gemini chat` for Gemini 2.5 models (-1 dynamic, 0 disable, or token count)
+- When either thinking param is set, `ThinkingConfig` with `include_thoughts=True` is sent to the API
+- Thought summaries displayed as spoilered embeds with `Colour.light_grey()` (matching discord-claude pattern)
+- Added `append_thinking_embeds()`, `extract_thinking_text()`, `_get_response_content_parts()`, `_build_thinking_config()` helper functions
+- **Fixed conversation history** to store full response content parts instead of only `response.text`, preserving thought signatures for multi-turn reasoning context
+- **Fixed pricing** to include `thoughts_token_count` from `usage_metadata` — thinking tokens are billed at the output token rate
+- Pricing embed now shows thinking token count when non-zero (e.g., `$0.0042 · 1,000 in / 500 out / 2,000 thinking · daily $0.10`)
+- Added `thinking_level`, `thinking_budget` fields to `ChatCompletionParameters` in `util.py`
+- Updated `calculate_cost()` to accept optional `thinking_tokens` parameter
+- Updated `_track_daily_cost()` and `append_pricing_embed()` to propagate thinking tokens
+
+### March 2026 - Multimodal Input Improvements
+
+- **Media-first part ordering**: Attachments and URL parts are now placed before the text prompt in API requests, following Google's recommendation for better multimodal results. Applies to both initial `/gemini chat` commands and follow-up messages.
+- **YouTube URL support**: The `url` parameter on `/gemini chat` now correctly detects YouTube URLs (youtube.com, youtu.be) and sets `mime_type` to `video/mp4` instead of falling back to `application/octet-stream`
+- Added `_guess_url_mime_type()` helper function with YouTube regex detection and `mimetypes.guess_type()` fallback
+- Added `re` import to `gemini_api.py`
 
 ### March 2026 - File Input Methods & Attachment Improvements
 
