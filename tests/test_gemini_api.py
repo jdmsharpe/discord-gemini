@@ -1100,6 +1100,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         mock_client_instance.close = MagicMock()
         mock_client_instance.aio.caches.create = AsyncMock()
         mock_client_instance.aio.caches.delete = AsyncMock()
+        mock_client_instance.aio.caches.update = AsyncMock()
 
         from gemini_api import GeminiAPI
 
@@ -1116,7 +1117,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         """Test that _maybe_create_cache does nothing when below token threshold."""
         from util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(model="gemini-2.5-flash")
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
         history = [
             {"role": "user", "parts": [{"text": "hi"}]},
             {"role": "model", "parts": [{"text": "hello"}]},
@@ -1136,7 +1137,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         from util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-2.5-flash", conversation_id=100
+            model="gemini-3-flash-preview", conversation_id=100
         )
         history = [
             {"role": "user", "parts": [{"text": "long prompt " * 200}]},
@@ -1155,25 +1156,118 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(params.cached_history_length, 2)
         self.cog.client.aio.caches.create.assert_called_once()
 
-    async def test_maybe_create_cache_already_cached(self):
-        """Test that _maybe_create_cache skips if cache already exists."""
+    async def test_maybe_create_cache_refreshes_ttl(self):
+        """Test that _maybe_create_cache refreshes TTL when uncached tail is small."""
         from util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             cache_name="cachedContents/existing",
-            cached_history_length=2,
+            cached_history_length=4,
         )
         response = SimpleNamespace(
-            usage_metadata=SimpleNamespace(prompt_token_count=5000)
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=3000,
+                cached_content_token_count=2500,
+            )
         )
 
         await self.cog._maybe_create_cache(params, [], response)
 
+        # Should refresh TTL, not create a new cache
         self.cog.client.aio.caches.create.assert_not_called()
+        self.cog.client.aio.caches.update.assert_called_once()
+        self.assertEqual(params.cache_name, "cachedContents/existing")
+        self.assertEqual(params.cached_history_length, 4)
+
+    async def test_maybe_create_cache_refreshes_ttl_error_handled(self):
+        """Test that TTL refresh errors are handled gracefully."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-3-flash-preview",
+            cache_name="cachedContents/existing",
+            cached_history_length=4,
+        )
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=1500,
+                cached_content_token_count=1200,
+            )
+        )
+        self.cog.client.aio.caches.update.side_effect = Exception("TTL error")
+
+        await self.cog._maybe_create_cache(params, [], response)
+
+        # Cache should remain unchanged despite TTL refresh failure
+        self.assertEqual(params.cache_name, "cachedContents/existing")
+
+    async def test_maybe_create_cache_recaches_when_uncached_tail_large(self):
+        """Test that _maybe_create_cache re-caches when uncached portion exceeds threshold."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-3-flash-preview",
+            conversation_id=100,
+            cache_name="cachedContents/old-cache",
+            cached_history_length=4,
+        )
+        history = [
+            {"role": "user", "parts": [{"text": f"msg {i}"}]}
+            for i in range(10)
+        ]
+        # uncached = 5000 - 2000 = 3000, threshold = 1024 → re-cache
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=5000,
+                cached_content_token_count=2000,
+            )
+        )
+
+        mock_cache = SimpleNamespace(name="cachedContents/new-cache")
+        self.cog.client.aio.caches.create.return_value = mock_cache
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        # New cache created, old cache deleted
+        self.assertEqual(params.cache_name, "cachedContents/new-cache")
+        self.assertEqual(params.cached_history_length, 10)
+        self.cog.client.aio.caches.create.assert_called_once()
+        self.cog.client.aio.caches.delete.assert_called_once_with(
+            name="cachedContents/old-cache"
+        )
+        # TTL should NOT have been refreshed (we re-cached instead)
+        self.cog.client.aio.caches.update.assert_not_called()
+
+    async def test_maybe_create_cache_recache_keeps_old_on_create_error(self):
+        """Test that re-cache failure preserves the old cache."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-3-flash-preview",
+            conversation_id=100,
+            cache_name="cachedContents/old-cache",
+            cached_history_length=4,
+        )
+        history = [{"role": "user", "parts": [{"text": "msg"}]}] * 10
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=5000,
+                cached_content_token_count=2000,
+            )
+        )
+        self.cog.client.aio.caches.create.side_effect = Exception("Create failed")
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        # Old cache should be preserved
+        self.assertEqual(params.cache_name, "cachedContents/old-cache")
+        self.assertEqual(params.cached_history_length, 4)
+        # Old cache should NOT have been deleted
+        self.cog.client.aio.caches.delete.assert_not_called()
 
     async def test_maybe_create_cache_unsupported_model(self):
-        """Test that _maybe_create_cache skips for models without caching support."""
+        """Test that _maybe_create_cache skips for models without explicit caching."""
         from util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-2.0-flash")
@@ -1186,11 +1280,26 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(params.cache_name)
         self.cog.client.aio.caches.create.assert_not_called()
 
+    async def test_maybe_create_cache_implicit_only_models_skipped(self):
+        """Test that 2.5 models rely on implicit caching and are skipped."""
+        from util import ChatCompletionParameters
+
+        for model in ("gemini-2.5-pro", "gemini-2.5-flash"):
+            params = ChatCompletionParameters(model=model)
+            response = SimpleNamespace(
+                usage_metadata=SimpleNamespace(prompt_token_count=10000)
+            )
+
+            await self.cog._maybe_create_cache(params, [], response)
+
+            self.assertIsNone(params.cache_name)
+        self.cog.client.aio.caches.create.assert_not_called()
+
     async def test_maybe_create_cache_no_usage_metadata(self):
         """Test that _maybe_create_cache handles missing usage_metadata."""
         from util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(model="gemini-2.5-flash")
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
         response = SimpleNamespace()  # No usage_metadata
 
         await self.cog._maybe_create_cache(params, [], response)
@@ -1203,7 +1312,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         from util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-2.5-flash", conversation_id=100
+            model="gemini-3-flash-preview", conversation_id=100
         )
         history = [
             {"role": "user", "parts": [{"text": "hi"}]},
@@ -1226,7 +1335,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         from util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             cache_name="cachedContents/to-delete",
             cached_history_length=4,
         )
@@ -1243,7 +1352,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         """Test that _delete_conversation_cache is a no-op when no cache exists."""
         from util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(model="gemini-2.5-flash")
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
 
         await self.cog._delete_conversation_cache(params)
 
@@ -1254,7 +1363,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         from util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             cache_name="cachedContents/broken",
             cached_history_length=2,
         )

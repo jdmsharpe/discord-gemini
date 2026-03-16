@@ -566,27 +566,38 @@ class GeminiAPI(commands.Cog):
     async def _maybe_create_cache(
         self, params: ChatCompletionParameters, history: List[Dict[str, Any]], response
     ) -> None:
-        """Create an explicit cache if the conversation exceeds the model's token threshold."""
-        if params.cache_name:
-            return  # Already cached
-
+        """Create, refresh, or re-create an explicit cache based on conversation size."""
         threshold = CACHE_MIN_TOKEN_COUNT.get(params.model)
         if threshold is None:
-            return  # Model doesn't support explicit caching
+            return  # Model relies on implicit caching
 
         usage = getattr(response, "usage_metadata", None)
         if usage is None:
             return
 
         prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+
+        # If a cache already exists, decide whether to refresh TTL or re-cache
+        if params.cache_name:
+            cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+            uncached_tokens = prompt_tokens - cached_tokens
+            if uncached_tokens >= threshold:
+                # Uncached tail has grown large enough — re-cache the full history
+                await self._recache(params, history, prompt_tokens, uncached_tokens)
+            else:
+                # Extend TTL so the cache doesn't expire between turns
+                await self._refresh_cache_ttl(params)
+            return
+
+        # No cache yet — create one if the conversation is large enough
         if prompt_tokens < threshold:
             return
 
         try:
-            contents = []
-            for entry in history:
-                contents.append({"role": entry["role"], "parts": entry["parts"]})
-
+            contents = [
+                {"role": entry["role"], "parts": entry["parts"]}
+                for entry in history
+            ]
             cache = await self.client.aio.caches.create(
                 model=params.model,
                 config=types.CreateCachedContentConfig(
@@ -605,6 +616,59 @@ class GeminiAPI(commands.Cog):
             )
         except Exception as e:
             self.logger.warning("Failed to create cache: %s", e)
+
+    async def _recache(
+        self,
+        params: ChatCompletionParameters,
+        history: List[Dict[str, Any]],
+        prompt_tokens: int,
+        uncached_tokens: int,
+    ) -> None:
+        """Delete the old cache and create a new one covering the full history."""
+        old_cache_name = params.cache_name
+        try:
+            contents = [
+                {"role": entry["role"], "parts": entry["parts"]}
+                for entry in history
+            ]
+            cache = await self.client.aio.caches.create(
+                model=params.model,
+                config=types.CreateCachedContentConfig(
+                    system_instruction=params.system_instruction,
+                    contents=contents,
+                    ttl=CACHE_TTL,
+                ),
+            )
+            params.cache_name = cache.name
+            params.cached_history_length = len(history)
+            self.logger.info(
+                "Re-cached conversation %s as %s (%d prompt tokens, %d were uncached)",
+                params.conversation_id,
+                cache.name,
+                prompt_tokens,
+                uncached_tokens,
+            )
+        except Exception as e:
+            self.logger.warning("Failed to re-cache: %s", e)
+            return  # Keep the old cache
+
+        # Clean up the old cache after the new one is safely created
+        try:
+            await self.client.aio.caches.delete(name=old_cache_name)
+        except Exception as e:
+            self.logger.warning("Failed to delete old cache %s: %s", old_cache_name, e)
+
+    async def _refresh_cache_ttl(self, params: ChatCompletionParameters) -> None:
+        """Extend the TTL of an existing cache so it doesn't expire between turns."""
+        try:
+            await self.client.aio.caches.update(
+                name=params.cache_name,
+                config=types.UpdateCachedContentConfig(ttl=CACHE_TTL),
+            )
+        except Exception as e:
+            self.logger.warning(
+                "Failed to refresh cache TTL for %s: %s", params.cache_name, e
+            )
 
     async def _delete_conversation_cache(
         self, params: ChatCompletionParameters

@@ -36,7 +36,7 @@ All commands are grouped under `/gemini` for clean namespacing.
   - `thinking_budget` for Gemini 2.5 models (token budget, -1 for dynamic, 0 to disable)
   - Thought summaries displayed as spoilered embeds when thinking params are set
 - Thought signatures preserved in conversation history for multi-turn reasoning context
-- Automatic explicit context caching for long conversations (reduces API costs on supported models)
+- Automatic explicit context caching for long conversations on Gemini 3.x models with TTL refresh and periodic re-caching; 2.5 and below use implicit caching
 - Multimodal support (text + images, PDFs, audio, video, documents)
 - External URL file input (pass a URL to a PDF, image, YouTube video, etc. directly to the model)
 - Automatic File API routing for large attachments (>20 MB) with transparent fallback
