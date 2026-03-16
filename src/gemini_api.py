@@ -468,6 +468,8 @@ class GeminiAPI(commands.Cog):
                 config_args["temperature"] = params.temperature
             if params.top_p is not None:
                 config_args["top_p"] = params.top_p
+            if params.media_resolution is not None:
+                config_args["media_resolution"] = params.media_resolution
             if params.tools:
                 supported_tools, unsupported_tools = filter_supported_tools_for_model(
                     params.model, params.tools
@@ -835,6 +837,17 @@ class GeminiAPI(commands.Cog):
         required=False,
         type=bool,
     )
+    @option(
+        "media_resolution",
+        description="Resolution for media inputs (images, video, PDFs). (default: not set)",
+        required=False,
+        choices=[
+            OptionChoice(name="Low", value="MEDIA_RESOLUTION_LOW"),
+            OptionChoice(name="Medium", value="MEDIA_RESOLUTION_MEDIUM"),
+            OptionChoice(name="High", value="MEDIA_RESOLUTION_HIGH"),
+        ],
+        type=str,
+    )
     async def chat(
         self,
         ctx: ApplicationContext,
@@ -852,6 +865,7 @@ class GeminiAPI(commands.Cog):
         google_maps: bool = False,
         url_context: bool = False,
         file_search: bool = False,
+        media_resolution: Optional[str] = None,
     ):
         """
         Creates a persistent conversation session with a Gemini model.
@@ -876,6 +890,7 @@ class GeminiAPI(commands.Cog):
             google_maps: Enable Google Maps grounding (model-dependent)
             url_context: Enable URL Context retrieval (model-dependent)
             file_search: Enable File Search over configured document stores (model-dependent)
+            media_resolution: Media resolution for tokenization (Low/Medium/High)
 
         Returns:
             Discord response with initial AI message and interactive conversation controls
@@ -974,6 +989,8 @@ class GeminiAPI(commands.Cog):
                 config_args["temperature"] = temperature
             if top_p is not None:
                 config_args["top_p"] = top_p
+            if media_resolution is not None:
+                config_args["media_resolution"] = media_resolution
             if tools:
                 config_args["tools"] = tools
 
@@ -1024,6 +1041,11 @@ class GeminiAPI(commands.Cog):
             description += f"**Seed:** {seed}\n" if seed else ""
             description += f"**Temperature:** {temperature}\n" if temperature else ""
             description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
+            description += (
+                f"**Media Resolution:** {media_resolution}\n"
+                if media_resolution
+                else ""
+            )
             requested_tool_labels = [
                 name for name, (enabled, _) in selected_tool_names.items() if enabled
             ]
@@ -1086,6 +1108,7 @@ class GeminiAPI(commands.Cog):
                 conversation_id=main_conversation_id,
                 temperature=temperature,
                 top_p=top_p,
+                media_resolution=media_resolution,
                 tools=tools,
             )
             history = [

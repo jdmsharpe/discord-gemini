@@ -182,7 +182,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Purpose**: Multi-turn conversations with context preservation
 **Parameters**:
 
-- Total parameters: 14 (1 required + 13 optional)
+- Total parameters: 15 (1 required + 14 optional)
 
 - `prompt` (required): Initial message
 - `model`: Gemini model selection (default: gemini-3.1-pro-preview)
@@ -193,6 +193,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - `google_maps`: Enable Google Maps grounding (model-dependent)
 - `url_context`: Enable URL Context retrieval (model-dependent)
 - `file_search`: Enable File Search over configured document stores (model-dependent)
+- `media_resolution`: Resolution for media inputs — Low, Medium, or High (default: not set / API default)
 - Advanced: `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `seed`
 
 **Implementation Notes**:
@@ -206,6 +207,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - File Search is incompatible with Google Search, Google Maps, and URL Context (enforced automatically)
 - File Search store IDs are injected into the tool config at runtime via `enrich_file_search_tools()`
 - Supported models for File Search: gemini-3.1-pro-preview, gemini-3-flash-preview, gemini-2.5-pro, gemini-2.5-flash-lite
+- `media_resolution` is set globally on `GenerateContentConfig` and persists across follow-up messages in the conversation
 
 ### `/gemini image`
 
@@ -540,6 +542,13 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - Media Resolution
+
+- Added `media_resolution` parameter to `/gemini chat` for controlling media tokenization quality
+- Choices: Low, Medium, High (default: not set / API default)
+- Set globally on `GenerateContentConfig` and persists across follow-up messages
+- Added `media_resolution` field to `ChatCompletionParameters` in `util.py`
 
 ### March 2026 - Deep Research
 

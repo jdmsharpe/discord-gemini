@@ -67,6 +67,7 @@ class ChatCompletionParameters:
     seed: Optional[int] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
+    media_resolution: Optional[str] = None
     conversation_starter: Optional[Union[Member, User]] = None
     conversation_id: Optional[int] = None
     channel_id: Optional[int] = None
