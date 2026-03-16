@@ -92,8 +92,10 @@ discord-gemini/
    - Provides a tool select menu for Google Search and Code Execution toggling
 
 3. **Utility Classes** (`src/util.py`)
-   - `ChatCompletionParameters`: Conversation state (includes `tools` list for built-in tool config)
-   - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `AVAILABLE_TOOLS`
+   - `ChatCompletionParameters`: Conversation state (includes `tools` list, `cache_name` and `cached_history_length` for explicit caching)
+   - Cache constants: `CACHE_MIN_TOKEN_COUNT` (model → min tokens), `CACHE_TTL` (default 30 min)
+   - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `TOOL_FILE_SEARCH`, `AVAILABLE_TOOLS`
+   - `FILE_SEARCH_INCOMPATIBLE_TOOLS`: Tools that cannot be combined with file_search
    - `ImageGenerationParameters`: Image generation config
    - `VideoGenerationParameters`: Video generation config
    - `SpeechGenerationParameters`: TTS config
@@ -144,7 +146,17 @@ Conversations are tracked using dictionaries:
 - `self.message_to_conversation_id`: Maps message ID → conversation ID
 - `self.views`: Maps user → ButtonView UI
 
-#### 4. Typing Indicators
+#### 4. Explicit Context Caching
+
+Long conversations automatically use Gemini's explicit caching to reduce cost. After each response, `_maybe_create_cache()` checks `usage_metadata.prompt_token_count` against the model's minimum threshold (`CACHE_MIN_TOKEN_COUNT`). When crossed, a cache is created containing the system instruction and conversation history so far. Subsequent turns send only the uncached portion of history with `cached_content` in the config, falling back to full history if the cache expires.
+
+- Cache is created once per conversation when the token threshold is first exceeded
+- System instruction is included in the cache, so it's omitted from per-request config when a cache is active
+- TTL is 30 minutes (`CACHE_TTL`); if the cache expires, the next request retries transparently with full history
+- Caches are deleted when the conversation ends (stop button) or when the cog unloads
+- `_delete_conversation_cache()` handles cleanup and is called from both `ButtonView.stop_button` and `cog_unload`
+
+#### 5. Typing Indicators
 
 Long-running operations show typing indicators to improve UX:
 
@@ -163,7 +175,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Purpose**: Multi-turn conversations with context preservation
 **Parameters**:
 
-- Total parameters: 11 (1 required + 10 optional)
+- Total parameters: 14 (1 required + 13 optional)
 
 - `prompt` (required): Initial message
 - `model`: Gemini model selection (default: gemini-3.1-pro-preview)
@@ -171,6 +183,9 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - `attachment`: Optional image for multimodal input
 - `google_search`: Enable grounding with Google Search
 - `code_execution`: Enable built-in code execution
+- `google_maps`: Enable Google Maps grounding (model-dependent)
+- `url_context`: Enable URL Context retrieval (model-dependent)
+- `file_search`: Enable File Search over configured document stores (model-dependent)
 - Advanced: `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `seed`
 
 **Implementation Notes**:
@@ -180,6 +195,10 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - Button controls pause/resume conversation
 - Tool select menu updates `conversation.params.tools` mid-conversation
 - Grounded responses may include a "Sources" embed built from `grounding_metadata`
+- File Search requires `GEMINI_FILE_SEARCH_STORE_IDS` env var with comma-separated store IDs
+- File Search is incompatible with Google Search, Google Maps, and URL Context (enforced automatically)
+- File Search store IDs are injected into the tool config at runtime via `enrich_file_search_tools()`
+- Supported models for File Search: gemini-3.1-pro-preview, gemini-3-flash-preview, gemini-2.5-pro, gemini-2.5-flash-lite
 
 ### `/gemini image`
 
@@ -414,11 +433,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (44 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`), including conversation tools state coverage.
+- **`test_util.py`** (60 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`), including conversation tools state, file search model compatibility, caching constants, and cache field coverage.
 
-- **`test_button_view.py`** (12 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior.
+- **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (24 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, and tool metadata extraction.
+- **`test_gemini_api.py`** (40 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, and explicit context caching (create/delete/error handling).
 
 ### CI Pipeline
 
@@ -494,6 +513,31 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - File Search (RAG)
+
+- Added File Search tool to `/gemini chat` for retrieval-augmented generation over uploaded document stores
+- New `file_search` boolean parameter on the chat slash command
+- File Search can be toggled mid-conversation via the tool select dropdown in ButtonView
+- Requires `GEMINI_FILE_SEARCH_STORE_IDS` env var (comma-separated store IDs)
+- File Search is incompatible with Google Search, Google Maps, and URL Context (enforced automatically)
+- Supported models: `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-pro`, `gemini-2.5-flash-lite`
+- Added `TOOL_FILE_SEARCH`, `FILE_SEARCH_INCOMPATIBLE_TOOLS`, `filter_file_search_incompatible_tools()` to `util.py`
+- Added `enrich_file_search_tools()` method to `GeminiAPI` cog
+- Updated `resolve_tool_name()` to handle enriched file_search configs with dynamic store IDs
+- Updated `extract_tool_info()` to detect file_search usage via `retrieval_metadata`
+- Added `GEMINI_FILE_SEARCH_STORE_IDS` to `config/auth.py`
+
+### March 2026 - Explicit Context Caching
+
+- Added automatic explicit caching for `/gemini chat` conversations
+- When prompt token count exceeds the model's minimum threshold, conversation history is cached to reduce cost
+- Supported models: `gemini-3.1-pro-preview` (4096), `gemini-3-flash-preview` (1024), `gemini-2.5-pro` (4096), `gemini-2.5-flash` (1024)
+- Cache TTL of 30 minutes with transparent fallback if cache expires
+- Caches are cleaned up on conversation end and cog unload
+- Added `CACHE_MIN_TOKEN_COUNT`, `CACHE_TTL` constants to `util.py`
+- Added `cache_name`, `cached_history_length` fields to `ChatCompletionParameters`
+- Added `_maybe_create_cache()`, `_delete_conversation_cache()` methods to `GeminiAPI`
 
 ### March 2026 - Gemini 3.1 Flash Image Release & Deprecation Cleanup
 

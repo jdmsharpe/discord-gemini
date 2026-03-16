@@ -11,7 +11,9 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             "sys.modules",
             {
                 "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key", GUILD_IDS=[123456789]
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
                 )
             },
         )
@@ -219,6 +221,60 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_extract_tool_info_file_search_via_retrieval_metadata(self):
+        """Test extract_tool_info detects file_search via retrieval_metadata."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    grounding_metadata=SimpleNamespace(
+                        web_search_queries=[],
+                        grounding_chunks=[
+                            SimpleNamespace(
+                                web=SimpleNamespace(
+                                    uri="fileSearchStores/store1/documents/doc1",
+                                    title="uploaded-doc.pdf",
+                                ),
+                                maps=None,
+                            )
+                        ],
+                        search_entry_point=None,
+                        google_maps_widget_context_token=None,
+                    ),
+                    content=SimpleNamespace(parts=[]),
+                    url_context_metadata=None,
+                    retrieval_metadata=SimpleNamespace(data="retrieval info"),
+                )
+            ]
+        )
+
+        tool_info = self.extract_tool_info(response)
+        self.assertIn("file_search", tool_info["tools_used"])
+
+    async def test_extract_tool_info_file_search_fallback(self):
+        """Test extract_tool_info detects file_search when grounding chunks present without search/maps."""
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    grounding_metadata=SimpleNamespace(
+                        web_search_queries=[],
+                        grounding_chunks=[
+                            SimpleNamespace(
+                                web=None,
+                                maps=None,
+                            )
+                        ],
+                        search_entry_point=None,
+                        google_maps_widget_context_token=None,
+                    ),
+                    content=SimpleNamespace(parts=[]),
+                    url_context_metadata=None,
+                )
+            ]
+        )
+
+        tool_info = self.extract_tool_info(response)
+        self.assertIn("file_search", tool_info["tools_used"])
+
     async def test_get_http_session_creates_session(self):
         """Test that _get_http_session creates a new session."""
         self.assertIsNone(self.cog._http_session)
@@ -290,7 +346,9 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
             "sys.modules",
             {
                 "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key", GUILD_IDS=[123456789]
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
                 )
             },
         )
@@ -359,6 +417,37 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
         result = await self.cog._fetch_attachment_bytes(attachment)
         self.assertIsNone(result)
 
+    async def test_enrich_file_search_tools_injects_store_ids(self):
+        """Test that enrich_file_search_tools injects store IDs."""
+        tools = [{"file_search": {}}]
+        error = self.cog.enrich_file_search_tools(tools)
+        self.assertIsNone(error)
+        self.assertEqual(
+            tools[0],
+            {"file_search": {"file_search_store_names": ["store-1", "store-2"]}},
+        )
+
+    async def test_enrich_file_search_tools_no_file_search(self):
+        """Test that enrich_file_search_tools is a no-op without file_search."""
+        tools = [{"google_search": {}}]
+        error = self.cog.enrich_file_search_tools(tools)
+        self.assertIsNone(error)
+        self.assertEqual(tools, [{"google_search": {}}])
+
+    async def test_enrich_file_search_tools_no_store_ids(self):
+        """Test that enrich_file_search_tools returns error when store IDs not configured."""
+        import gemini_api
+
+        original = gemini_api.GEMINI_FILE_SEARCH_STORE_IDS
+        gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = []
+        try:
+            tools = [{"file_search": {}}]
+            error = self.cog.enrich_file_search_tools(tools)
+            self.assertIsNotNone(error)
+            self.assertIn("GEMINI_FILE_SEARCH_STORE_IDS", error)
+        finally:
+            gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = original
+
 
 class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
     """Tests for image generation text response handling and truncation."""
@@ -369,7 +458,9 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
             "sys.modules",
             {
                 "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key", GUILD_IDS=[123456789]
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
                 )
             },
         )
@@ -497,6 +588,198 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
 
         # Discord's limit is 4096 characters
         self.assertLessEqual(len(embed_description), 4096)
+
+
+class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
+    """Tests for explicit context caching logic."""
+
+    async def asyncSetUp(self):
+        self.auth_patcher = patch.dict(
+            "sys.modules",
+            {
+                "config.auth": MagicMock(
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
+                )
+            },
+        )
+        self.auth_patcher.start()
+
+        self.genai_patcher = patch("gemini_api.genai.Client")
+        self.mock_genai_client = self.genai_patcher.start()
+
+        mock_client_instance = self.mock_genai_client.return_value
+        mock_client_instance.aio.aclose = AsyncMock()
+        mock_client_instance.close = MagicMock()
+        mock_client_instance.aio.caches.create = AsyncMock()
+        mock_client_instance.aio.caches.delete = AsyncMock()
+
+        from gemini_api import GeminiAPI
+
+        intents = Intents.default()
+        intents.message_content = True
+        self.bot = Bot(intents=intents)
+        self.cog = GeminiAPI(bot=self.bot)
+
+    async def asyncTearDown(self):
+        self.auth_patcher.stop()
+        self.genai_patcher.stop()
+
+    async def test_maybe_create_cache_below_threshold(self):
+        """Test that _maybe_create_cache does nothing when below token threshold."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-2.5-flash")
+        history = [
+            {"role": "user", "parts": [{"text": "hi"}]},
+            {"role": "model", "parts": [{"text": "hello"}]},
+        ]
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(prompt_token_count=500)
+        )
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        self.assertIsNone(params.cache_name)
+        self.assertEqual(params.cached_history_length, 0)
+        self.cog.client.aio.caches.create.assert_not_called()
+
+    async def test_maybe_create_cache_above_threshold(self):
+        """Test that _maybe_create_cache creates a cache when above threshold."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash", conversation_id=100
+        )
+        history = [
+            {"role": "user", "parts": [{"text": "long prompt " * 200}]},
+            {"role": "model", "parts": [{"text": "long response " * 200}]},
+        ]
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(prompt_token_count=2000)
+        )
+
+        mock_cache = SimpleNamespace(name="cachedContents/test-cache-id")
+        self.cog.client.aio.caches.create.return_value = mock_cache
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        self.assertEqual(params.cache_name, "cachedContents/test-cache-id")
+        self.assertEqual(params.cached_history_length, 2)
+        self.cog.client.aio.caches.create.assert_called_once()
+
+    async def test_maybe_create_cache_already_cached(self):
+        """Test that _maybe_create_cache skips if cache already exists."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash",
+            cache_name="cachedContents/existing",
+            cached_history_length=2,
+        )
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(prompt_token_count=5000)
+        )
+
+        await self.cog._maybe_create_cache(params, [], response)
+
+        self.cog.client.aio.caches.create.assert_not_called()
+
+    async def test_maybe_create_cache_unsupported_model(self):
+        """Test that _maybe_create_cache skips for models without caching support."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-2.0-flash")
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(prompt_token_count=5000)
+        )
+
+        await self.cog._maybe_create_cache(params, [], response)
+
+        self.assertIsNone(params.cache_name)
+        self.cog.client.aio.caches.create.assert_not_called()
+
+    async def test_maybe_create_cache_no_usage_metadata(self):
+        """Test that _maybe_create_cache handles missing usage_metadata."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-2.5-flash")
+        response = SimpleNamespace()  # No usage_metadata
+
+        await self.cog._maybe_create_cache(params, [], response)
+
+        self.assertIsNone(params.cache_name)
+        self.cog.client.aio.caches.create.assert_not_called()
+
+    async def test_maybe_create_cache_handles_api_error(self):
+        """Test that _maybe_create_cache logs warning on API error."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash", conversation_id=100
+        )
+        history = [
+            {"role": "user", "parts": [{"text": "hi"}]},
+            {"role": "model", "parts": [{"text": "hello"}]},
+        ]
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(prompt_token_count=2000)
+        )
+
+        self.cog.client.aio.caches.create.side_effect = Exception("API error")
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        # Should not have set cache_name due to error
+        self.assertIsNone(params.cache_name)
+        self.assertEqual(params.cached_history_length, 0)
+
+    async def test_delete_conversation_cache(self):
+        """Test that _delete_conversation_cache deletes and clears fields."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash",
+            cache_name="cachedContents/to-delete",
+            cached_history_length=4,
+        )
+
+        await self.cog._delete_conversation_cache(params)
+
+        self.cog.client.aio.caches.delete.assert_called_once_with(
+            name="cachedContents/to-delete"
+        )
+        self.assertIsNone(params.cache_name)
+        self.assertEqual(params.cached_history_length, 0)
+
+    async def test_delete_conversation_cache_noop_when_none(self):
+        """Test that _delete_conversation_cache is a no-op when no cache exists."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-2.5-flash")
+
+        await self.cog._delete_conversation_cache(params)
+
+        self.cog.client.aio.caches.delete.assert_not_called()
+
+    async def test_delete_conversation_cache_handles_api_error(self):
+        """Test that _delete_conversation_cache handles API errors gracefully."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-2.5-flash",
+            cache_name="cachedContents/broken",
+            cached_history_length=2,
+        )
+
+        self.cog.client.aio.caches.delete.side_effect = Exception("Not found")
+
+        await self.cog._delete_conversation_cache(params)
+
+        # Fields should still be cleared even on API error
+        self.assertIsNone(params.cache_name)
+        self.assertEqual(params.cached_history_length, 0)
 
 
 if __name__ == "__main__":

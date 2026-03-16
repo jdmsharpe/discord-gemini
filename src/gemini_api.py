@@ -29,9 +29,12 @@ from google.genai import types
 
 # Local imports
 from button_view import ButtonView
-from config.auth import GEMINI_API_KEY, GUILD_IDS
+from config.auth import GEMINI_API_KEY, GEMINI_FILE_SEARCH_STORE_IDS, GUILD_IDS
 from util import (
+    CACHE_MIN_TOKEN_COUNT,
+    CACHE_TTL,
     TOOL_CODE_EXECUTION,
+    TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
     TOOL_GOOGLE_SEARCH,
     TOOL_URL_CONTEXT,
@@ -41,6 +44,7 @@ from util import (
     SpeechGenerationParameters,
     VideoGenerationParameters,
     chunk_text,
+    filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
     resolve_tool_name,
     truncate_text,
@@ -199,6 +203,16 @@ def extract_tool_info(response) -> ToolInfo:
             tool_info["url_context_sources"] = parsed_sources
             tool_info["tools_used"].append("url_context")
 
+    # Detect file_search usage via retrieval_metadata on the candidate
+    retrieval_metadata = getattr(candidate, "retrieval_metadata", None)
+    if retrieval_metadata is not None:
+        tool_info["tools_used"].append("file_search")
+    elif grounding_metadata is not None and not search_used and not maps_used:
+        # Grounding metadata present without search/maps indicates file_search
+        grounding_chunks = getattr(grounding_metadata, "grounding_chunks", None) or []
+        if grounding_chunks:
+            tool_info["tools_used"].append("file_search")
+
     return tool_info
 
 
@@ -290,6 +304,85 @@ class GeminiAPI(commands.Cog):
             )
         return None
 
+    def enrich_file_search_tools(
+        self, tools: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """Inject file search store IDs into file_search tool configs.
+
+        Mutates the list in-place.  Returns an error message string if
+        GEMINI_FILE_SEARCH_STORE_IDS is not configured, otherwise None.
+        """
+        for i, tool in enumerate(tools):
+            if "file_search" in tool:
+                if not GEMINI_FILE_SEARCH_STORE_IDS:
+                    return (
+                        "File Search requires GEMINI_FILE_SEARCH_STORE_IDS "
+                        "to be set in your .env file."
+                    )
+                tools[i] = {
+                    "file_search": {
+                        "file_search_store_names": GEMINI_FILE_SEARCH_STORE_IDS.copy()
+                    }
+                }
+        return None
+
+    async def _maybe_create_cache(
+        self, params: ChatCompletionParameters, history: List[Dict[str, Any]], response
+    ) -> None:
+        """Create an explicit cache if the conversation exceeds the model's token threshold."""
+        if params.cache_name:
+            return  # Already cached
+
+        threshold = CACHE_MIN_TOKEN_COUNT.get(params.model)
+        if threshold is None:
+            return  # Model doesn't support explicit caching
+
+        usage = getattr(response, "usage_metadata", None)
+        if usage is None:
+            return
+
+        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        if prompt_tokens < threshold:
+            return
+
+        try:
+            contents = []
+            for entry in history:
+                contents.append({"role": entry["role"], "parts": entry["parts"]})
+
+            cache = await self.client.aio.caches.create(
+                model=params.model,
+                config=types.CreateCachedContentConfig(
+                    system_instruction=params.system_instruction,
+                    contents=contents,
+                    ttl=CACHE_TTL,
+                ),
+            )
+            params.cache_name = cache.name
+            params.cached_history_length = len(history)
+            self.logger.info(
+                "Created cache %s for conversation %s (%d prompt tokens)",
+                cache.name,
+                params.conversation_id,
+                prompt_tokens,
+            )
+        except Exception as e:
+            self.logger.warning("Failed to create cache: %s", e)
+
+    async def _delete_conversation_cache(
+        self, params: ChatCompletionParameters
+    ) -> None:
+        """Delete the explicit cache for a conversation, if one exists."""
+        if not params.cache_name:
+            return
+        try:
+            await self.client.aio.caches.delete(name=params.cache_name)
+            self.logger.info("Deleted cache %s", params.cache_name)
+        except Exception as e:
+            self.logger.warning("Failed to delete cache %s: %s", params.cache_name, e)
+        params.cache_name = None
+        params.cached_history_length = 0
+
     def cog_unload(self):
         loop = getattr(self.bot, "loop", None)
 
@@ -305,6 +398,12 @@ class GeminiAPI(commands.Cog):
                 finally:
                     new_loop.close()
         self._http_session = None
+
+        # Delete any active caches
+        for conversation in self.conversations.values():
+            cache_name = conversation.params.cache_name
+            if cache_name and loop and loop.is_running():
+                loop.create_task(self.client.aio.caches.delete(name=cache_name))
 
         # Close Gemini clients
         if loop and loop.is_running():
@@ -360,7 +459,9 @@ class GeminiAPI(commands.Cog):
             self.logger.debug(f"Sending history to Gemini: {history}")
 
             config_args = {}
-            if params.system_instruction:
+            if params.cache_name:
+                config_args["cached_content"] = params.cache_name
+            elif params.system_instruction:
                 config_args["system_instruction"] = params.system_instruction
             if params.temperature is not None:
                 config_args["temperature"] = params.temperature
@@ -380,25 +481,50 @@ class GeminiAPI(commands.Cog):
                 if supported_tools:
                     config_args["tools"] = supported_tools
 
-            # Convert history to the format expected by Gemini API
+            # Convert history to the format expected by Gemini API.
+            # If a cache exists, send only the uncached portion of history.
+            history_start = params.cached_history_length if params.cache_name else 0
             contents = []
-            for entry in history:
-                if entry["role"] == "user":
-                    contents.append({"role": "user", "parts": entry["parts"]})
-                elif entry["role"] == "model":
-                    contents.append({"role": "model", "parts": entry["parts"]})
+            for entry in history[history_start:]:
+                contents.append({"role": entry["role"], "parts": entry["parts"]})
 
             self.logger.debug(f"Sending contents to Gemini: {contents}")
 
             generation_config = (
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
-            self.logger.debug(f"Sending contents to Gemini: {contents}")
-            response = await self.client.aio.models.generate_content(
-                model=params.model,
-                contents=contents,
-                config=generation_config,
-            )
+            try:
+                response = await self.client.aio.models.generate_content(
+                    model=params.model,
+                    contents=contents,
+                    config=generation_config,
+                )
+            except Exception as cache_err:
+                if not params.cache_name:
+                    raise
+                # Cache may have expired; retry with full history
+                self.logger.warning(
+                    "Cached request failed, retrying without cache: %s", cache_err
+                )
+                params.cache_name = None
+                params.cached_history_length = 0
+                config_args.pop("cached_content", None)
+                if params.system_instruction:
+                    config_args["system_instruction"] = params.system_instruction
+                contents = []
+                for entry in history:
+                    contents.append({"role": entry["role"], "parts": entry["parts"]})
+                generation_config = (
+                    types.GenerateContentConfig(**config_args)
+                    if config_args
+                    else None
+                )
+                response = await self.client.aio.models.generate_content(
+                    model=params.model,
+                    contents=contents,
+                    config=generation_config,
+                )
+
             response_text = response.text
             tool_info = extract_tool_info(response)
             self.logger.debug(f"Received response from Gemini: {response_text}")
@@ -417,6 +543,9 @@ class GeminiAPI(commands.Cog):
                 self.logger.warning("Model returned None as response text")
 
             history.append({"role": "model", "parts": [{"text": response_text}]})
+
+            # Create an explicit cache if the conversation is large enough
+            await self._maybe_create_cache(params, history, response)
 
             append_response_embeds(embeds, response_text)
             append_sources_embed(embeds, tool_info)
@@ -699,6 +828,12 @@ class GeminiAPI(commands.Cog):
         required=False,
         type=bool,
     )
+    @option(
+        "file_search",
+        description="Enable File Search over configured document stores. (default: false)",
+        required=False,
+        type=bool,
+    )
     async def chat(
         self,
         ctx: ApplicationContext,
@@ -715,6 +850,7 @@ class GeminiAPI(commands.Cog):
         code_execution: bool = False,
         google_maps: bool = False,
         url_context: bool = False,
+        file_search: bool = False,
     ):
         """
         Creates a persistent conversation session with a Gemini model.
@@ -738,6 +874,7 @@ class GeminiAPI(commands.Cog):
             code_execution: Enable code execution
             google_maps: Enable Google Maps grounding (model-dependent)
             url_context: Enable URL Context retrieval (model-dependent)
+            file_search: Enable File Search over configured document stores (model-dependent)
 
         Returns:
             Discord response with initial AI message and interactive conversation controls
@@ -797,6 +934,7 @@ class GeminiAPI(commands.Cog):
                 "code_execution": (code_execution, TOOL_CODE_EXECUTION),
                 "google_maps": (google_maps, TOOL_GOOGLE_MAPS),
                 "url_context": (url_context, TOOL_URL_CONTEXT),
+                "file_search": (file_search, TOOL_FILE_SEARCH),
             }
             requested_tools = [
                 deepcopy(tool_config)
@@ -806,6 +944,21 @@ class GeminiAPI(commands.Cog):
             tools, unsupported_tools = filter_supported_tools_for_model(
                 model, requested_tools
             )
+            tools, incompatible_tools = filter_file_search_incompatible_tools(tools)
+
+            # Enrich file_search tools with configured store IDs
+            enrich_error = self.enrich_file_search_tools(tools)
+            if enrich_error:
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="Error",
+                        description=enrich_error,
+                        color=Colour.red(),
+                    )
+                )
+                if typing_task:
+                    typing_task.cancel()
+                return
 
             config_args = {}
             if system_instruction is not None:
@@ -880,6 +1033,8 @@ class GeminiAPI(commands.Cog):
             description += f"**Tools Active:** {', '.join(active_tool_labels) if active_tool_labels else 'none'}\n"
             if unsupported_tools:
                 description += f"**Tools Skipped (model unsupported):** {', '.join(sorted(set(unsupported_tools)))}\n"
+            if incompatible_tools:
+                description += f"**Tools Skipped (incompatible with file_search):** {', '.join(sorted(set(incompatible_tools)))}\n"
 
             # Assemble all embeds for a single message
             embeds = [

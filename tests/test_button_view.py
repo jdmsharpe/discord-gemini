@@ -35,7 +35,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.view.conversation_id, self.conversation_id)
         tool_selects = [item for item in self.view.children if isinstance(item, Select)]
         self.assertEqual(len(tool_selects), 1)
-        self.assertEqual(tool_selects[0].max_values, 4)
+        self.assertEqual(tool_selects[0].max_values, 5)
 
     async def test_init_with_initial_tools(self):
         """Test that initial_tools marks matching select options as default."""
@@ -53,6 +53,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(defaults["code_execution"])
         self.assertFalse(defaults["google_maps"])
         self.assertFalse(defaults["url_context"])
+        self.assertFalse(defaults["file_search"])
 
     async def test_tool_select_callback_updates_tools(self):
         """Test that tool selection updates conversation params tools."""
@@ -61,6 +62,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         conversation.params.tools = []
         conversation.params.model = "gemini-2.5-flash"
         self.cog.conversations[self.conversation_id] = conversation
+        self.cog.enrich_file_search_tools = MagicMock(return_value=None)
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -91,6 +93,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         conversation.params.tools = []
         conversation.params.model = "gemini-3-flash-preview"
         self.cog.conversations[self.conversation_id] = conversation
+        self.cog.enrich_file_search_tools = MagicMock(return_value=None)
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -260,6 +263,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         """Test that stop button properly ends the conversation."""
         mock_conversation = MagicMock()
         self.cog.conversations[self.conversation_id] = mock_conversation
+        self.cog._delete_conversation_cache = AsyncMock()
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter

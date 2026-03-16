@@ -8,12 +8,28 @@ TOOL_GOOGLE_SEARCH = {"google_search": {}}
 TOOL_CODE_EXECUTION = {"code_execution": {}}
 TOOL_GOOGLE_MAPS = {"google_maps": {}}
 TOOL_URL_CONTEXT = {"url_context": {}}
+TOOL_FILE_SEARCH = {"file_search": {}}
+
+# Minimum input token counts required for explicit context caching per model.
+# Models not listed here do not support explicit caching.
+CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {
+    "gemini-3.1-pro-preview": 4096,
+    "gemini-3-flash-preview": 1024,
+    "gemini-2.5-pro": 4096,
+    "gemini-2.5-flash": 1024,
+}
+
+CACHE_TTL = "1800s"  # 30-minute TTL for explicit caches
 AVAILABLE_TOOLS = {
     "google_search": TOOL_GOOGLE_SEARCH,
     "code_execution": TOOL_CODE_EXECUTION,
     "google_maps": TOOL_GOOGLE_MAPS,
     "url_context": TOOL_URL_CONTEXT,
+    "file_search": TOOL_FILE_SEARCH,
 }
+
+# Tools that cannot be combined with file_search per API limitations.
+FILE_SEARCH_INCOMPATIBLE_TOOLS = frozenset({"google_search", "google_maps", "url_context"})
 
 # Model-specific compatibility constraints for tools that are not universally supported.
 TOOL_MODEL_COMPATIBILITY: Dict[str, Set[str]] = {
@@ -29,6 +45,12 @@ TOOL_MODEL_COMPATIBILITY: Dict[str, Set[str]] = {
         "gemini-3-flash-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    },
+    "file_search": {
+        "gemini-3.1-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-2.5-pro",
         "gemini-2.5-flash-lite",
     },
 }
@@ -51,6 +73,8 @@ class ChatCompletionParameters:
     paused: Optional[bool] = False
     history: List[Dict[str, Any]] = field(default_factory=list)
     tools: List[Dict[str, Any]] = field(default_factory=list)
+    cache_name: Optional[str] = None
+    cached_history_length: int = 0
 
 
 @dataclass
@@ -252,10 +276,18 @@ class EmbeddingParameters:
 def resolve_tool_name(tool_config: Dict[str, Any]) -> Optional[str]:
     """
     Resolve a tool config dictionary back to its canonical tool name.
+
+    Handles both exact matches and tools with dynamic configuration
+    (e.g., file_search with injected store IDs) by falling back to
+    top-level key matching.
     """
     for tool_name, available_config in AVAILABLE_TOOLS.items():
         if tool_config == available_config:
             return tool_name
+    # Fallback: match by top-level key for tools with dynamic config
+    for key in tool_config:
+        if key in AVAILABLE_TOOLS:
+            return key
     return None
 
 
@@ -282,6 +314,29 @@ def filter_supported_tools_for_model(
         supported_tools.append(deepcopy(tool_config))
 
     return supported_tools, unsupported_tools
+
+
+def filter_file_search_incompatible_tools(
+    tools: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Remove tools incompatible with file_search when file_search is present.
+
+    Returns the filtered tools list and a list of removed tool names.
+    """
+    has_file_search = any("file_search" in tool for tool in tools)
+    if not has_file_search:
+        return tools, []
+
+    filtered: List[Dict[str, Any]] = []
+    removed: List[str] = []
+    for tool in tools:
+        name = resolve_tool_name(tool)
+        if name in FILE_SEARCH_INCOMPATIBLE_TOOLS:
+            removed.append(name)
+        else:
+            filtered.append(tool)
+    return filtered, removed
 
 
 def chunk_text(text: str, chunk_size: int = 4096) -> List[str]:
