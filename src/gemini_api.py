@@ -1034,7 +1034,7 @@ class GeminiAPI(commands.Cog):
         min_value=0.0,
         max_value=20.0,
     )
-    async def generate_image(
+    async def image(
         self,
         ctx: ApplicationContext,
         prompt: str,
@@ -1176,7 +1176,7 @@ class GeminiAPI(commands.Cog):
         except Exception as e:
             description = str(e)
             self.logger.error(
-                f"Error in generate_image: {description}",
+                f"Error in image: {description}",
                 exc_info=True,
             )
             await ctx.send_followup(
@@ -1260,7 +1260,7 @@ class GeminiAPI(commands.Cog):
         required=False,
         type=bool,
     )
-    async def generate_video(
+    async def video(
         self,
         ctx: ApplicationContext,
         prompt: str,
@@ -1347,7 +1347,7 @@ class GeminiAPI(commands.Cog):
         except Exception as e:
             description = str(e)
             self.logger.error(
-                f"Error in generate_video: {description}",
+                f"Error in video: {description}",
                 exc_info=True,
             )
             await ctx.send_followup(
@@ -1418,7 +1418,7 @@ class GeminiAPI(commands.Cog):
         required=False,
         type=str,
     )
-    async def text_to_speech(
+    async def tts(
         self,
         ctx: ApplicationContext,
         input_text: str,
@@ -1511,7 +1511,7 @@ class GeminiAPI(commands.Cog):
         except Exception as e:
             description = str(e)
             self.logger.error(
-                f"Error in text_to_speech: {description}",
+                f"Error in tts: {description}",
                 exc_info=True,
             )
             await ctx.send_followup(
@@ -1588,7 +1588,7 @@ class GeminiAPI(commands.Cog):
         min_value=0.0,
         max_value=6.0,
     )
-    async def generate_music(
+    async def music(
         self,
         ctx: ApplicationContext,
         prompt: str,
@@ -1694,7 +1694,7 @@ class GeminiAPI(commands.Cog):
         except Exception as e:
             description = str(e)
             self.logger.error(
-                f"Error in generate_music: {description}",
+                f"Error in music: {description}",
                 exc_info=True,
             )
 
