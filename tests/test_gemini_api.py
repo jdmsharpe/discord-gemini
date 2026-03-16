@@ -66,6 +66,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.cog.conversations, {})
         self.assertEqual(self.cog.message_to_conversation_id, {})
         self.assertEqual(self.cog.views, {})
+        self.assertEqual(self.cog.last_view_messages, {})
         self.assertIsNone(self.cog._http_session)
 
     async def test_on_ready(self):
@@ -1049,8 +1050,8 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(embeds), 1)
         embed = embeds[0]
         self.assertIn("$", embed.description)
-        self.assertIn("500,000 in", embed.description)
-        self.assertIn("200,000 out", embed.description)
+        self.assertIn("500,000 tokens in", embed.description)
+        self.assertIn("200,000 tokens out", embed.description)
         self.assertIn("daily $1.25", embed.description)
 
     async def test_append_pricing_embed_zero_tokens(self):
@@ -1063,8 +1064,8 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(embeds), 1)
         self.assertIn("$0.0000", embeds[0].description)
-        self.assertIn("0 in", embeds[0].description)
-        self.assertIn("0 out", embeds[0].description)
+        self.assertIn("0 tokens in", embeds[0].description)
+        self.assertIn("0 tokens out", embeds[0].description)
 
 
 class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
