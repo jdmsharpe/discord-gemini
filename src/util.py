@@ -123,6 +123,8 @@ class ImageGenerationParameters:
     negative_prompt: Optional[str] = None
     seed: Optional[int] = None
     guidance_scale: Optional[float] = None
+    image_size: Optional[str] = None
+    google_image_search: bool = False
 
     def to_dict(self):
         """Convert to dictionary for API calls, filtering out None values and handling special cases."""

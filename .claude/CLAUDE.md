@@ -229,10 +229,12 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Parameters**:
 
 - `prompt` (required): Image description
-- `model`: Gemini or Imagen model (default: gemini-3-pro-image-preview)
+- `model`: Gemini or Imagen model (default: gemini-3.1-flash-image-preview)
 - `number_of_images`: 1-4 images (default: 1)
 - `aspect_ratio`: 1:1, 3:4, 4:3, 9:16, 16:9
 - `attachment`: Reference image for editing (Gemini only)
+- `image_size`: Output image resolution — 1K or 2K (Gemini only, default: not set / model default)
+- `google_image_search`: Ground generation with Google Image Search (Gemini 3.1 Flash Image only)
 - Advanced: `negative_prompt`, `seed`, `guidance_scale`, `person_generation`
 
 **Implementation Notes**:
@@ -241,6 +243,8 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - Gemini: `generate_content` with `response_modalities=['TEXT', 'IMAGE']`
   - Prompts automatically prefixed with "Create image: " (or "Create image(s): " for multiple images) to reduce text-only responses
   - Image editing (with attachment) preserves original prompt
+  - `aspect_ratio` and `image_size` passed via `ImageConfig` on `GenerateContentConfig`
+  - `google_image_search` adds a `GoogleSearch` tool with `SearchTypes(web_search, image_search)` — only for `gemini-3.1-flash-image-preview`
 - Imagen: `generate_images` with full config support
 - Text responses truncated to 3800 chars to prevent Discord embed errors
 
@@ -480,11 +484,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (85 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, `MODEL_PRICING` validation, thinking field defaults/isolation, and `calculate_cost()` with thinking tokens.
+- **`test_util.py`** (90 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, `MODEL_PRICING` validation, thinking field defaults/isolation, `calculate_cost()` with thinking tokens, and `ImageGenerationParameters` new fields (`image_size`, `google_image_search`) defaults and isolation.
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (95 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
+- **`test_gemini_api.py`** (101 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, image generation config (`_generate_image_with_gemini()` with `image_size`, `aspect_ratio`, `google_image_search`, combined config, and model-gating), tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
 
 ### CI Pipeline
 
@@ -560,6 +564,16 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - Image Generation Enhancements
+
+- Added `image_size` parameter to `/gemini image` for controlling output resolution on Gemini models (1K, 2K)
+- Added `google_image_search` parameter to `/gemini image` for grounding image generation with Google Image Search (Gemini 3.1 Flash Image only)
+- `image_size` and `aspect_ratio` are now passed to Gemini models via `ImageConfig` on `GenerateContentConfig`
+- `google_image_search` adds a `GoogleSearch` tool with `SearchTypes(web_search, image_search)` — model-gated to `gemini-3.1-flash-image-preview`
+- `aspect_ratio` is now supported for Gemini models (previously listed as unsupported)
+- Added `image_size` and `google_image_search` fields to `ImageGenerationParameters` in `util.py`
+- Refactored `_generate_image_with_gemini()` to accept `ImageGenerationParameters` instead of individual args
 
 ### March 2026 - Thinking Configuration & Thought Signatures
 

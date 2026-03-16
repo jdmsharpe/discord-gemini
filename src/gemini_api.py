@@ -1658,6 +1658,22 @@ class GeminiAPI(commands.Cog):
         min_value=0.0,
         max_value=20.0,
     )
+    @option(
+        "image_size",
+        description="(Gemini only) Output image resolution. (default: not set / model default)",
+        required=False,
+        choices=[
+            OptionChoice(name="1K", value="1k"),
+            OptionChoice(name="2K", value="2k"),
+        ],
+        type=str,
+    )
+    @option(
+        "google_image_search",
+        description="(Gemini 3.1 Flash Image only) Ground image generation with Google Image Search. (default: False)",
+        required=False,
+        type=bool,
+    )
     async def image(
         self,
         ctx: ApplicationContext,
@@ -1670,6 +1686,8 @@ class GeminiAPI(commands.Cog):
         negative_prompt: Optional[str] = None,
         seed: Optional[int] = None,
         guidance_scale: Optional[float] = None,
+        image_size: Optional[str] = None,
+        google_image_search: Optional[bool] = None,
     ):
         """
         Generates images from a prompt using either Gemini or Imagen models.
@@ -1733,6 +1751,8 @@ class GeminiAPI(commands.Cog):
                 negative_prompt=negative_prompt,
                 seed=seed,
                 guidance_scale=guidance_scale,
+                image_size=image_size,
+                google_image_search=bool(google_image_search),
             )
 
             # Check if this is a Gemini or Imagen model and use appropriate API
@@ -1746,7 +1766,7 @@ class GeminiAPI(commands.Cog):
                 # Handle Gemini models using generate_content
                 text_response, generated_images = (
                     await self._generate_image_with_gemini(
-                        prompt, model, number_of_images, seed, attachment
+                        image_params, attachment
                     )
                 )
             else:
@@ -1793,8 +1813,6 @@ class GeminiAPI(commands.Cog):
                         unsupported_params.append("negative_prompt")
                     if image_params.guidance_scale:
                         unsupported_params.append("guidance_scale")
-                    if image_params.aspect_ratio != "1:1":
-                        unsupported_params.append("aspect_ratio")
                     if image_params.person_generation != "allow_adult":
                         unsupported_params.append("person_generation")
 
@@ -2441,10 +2459,7 @@ class GeminiAPI(commands.Cog):
 
     async def _generate_image_with_gemini(
         self,
-        prompt: str,
-        model: str,
-        number_of_images: int,
-        seed: Optional[int],
+        image_params: ImageGenerationParameters,
         attachment: Optional[Attachment],
     ) -> tuple[Optional[str], List[Image.Image]]:
         """
@@ -2453,6 +2468,9 @@ class GeminiAPI(commands.Cog):
         Returns:
             tuple: (text_response, generated_images)
         """
+        prompt = image_params.prompt
+        number_of_images = image_params.number_of_images
+
         # Explicitly request image generation to reduce text-only responses
         if attachment:
             # For image editing, keep the prompt as-is for more natural edits
@@ -2475,24 +2493,45 @@ class GeminiAPI(commands.Cog):
                 else:
                     contents = [prompt, image]
 
-        # Create the configuration for image generation
-        generate_config = types.GenerateContentConfig(
-            response_modalities=["TEXT", "IMAGE"]
-        )
+        # Build configuration for image generation
+        config_kwargs: Dict[str, Any] = {
+            "response_modalities": ["TEXT", "IMAGE"],
+        }
 
-        # For additional parameters like seed and candidate count
         if number_of_images and number_of_images > 1:
-            generate_config = types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"],
-                candidate_count=number_of_images,
-            )
-        elif seed is not None:
-            generate_config = types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"], seed=seed
-            )
+            config_kwargs["candidate_count"] = number_of_images
+        elif image_params.seed is not None:
+            config_kwargs["seed"] = image_params.seed
+
+        # Image config for aspect ratio and resolution (Gemini models)
+        if image_params.aspect_ratio != "1:1" or image_params.image_size:
+            image_config_kwargs = {}
+            if image_params.aspect_ratio != "1:1":
+                image_config_kwargs["aspect_ratio"] = image_params.aspect_ratio
+            if image_params.image_size:
+                image_config_kwargs["image_size"] = image_params.image_size
+            config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
+
+        # Google Image Search grounding (3.1 Flash Image only)
+        if (
+            image_params.google_image_search
+            and image_params.model == "gemini-3.1-flash-image-preview"
+        ):
+            config_kwargs["tools"] = [
+                types.Tool(
+                    google_search=types.GoogleSearch(
+                        search_types=types.SearchTypes(
+                            web_search=types.WebSearch(),
+                            image_search=types.ImageSearch(),
+                        )
+                    )
+                )
+            ]
+
+        generate_config = types.GenerateContentConfig(**config_kwargs)
 
         gemini_response = await self.client.aio.models.generate_content(
-            model=model, contents=contents, config=generate_config
+            model=image_params.model, contents=contents, config=generate_config
         )
 
         # Process Gemini response from generate_content
@@ -2600,6 +2639,12 @@ class GeminiAPI(commands.Cog):
                 description += f" (requested: {image_params.number_of_images})"
             if image_params.seed is not None:
                 description += f"\n**Seed:** {image_params.seed}"
+            if image_params.aspect_ratio != "1:1":
+                description += f"\n**Aspect Ratio:** {image_params.aspect_ratio}"
+            if image_params.image_size:
+                description += f"\n**Image Size:** {image_params.image_size}"
+            if image_params.google_image_search:
+                description += f"\n**Google Image Search:** Enabled"
 
             # Note about unsupported parameters for Gemini
             unsupported_params = []
@@ -2611,8 +2656,6 @@ class GeminiAPI(commands.Cog):
                 unsupported_params.append(
                     f"guidance_scale: {image_params.guidance_scale}"
                 )
-            if image_params.aspect_ratio != "1:1":
-                unsupported_params.append(f"aspect_ratio: {image_params.aspect_ratio}")
             if image_params.person_generation != "allow_adult":
                 unsupported_params.append(
                     f"person_generation: {image_params.person_generation}"

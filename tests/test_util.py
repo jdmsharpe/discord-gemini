@@ -284,6 +284,41 @@ class TestImageGenerationParameters(unittest.TestCase):
         self.assertNotIn("seed", result)
         self.assertNotIn("guidance_scale", result)
 
+    def test_image_size_default_none(self):
+        """Test that image_size defaults to None."""
+        params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image-preview")
+        self.assertIsNone(params.image_size)
+
+    def test_image_size_set(self):
+        """Test that image_size can be set to a valid value."""
+        params = ImageGenerationParameters(
+            prompt="Test", model="gemini-3.1-flash-image-preview", image_size="2k"
+        )
+        self.assertEqual(params.image_size, "2k")
+
+    def test_google_image_search_default_false(self):
+        """Test that google_image_search defaults to False."""
+        params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image-preview")
+        self.assertFalse(params.google_image_search)
+
+    def test_google_image_search_enabled(self):
+        """Test that google_image_search can be enabled."""
+        params = ImageGenerationParameters(
+            prompt="Test", model="gemini-3.1-flash-image-preview", google_image_search=True
+        )
+        self.assertTrue(params.google_image_search)
+
+    def test_new_fields_isolation(self):
+        """Test that image_size and google_image_search are independent across instances."""
+        params1 = ImageGenerationParameters(
+            prompt="A", model="gemini-3.1-flash-image-preview", image_size="1k", google_image_search=True
+        )
+        params2 = ImageGenerationParameters(prompt="B", model="gemini-3.1-flash-image-preview")
+        self.assertEqual(params1.image_size, "1k")
+        self.assertTrue(params1.google_image_search)
+        self.assertIsNone(params2.image_size)
+        self.assertFalse(params2.google_image_search)
+
 
 class TestVideoGenerationParameters(unittest.TestCase):
     def test_to_dict_basic(self):

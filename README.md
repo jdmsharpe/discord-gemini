@@ -51,6 +51,8 @@ All commands are grouped under `/gemini` for clean namespacing.
   - Gemini 2.5 Flash Image
   - Imagen 4, 4 Ultra, and 4 Fast
 - Multiple aspect ratios and image count options (1-4 images)
+- Output resolution control (1K, 2K) for Gemini models
+- Google Image Search grounding for real-world visual context (Gemini 3.1 Flash Image only)
 - Image editing support with reference images (Gemini model exclusive)
 
 ### Video Generation
