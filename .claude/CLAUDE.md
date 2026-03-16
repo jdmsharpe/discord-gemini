@@ -38,22 +38,18 @@ discord-gemini/
 - **Pillow** ~12.0: Image processing library
 - **aiohttp**: Async HTTP client for downloading attachments
 
-## Available Models (As of February 2026)
+## Available Models (As of March 2026)
 
 ### Text Generation Models (`/gemini chat`)
 
 - `gemini-3.1-pro-preview` - Gemini 3.1 Pro (default)
 - `gemini-3.1-flash-lite-preview` - Gemini 3.1 Flash Lite
 - `gemini-3-flash-preview` - Gemini 3.0 Flash
-- `gemini-3-pro-preview` - Gemini 3.0 Pro
 - `gemini-2.5-pro` - State-of-the-art reasoning model
 - `gemini-2.5-flash` - Best price-performance
 - `gemini-2.5-flash-lite` - Ultra-fast, cost-efficient
 - `gemini-2.0-flash` - Second generation
 - `gemini-2.0-flash-lite` - Small workhorse
-- `gemini-1.5-flash` - Legacy support
-- `gemini-1.5-flash-8b` - Legacy support
-- `gemini-1.5-pro` - Legacy support
 
 ### Image Generation Models (`/gemini image`)
 
@@ -499,9 +495,11 @@ If you see truncated content, either shorten your input or the model returned an
 
 ## Version History
 
-### March 2026 - Gemini 3.1 Flash Image Release
+### March 2026 - Gemini 3.1 Flash Image Release & Deprecation Cleanup
 
 - Added `gemini-3.1-flash-image-preview` for image generation (new default)
+- Removed `gemini-3-pro-preview` (shut down March 9, 2026; replaced by `gemini-3.1-pro-preview`)
+- Removed `gemini-1.5-flash`, `gemini-1.5-flash-8b`, `gemini-1.5-pro` (no longer available in API)
 
 ### February 2026 - Chat Tool Calling
 

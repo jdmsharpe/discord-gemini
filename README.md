@@ -11,10 +11,9 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 - **`/gemini chat`**: Have conversations with Gemini AI models
 - Support for multiple Gemini models:
-  - Gemini 3.1 Pro (Default), 3.0 Flash, 3.0 Pro
+  - Gemini 3.1 Pro (Default), 3.0 Flash
   - Gemini 2.5 Pro, 2.5 Flash, 2.5 Flash Lite
   - Gemini 2.0 Flash, 2.0 Flash Lite
-  - Legacy support for Gemini 1.5 models
 - Persistent conversation history with button controls
 - Built-in tool calling support:
   - `google_search`
