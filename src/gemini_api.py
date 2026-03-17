@@ -2424,10 +2424,14 @@ class GeminiAPI(commands.Cog):
             report_text = await self._run_deep_research(research_params)
 
             if report_text:
-                embeds = self._create_research_response_embeds(
-                    research_params, report_text
+                embeds = self._create_research_response_embeds(research_params)
+                # Always attach the full report as a downloadable file
+                report_bytes = report_text.encode("utf-8")
+                report_file = File(
+                    BytesIO(report_bytes),
+                    filename="research_report.md",
                 )
-                await ctx.send_followup(embeds=embeds)
+                await ctx.send_followup(embeds=embeds, file=report_file)
             else:
                 await ctx.send_followup(
                     embed=Embed(
@@ -3085,13 +3089,12 @@ class GeminiAPI(commands.Cog):
     def _create_research_response_embeds(
         self,
         research_params: ResearchParameters,
-        report_text: str,
     ) -> List[Embed]:
         """
-        Create Discord embeds for a deep research report.
+        Create Discord embeds for a deep research report header.
 
         Returns:
-            List of embeds containing the prompt info and report text.
+            List of embeds containing the prompt info (report sent as file).
         """
         embeds: List[Embed] = []
 
@@ -3109,8 +3112,5 @@ class GeminiAPI(commands.Cog):
                 color=GEMINI_BLUE,
             )
         )
-
-        # Report body — use the same chunking pattern as chat responses
-        append_response_embeds(embeds, report_text)
 
         return embeds
