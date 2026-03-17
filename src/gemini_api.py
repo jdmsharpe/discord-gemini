@@ -112,12 +112,12 @@ def _guess_url_mime_type(url: str) -> str:
 
 
 def append_response_embeds(embeds, response_text):
-    # Ensure each chunk is no larger than 3500 characters to stay well under Discord's 6000 char limit
-    # If response is extremely long (>20000 chars), truncate it to prevent too many embeds
-    if len(response_text) > 20000:
-        response_text = (
-            response_text[:19500] + "\n\n... [Response truncated due to length]"
-        )
+    # Compute how many characters are already used by existing embeds (e.g. thinking embed).
+    # Discord enforces a 6000-char total per message; leave 500 chars headroom for pricing/sources.
+    used = sum(len(e.title or "") + len(e.description or "") for e in embeds)
+    available = max(500, 5500 - used)
+    if len(response_text) > available:
+        response_text = response_text[: available - 40] + "\n\n... [Response truncated]"
 
     for index, chunk in enumerate(chunk_text(response_text, 3500), start=1):
         embeds.append(
@@ -778,7 +778,8 @@ class GeminiAPI(commands.Cog):
                         continue
                     user_parts.append(attachment_part)
 
-            user_parts.append({"text": message.content})
+            if message.content:
+                user_parts.append({"text": message.content})
             history.append({"role": "user", "parts": user_parts})
 
             self.logger.debug(f"Sending history to Gemini: {history}")
