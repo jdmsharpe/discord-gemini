@@ -43,7 +43,7 @@ CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {
     "gemini-3-flash-preview": 1024,
 }
 
-CACHE_TTL = "1800s"  # 30-minute TTL for explicit caches
+CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches
 
 # Attachment size limits for Gemini API file input (bytes)
 ATTACHMENT_MAX_INLINE_SIZE = 100 * 1024 * 1024  # 100 MB general inline limit
