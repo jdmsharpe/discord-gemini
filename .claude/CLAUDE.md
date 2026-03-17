@@ -316,7 +316,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - Agent autonomously plans, searches the web, reads sources, and synthesizes a report
 - Typical research tasks take 2-10 minutes to complete
 - No typing indicator (too long-running)
-- Report output chunked using `append_response_embeds()` same as chat
+- Report sent as a downloadable `.md` file attachment; header embed shows prompt/agent info only
 - Optional `file_search` support requires `GEMINI_FILE_SEARCH_STORE_IDS` env var
 - Estimated cost: $2-5 per task depending on complexity
 
@@ -488,7 +488,7 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (101 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, image generation config (`_generate_image_with_gemini()` with `image_size`, `aspect_ratio`, `google_image_search`, combined config, and model-gating), tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
+- **`test_gemini_api.py`** (100 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, image generation config (`_generate_image_with_gemini()` with `image_size`, `aspect_ratio`, `google_image_search`, combined config, and model-gating), tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
 
 ### CI Pipeline
 

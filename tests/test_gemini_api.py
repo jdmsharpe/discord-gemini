@@ -1064,22 +1064,18 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
 
     async def test_create_research_response_embeds(self):
-        """Test _create_research_response_embeds creates proper embeds."""
+        """Test _create_research_response_embeds creates header embed only."""
         from util import ResearchParameters
 
         params = ResearchParameters(prompt="Research quantum computing")
-        report = "This is the research report."
 
-        embeds = self.cog._create_research_response_embeds(params, report)
+        embeds = self.cog._create_research_response_embeds(params)
 
-        # First embed is the header
+        # Only the header embed (report is sent as file attachment)
+        self.assertEqual(len(embeds), 1)
         self.assertEqual(embeds[0].title, "Deep Research")
         self.assertIn("Research quantum computing", embeds[0].description)
         self.assertIn("deep-research-pro-preview-12-2025", embeds[0].description)
-
-        # Second embed is the report body
-        self.assertEqual(embeds[1].title, "Response")
-        self.assertEqual(embeds[1].description, report)
 
     async def test_create_research_response_embeds_with_file_search(self):
         """Test _create_research_response_embeds shows file search status."""
@@ -1088,32 +1084,18 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         params = ResearchParameters(
             prompt="Analyze docs", file_search=True
         )
-        report = "Analysis report."
 
-        embeds = self.cog._create_research_response_embeds(params, report)
+        embeds = self.cog._create_research_response_embeds(params)
 
         self.assertIn("File Search", embeds[0].description)
-
-    async def test_create_research_response_embeds_long_report(self):
-        """Test _create_research_response_embeds chunks long reports."""
-        from util import ResearchParameters
-
-        params = ResearchParameters(prompt="test")
-        report = "A" * 8000  # Over the 3500 chunk limit
-
-        embeds = self.cog._create_research_response_embeds(params, report)
-
-        # 1 header + 3 body chunks (8000 / 3500 = ~2.3, rounds up to 3)
-        self.assertEqual(len(embeds), 4)
 
     async def test_create_research_response_embeds_truncates_prompt(self):
         """Test _create_research_response_embeds truncates long prompts."""
         from util import ResearchParameters
 
         params = ResearchParameters(prompt="X" * 3000)
-        report = "Short report."
 
-        embeds = self.cog._create_research_response_embeds(params, report)
+        embeds = self.cog._create_research_response_embeds(params)
 
         # Prompt should be truncated to 2000 + "..."
         self.assertIn("...", embeds[0].description)
