@@ -97,7 +97,7 @@ discord-gemini/
 
 3. **Utility Classes** (`src/util.py`)
    - `ChatCompletionParameters`: Conversation state (includes `tools` list, `cache_name`, `cached_history_length`, `uploaded_file_names`, `thinking_level`, `thinking_budget`)
-   - Cache constants: `CACHE_MIN_TOKEN_COUNT` (Gemini 3.x models → min tokens), `CACHE_TTL` (default 30 min)
+   - Cache constants: `CACHE_MIN_TOKEN_COUNT` (Gemini 3.x models → min tokens), `CACHE_TTL` (default 1 hour)
    - Attachment size constants: `ATTACHMENT_MAX_INLINE_SIZE` (100 MB), `ATTACHMENT_PDF_MAX_INLINE_SIZE` (50 MB), `ATTACHMENT_FILE_API_THRESHOLD` (20 MB), `ATTACHMENT_FILE_API_MAX_SIZE` (2 GB)
    - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `TOOL_FILE_SEARCH`, `AVAILABLE_TOOLS`
    - `FILE_SEARCH_INCOMPATIBLE_TOOLS`: Tools that cannot be combined with file_search
@@ -163,7 +163,7 @@ Long conversations on Gemini 3.x models automatically use explicit caching to re
 
 - Cache is created when the token threshold is first exceeded on a supported model
 - System instruction is included in the cache, so it's omitted from per-request config when a cache is active
-- TTL is 30 minutes (`CACHE_TTL`); refreshed on each turn via `_refresh_cache_ttl()` using `caches.update()`
+- TTL is 1 hour (`CACHE_TTL`); refreshed on each turn via `_refresh_cache_ttl()` using `caches.update()`
 - If the cache expires despite TTL refresh, the next request retries transparently with full history
 - When the uncached tail grows large enough (≥ model threshold), `_recache()` replaces the old cache with a new one covering the full history
 - Caches are deleted when the conversation ends (stop button) or when the cog unloads

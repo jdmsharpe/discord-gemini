@@ -717,7 +717,7 @@ class TestCacheConstants(unittest.TestCase):
 
     def test_cache_ttl_is_valid(self):
         """Test that CACHE_TTL is a valid duration string."""
-        self.assertEqual(CACHE_TTL, "1800s")
+        self.assertEqual(CACHE_TTL, "3600s")
 
 
 class TestChatCompletionParametersCaching(unittest.TestCase):
