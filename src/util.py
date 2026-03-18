@@ -243,6 +243,7 @@ class VideoGenerationParameters:
     number_of_videos: Optional[int] = None
     duration_seconds: Optional[int] = None
     enhance_prompt: Optional[bool] = None
+    has_last_frame: bool = False
 
     def to_dict(self):
         """Convert to dictionary for API calls, filtering out None values and handling special cases."""

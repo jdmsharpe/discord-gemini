@@ -419,7 +419,7 @@ class GeminiAPI(commands.Cog):
         detail_parts = [f"{k}={v}" for k, v in details.items()]
         detail_str = " | ".join(detail_parts) if detail_parts else ""
         self.logger.info(
-            "COST | command=%s | user=%s | model=%s | cost=$%.4f%s | daily_total=$%.4f",
+            "COST | command=%s | user=%s | model=%s | cost=$%.4f%s | daily=$%.4f",
             command,
             user_id,
             model,
@@ -1157,7 +1157,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "temperature",
-        description="(Advanced) Controls the randomness of the model. (default: not set)",
+        description="(Advanced) Controls randomness. Gemini 3 recommends 1.0. (default: not set)",
         required=False,
         type=float,
     )
@@ -1460,7 +1460,11 @@ class GeminiAPI(commands.Cog):
                 else ""
             )
             description += f"**Seed:** {seed}\n" if seed else ""
-            description += f"**Temperature:** {temperature}\n" if temperature else ""
+            if temperature is not None:
+                description += f"**Temperature:** {temperature}"
+                if model.startswith("gemini-3") and temperature != 1.0:
+                    description += " (warning: Gemini 3 recommends 1.0; lower values may cause looping)"
+                description += "\n"
             description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
             description += (
                 f"**Media Resolution:** {media_resolution}\n"
@@ -1928,6 +1932,12 @@ class GeminiAPI(commands.Cog):
         type=Attachment,
     )
     @option(
+        "last_frame",
+        description="(Veo 3.1 only) Image to use as the last frame for interpolation. (default: not set)",
+        required=False,
+        type=Attachment,
+    )
+    @option(
         "number_of_videos",
         description="Number of videos to generate, from 1 to 2. (default: 1)",
         required=False,
@@ -1963,6 +1973,7 @@ class GeminiAPI(commands.Cog):
         aspect_ratio: str = "16:9",
         person_generation: str = "allow_adult",
         attachment: Optional[Attachment] = None,
+        last_frame: Optional[Attachment] = None,
         number_of_videos: int = 1,
         duration_seconds: Optional[int] = None,
         negative_prompt: Optional[str] = None,
@@ -1983,6 +1994,7 @@ class GeminiAPI(commands.Cog):
         - Person generation controls for content safety
         - Advanced parameters like negative prompts and prompt enhancement
         - Veo 3.1: Native audio generation, video extension, reference image support
+        - Veo 3.1: First/last frame interpolation for controlled video generation
 
         The function handles the long-running operation by polling the API until completion,
         then downloads and sends the generated videos to Discord.
@@ -1994,6 +2006,7 @@ class GeminiAPI(commands.Cog):
             aspect_ratio: Video dimensions (16:9 or 9:16)
             person_generation: Control people in videos (dont_allow, allow_adult, allow_all)
             attachment: Optional image to use as first frame (image-to-video)
+            last_frame: Optional image to use as last frame for interpolation (Veo 3.1 only)
             number_of_videos: Number of videos to generate (1-2)
             duration_seconds: Video length in seconds (5-8)
             negative_prompt: What to avoid in generation
@@ -2004,17 +2017,29 @@ class GeminiAPI(commands.Cog):
         """
         await ctx.defer()
         try:
-            if attachment:
-                validation_error = self._validate_attachment_size(attachment)
-                if validation_error:
-                    await ctx.send_followup(
-                        embed=Embed(
-                            title="Error",
-                            description=validation_error,
-                            color=Colour.red(),
+            for att in (attachment, last_frame):
+                if att:
+                    validation_error = self._validate_attachment_size(att)
+                    if validation_error:
+                        await ctx.send_followup(
+                            embed=Embed(
+                                title="Error",
+                                description=validation_error,
+                                color=Colour.red(),
+                            )
                         )
+                        return
+
+            # Veo 3.1-only: last_frame requires a Veo 3.1 model
+            if last_frame and "veo-3.1" not in model:
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="Error",
+                        description="The `last_frame` parameter is only supported on Veo 3.1 models.",
+                        color=Colour.red(),
                     )
-                    return
+                )
+                return
 
             # Create VideoGenerationParameters for clean parameter handling
             video_params = VideoGenerationParameters(
@@ -2026,11 +2051,12 @@ class GeminiAPI(commands.Cog):
                 number_of_videos=number_of_videos,
                 duration_seconds=duration_seconds,
                 enhance_prompt=enhance_prompt,
+                has_last_frame=last_frame is not None,
             )
 
             # Generate videos using Veo
             generated_videos = await self._generate_video_with_veo(
-                video_params, attachment
+                video_params, attachment, last_frame
             )
 
             # Send response
@@ -2813,6 +2839,7 @@ class GeminiAPI(commands.Cog):
         self,
         video_params: VideoGenerationParameters,
         attachment: Optional[Attachment] = None,
+        last_frame_attachment: Optional[Attachment] = None,
     ) -> List[str]:
         """
         Generate videos using Veo models with generate_videos API.
@@ -2821,14 +2848,28 @@ class GeminiAPI(commands.Cog):
             List of generated video file paths
         """
 
+        # Build config dict; last_frame is added here (it's part of GenerateVideosConfig)
+        config_dict = video_params.to_dict()
+
+        # Load last_frame image and add to config (Veo 3.1 interpolation)
+        if last_frame_attachment:
+            last_frame_data = await self._fetch_attachment_bytes(last_frame_attachment)
+            if last_frame_data:
+                try:
+                    config_dict["last_frame"] = Image.open(BytesIO(last_frame_data))
+                except Exception as error:
+                    self.logger.warning(
+                        "Failed to open last_frame attachment: %s", error
+                    )
+
         # Prepare the generation call
         kwargs = {
             "model": video_params.model,
             "prompt": video_params.prompt,
-            "config": types.GenerateVideosConfig(**video_params.to_dict()),
+            "config": types.GenerateVideosConfig(**config_dict),
         }
 
-        # Add image if provided for image-to-video generation
+        # Add image if provided for image-to-video generation (first frame)
         if attachment:
             image_data = await self._fetch_attachment_bytes(attachment)
             if image_data:
@@ -2916,8 +2957,12 @@ class GeminiAPI(commands.Cog):
         truncated_prompt = truncate_text(video_params.prompt, 2000)
         description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {video_params.model}\n"
-        if attachment:
+        if attachment and video_params.has_last_frame:
+            description += f"**Mode:** Interpolation (First + Last Frame)\n"
+        elif attachment:
             description += f"**Mode:** Image-to-Video\n"
+        elif video_params.has_last_frame:
+            description += f"**Mode:** Last Frame Constrained\n"
         else:
             description += f"**Mode:** Text-to-Video\n"
         description += f"**Number of Videos:** {len(generated_videos)}"

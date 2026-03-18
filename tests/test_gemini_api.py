@@ -1812,7 +1812,7 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         fmt = call_args[0][0]
         self.assertIn("COST", fmt)
         self.assertIn("command=%s", fmt)
-        self.assertIn("daily_total=$%.4f", fmt)
+        self.assertIn("daily=$%.4f", fmt)
 
     async def test_log_cost_no_details(self):
         """Test _log_cost with no extra detail kwargs."""
@@ -1831,6 +1831,143 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         call_args = self.cog.logger.info.call_args
         # The formatted string should include image and input token details
         self.assertIn("images=2", str(call_args))
+
+
+class TestVideoResponseEmbed(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.auth_patcher = patch.dict(
+            "sys.modules",
+            {
+                "config.auth": MagicMock(
+                    GEMINI_API_KEY="test-api-key",
+                    GUILD_IDS=[123456789],
+                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
+                )
+            },
+        )
+        self.auth_patcher.start()
+
+        self.genai_patcher = patch("gemini_api.genai.Client")
+        self.mock_genai_client = self.genai_patcher.start()
+
+        mock_client_instance = self.mock_genai_client.return_value
+        mock_client_instance.aio.aclose = AsyncMock()
+        mock_client_instance.close = MagicMock()
+
+        from gemini_api import GeminiAPI
+        from util import VideoGenerationParameters
+
+        intents = Intents.default()
+        intents.message_content = True
+        self.bot = Bot(intents=intents)
+        self.cog = GeminiAPI(bot=self.bot)
+        self.VideoGenerationParameters = VideoGenerationParameters
+
+    async def asyncTearDown(self):
+        self.auth_patcher.stop()
+        self.genai_patcher.stop()
+
+    async def test_mode_text_to_video(self):
+        """Test embed shows Text-to-Video mode when no attachments."""
+        params = self.VideoGenerationParameters(
+            prompt="A sunset", model="veo-3.1-generate-preview"
+        )
+        embed, _ = await self.cog._create_video_response_embed(
+            video_params=params, generated_videos=["test.mp4"], attachment=None
+        )
+        self.assertIn("Text-to-Video", embed.description)
+
+    async def test_mode_image_to_video(self):
+        """Test embed shows Image-to-Video mode when attachment provided."""
+        params = self.VideoGenerationParameters(
+            prompt="A sunset", model="veo-3.1-generate-preview"
+        )
+        mock_attachment = MagicMock()
+        embed, _ = await self.cog._create_video_response_embed(
+            video_params=params, generated_videos=["test.mp4"], attachment=mock_attachment
+        )
+        self.assertIn("Image-to-Video", embed.description)
+
+    async def test_mode_interpolation(self):
+        """Test embed shows Interpolation mode when both attachment and last_frame."""
+        params = self.VideoGenerationParameters(
+            prompt="A sunset",
+            model="veo-3.1-generate-preview",
+            has_last_frame=True,
+        )
+        mock_attachment = MagicMock()
+        embed, _ = await self.cog._create_video_response_embed(
+            video_params=params, generated_videos=["test.mp4"], attachment=mock_attachment
+        )
+        self.assertIn("Interpolation", embed.description)
+
+    async def test_mode_last_frame_only(self):
+        """Test embed shows Last Frame Constrained mode when only last_frame."""
+        params = self.VideoGenerationParameters(
+            prompt="A sunset",
+            model="veo-3.1-generate-preview",
+            has_last_frame=True,
+        )
+        embed, _ = await self.cog._create_video_response_embed(
+            video_params=params, generated_videos=["test.mp4"], attachment=None
+        )
+        self.assertIn("Last Frame Constrained", embed.description)
+
+
+class TestTemperatureWarning(unittest.TestCase):
+    """Test temperature warning for Gemini 3 models.
+
+    These tests verify the warning logic inline rather than calling
+    the full slash command, since the warning is a simple string check.
+    """
+
+    def _build_temperature_description(self, model, temperature):
+        """Replicate the temperature description logic from the chat command."""
+        description = ""
+        if temperature is not None:
+            description += f"**Temperature:** {temperature}"
+            if model.startswith("gemini-3") and temperature != 1.0:
+                description += " (warning: Gemini 3 recommends 1.0; lower values may cause looping)"
+            description += "\n"
+        return description
+
+    def test_gemini3_temperature_warning_low(self):
+        """Temperature below 1.0 on Gemini 3 triggers warning."""
+        desc = self._build_temperature_description("gemini-3.1-pro-preview", 0.5)
+        self.assertIn("warning", desc)
+        self.assertIn("looping", desc)
+
+    def test_gemini3_temperature_warning_high(self):
+        """Temperature above 1.0 on Gemini 3 triggers warning."""
+        desc = self._build_temperature_description("gemini-3-flash-preview", 1.5)
+        self.assertIn("warning", desc)
+
+    def test_gemini3_temperature_no_warning_at_default(self):
+        """Temperature 1.0 on Gemini 3 does not trigger warning."""
+        desc = self._build_temperature_description("gemini-3.1-pro-preview", 1.0)
+        self.assertNotIn("warning", desc)
+        self.assertIn("1.0", desc)
+
+    def test_gemini25_no_warning(self):
+        """Temperature != 1.0 on Gemini 2.5 does not trigger warning."""
+        desc = self._build_temperature_description("gemini-2.5-pro", 0.5)
+        self.assertNotIn("warning", desc)
+        self.assertIn("0.5", desc)
+
+    def test_temperature_none_no_output(self):
+        """No temperature set produces no description."""
+        desc = self._build_temperature_description("gemini-3.1-pro-preview", None)
+        self.assertEqual(desc, "")
+
+    def test_gemini3_flash_lite_warning(self):
+        """Gemini 3.1 Flash Lite also triggers warning."""
+        desc = self._build_temperature_description("gemini-3.1-flash-lite-preview", 0.7)
+        self.assertIn("warning", desc)
+
+    def test_gemini2_flash_no_warning(self):
+        """Gemini 2.0 Flash does not trigger warning."""
+        desc = self._build_temperature_description("gemini-2.0-flash", 0.3)
+        self.assertNotIn("warning", desc)
 
 
 if __name__ == "__main__":
