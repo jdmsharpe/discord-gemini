@@ -62,7 +62,7 @@ discord-gemini/
 
 ### Video Generation Models (`/gemini video`)
 
-- `veo-3.1-generate-preview` - Veo 3.1 with native audio and video extension (default)
+- `veo-3.1-generate-preview` - Veo 3.1 with native audio, video extension, and last frame interpolation (default)
 - `veo-3.1-fast-generate-preview` - Veo 3.1 fast variant
 - `veo-3.0-generate-001` - Veo 3 with improved realism
 - `veo-3.0-fast-generate-001` - Veo 3 fast variant
@@ -102,7 +102,7 @@ discord-gemini/
    - Tool constants: `TOOL_GOOGLE_SEARCH`, `TOOL_CODE_EXECUTION`, `TOOL_FILE_SEARCH`, `AVAILABLE_TOOLS`
    - `FILE_SEARCH_INCOMPATIBLE_TOOLS`: Tools that cannot be combined with file_search
    - `ImageGenerationParameters`: Image generation config
-   - `VideoGenerationParameters`: Video generation config
+   - `VideoGenerationParameters`: Video generation config (includes `has_last_frame` for Veo 3.1 interpolation display)
    - `SpeechGenerationParameters`: TTS config
    - `MusicGenerationParameters`: Music generation config
    - `ResearchParameters`: Deep research config (prompt, agent, file_search flag)
@@ -204,7 +204,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - `url_context`: Enable URL Context retrieval (model-dependent)
 - `file_search`: Enable File Search over configured document stores (model-dependent)
 - `media_resolution`: Resolution for media inputs — Low, Medium, or High (default: not set / API default)
-- Advanced: `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `seed`
+- Advanced: `temperature` (Gemini 3 recommends 1.0; warns if changed), `top_p`, `frequency_penalty`, `presence_penalty`, `seed`
 
 **Implementation Notes**:
 
@@ -223,6 +223,7 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - When either thinking param is set, `include_thoughts=True` is added to `ThinkingConfig` and thought summaries are shown as spoilered Discord embeds (light grey color)
 - Full response parts (including thought signatures) are stored in conversation history to preserve multi-turn reasoning context
 - Thinking tokens are tracked separately in pricing via `thoughts_token_count` from `usage_metadata`
+- `temperature` on Gemini 3 models (`gemini-3*`): embed shows inline warning when set to anything other than 1.0, as Google recommends 1.0 to avoid looping/degraded performance
 
 ### `/gemini image`
 
@@ -255,9 +256,10 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 **Parameters**:
 
 - `prompt` (required): Video description
-- `model`: Veo 2 or Veo 3 (default: veo-2.0-generate-001)
+- `model`: Veo 2, Veo 3, or Veo 3.1 (default: veo-3.1-generate-preview)
 - `aspect_ratio`: 16:9 or 9:16
-- `attachment`: Starting image for image-to-video
+- `attachment`: Starting image for image-to-video (first frame)
+- `last_frame`: Ending image for interpolation (Veo 3.1 only)
 - `number_of_videos`: 1-2 videos
 - `duration_seconds`: 5-8 seconds
 - Advanced: `negative_prompt`, `enhance_prompt`, `person_generation`
@@ -267,6 +269,9 @@ All commands are grouped under `/gemini` using `SlashCommandGroup` for clean nam
 - Returns a long-running operation that must be polled
 - Polls every 20 seconds, max 10 minutes timeout
 - Downloads video files when complete
+- `last_frame` enables Veo 3.1 interpolation: model generates smooth video between first and last frames
+- `last_frame` is model-gated to `veo-3.1-*` models; returns error on Veo 2/3
+- Response embed shows generation mode: Text-to-Video, Image-to-Video, Interpolation (First + Last Frame), or Last Frame Constrained
 
 ### `/gemini tts`
 
@@ -485,11 +490,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (120 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, `MODEL_PRICING` validation, thinking field defaults/isolation, `calculate_cost()` with thinking tokens, `ImageGenerationParameters` new fields (`image_size`, `google_image_search`) defaults and isolation, and comprehensive pricing coverage for all model types (`IMAGE_PRICING`, `VIDEO_PRICING`, `TTS_PRICING`, `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()`).
+- **`test_util.py`** (116 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, `MODEL_PRICING` validation, thinking field defaults/isolation, `calculate_cost()` with thinking tokens, `ImageGenerationParameters` new fields (`image_size`, `google_image_search`) defaults and isolation, `VideoGenerationParameters` `has_last_frame` field defaults and isolation, and comprehensive pricing coverage for all model types (`IMAGE_PRICING`, `VIDEO_PRICING`, `TTS_PRICING`, `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()`).
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (104 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, image generation config (`_generate_image_with_gemini()` with `image_size`, `aspect_ratio`, `google_image_search`, combined config, and model-gating), tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens), and persistent cost logging (`_log_cost()` with structured output and detail kwargs).
+- **`test_gemini_api.py`** (114 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, image generation config (`_generate_image_with_gemini()` with `image_size`, `aspect_ratio`, `google_image_search`, combined config, and model-gating), tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens), persistent cost logging (`_log_cost()` with structured output and detail kwargs), video response embed modes (`_create_video_response_embed()` with Text-to-Video, Image-to-Video, Interpolation, Last Frame Constrained), and temperature warning for Gemini 3 models.
 
 ### CI Pipeline
 
@@ -565,6 +570,18 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - Video Last Frame Interpolation & Temperature Warning
+
+- Added `last_frame` parameter to `/gemini video` for Veo 3.1 first+last frame interpolation
+- `last_frame` accepts an image attachment specifying the ending frame; combined with `attachment` (first frame) for smooth interpolation
+- Model-gated to `veo-3.1-*` models; returns error on Veo 2/3
+- Added `has_last_frame` field to `VideoGenerationParameters` in `util.py` (display-only, not in `to_dict()`)
+- `_generate_video_with_veo()` accepts `last_frame_attachment`, loads as PIL Image, passes via `GenerateVideosConfig(last_frame=...)`
+- Response embed dynamically shows 4 modes: Text-to-Video, Image-to-Video, Interpolation (First + Last Frame), Last Frame Constrained
+- Added inline temperature warning for Gemini 3 models when `temperature` is set to anything other than 1.0
+- Updated `temperature` option description to note Gemini 3 recommends 1.0
+- Added 15 tests: 4 for `has_last_frame` dataclass, 4 for video embed modes, 7 for temperature warning logic
 
 ### March 2026 - Comprehensive Pricing & Cost Logging
 

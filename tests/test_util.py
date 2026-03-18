@@ -405,6 +405,43 @@ class TestVideoGenerationParameters(unittest.TestCase):
         self.assertNotIn("duration_seconds", result)
         self.assertNotIn("enhance_prompt", result)
 
+    def test_has_last_frame_default(self):
+        """Test that has_last_frame defaults to False."""
+        params = VideoGenerationParameters(
+            prompt="Test", model="veo-3.1-generate-preview"
+        )
+        self.assertFalse(params.has_last_frame)
+
+    def test_has_last_frame_set(self):
+        """Test that has_last_frame can be set to True."""
+        params = VideoGenerationParameters(
+            prompt="Test",
+            model="veo-3.1-generate-preview",
+            has_last_frame=True,
+        )
+        self.assertTrue(params.has_last_frame)
+
+    def test_has_last_frame_not_in_to_dict(self):
+        """Test that has_last_frame is not included in to_dict output (display-only field)."""
+        params = VideoGenerationParameters(
+            prompt="Test",
+            model="veo-3.1-generate-preview",
+            has_last_frame=True,
+        )
+        result = params.to_dict()
+        self.assertNotIn("has_last_frame", result)
+
+    def test_has_last_frame_isolation(self):
+        """Test that has_last_frame is independent between instances."""
+        params1 = VideoGenerationParameters(
+            prompt="A", model="veo-3.1-generate-preview", has_last_frame=True
+        )
+        params2 = VideoGenerationParameters(
+            prompt="B", model="veo-3.1-generate-preview"
+        )
+        self.assertTrue(params1.has_last_frame)
+        self.assertFalse(params2.has_last_frame)
+
 
 class TestSpeechGenerationParameters(unittest.TestCase):
     def test_defaults(self):
