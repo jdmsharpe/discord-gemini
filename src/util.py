@@ -11,6 +11,9 @@ TOOL_URL_CONTEXT = {"url_context": {}}
 TOOL_FILE_SEARCH = {"file_search": {}}
 
 # Per-million-token pricing for chat models: (input_cost, output_cost)
+# Note: Some models (gemini-2.5-pro, gemini-3.1-pro-preview) have tiered
+# pricing for prompts >200K tokens. We use the lower-tier rate as an
+# approximation; actual cost may be higher for very long conversations.
 MODEL_PRICING: Dict[str, Tuple[float, float]] = {
     "gemini-3.1-pro-preview": (2.0, 12.0),
     "gemini-3.1-flash-lite-preview": (0.25, 1.50),
@@ -23,7 +26,9 @@ MODEL_PRICING: Dict[str, Tuple[float, float]] = {
 }
 
 # Per-image pricing for image generation models: (input_per_M_tokens, cost_per_image)
-# Gemini image models: input is token-based, output is per-image (at default 1K resolution)
+# Gemini image models: input is token-based, output is per-image at 1K resolution.
+# Higher resolutions (2K, 4K) cost more per image but we use the 1K rate as a
+# conservative estimate since resolution-aware pricing would need image_size context.
 # Imagen models: flat per-image pricing (no input token cost)
 IMAGE_PRICING: Dict[str, Tuple[float, float]] = {
     "gemini-3.1-flash-image-preview": (0.50, 0.067),

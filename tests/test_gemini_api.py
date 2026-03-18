@@ -1157,7 +1157,7 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(daily_user2, 0.10)
 
     async def test_append_pricing_embed(self):
-        """Test that append_pricing_embed creates an orange embed with cost info."""
+        """Test that append_pricing_embed creates a Gemini Blue embed with cost info."""
         embeds = []
         self.append_pricing_embed(
             embeds, "gemini-2.0-flash",

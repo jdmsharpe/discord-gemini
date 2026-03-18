@@ -2038,18 +2038,19 @@ class GeminiAPI(commands.Cog):
                 video_params, attachment
             )
 
-            # Track and log cost (use requested duration, default 8s if unset)
-            num_videos = len(generated_videos)
-            est_duration = video_params.duration_seconds or 8
-            cost = calculate_video_cost(model, est_duration, num_videos)
-            daily_cost = self._track_daily_cost(ctx.author.id, cost)
-            self._log_cost(
-                "video", ctx.author.id, model, cost, daily_cost,
-                videos=num_videos, duration_seconds=est_duration,
-            )
-
             # Send response
             if generated_videos:
+                # Track and log cost only when videos are actually generated
+                # (Veo only charges for successful generations)
+                num_videos = len(generated_videos)
+                est_duration = video_params.duration_seconds or 8
+                cost = calculate_video_cost(model, est_duration, num_videos)
+                daily_cost = self._track_daily_cost(ctx.author.id, cost)
+                self._log_cost(
+                    "video", ctx.author.id, model, cost, daily_cost,
+                    videos=num_videos, duration_seconds=est_duration,
+                )
+
                 embed, files = await self._create_video_response_embed(
                     video_params=video_params,
                     generated_videos=generated_videos,
@@ -2389,9 +2390,9 @@ class GeminiAPI(commands.Cog):
             audio_data = await self._generate_music_with_lyria(music_params)
 
             # Log music generation (no published pricing for Lyria — experimental)
+            daily_cost = self._track_daily_cost(ctx.author.id, 0.0)
             self._log_cost(
-                "music", ctx.author.id, "lyria-realtime-exp", 0.0,
-                self._track_daily_cost(ctx.author.id, 0.0),
+                "music", ctx.author.id, "lyria-realtime-exp", 0.0, daily_cost,
                 duration_seconds=duration,
             )
 
@@ -2520,9 +2521,9 @@ class GeminiAPI(commands.Cog):
             report_text = await self._run_deep_research(research_params)
 
             # Log research usage (agent-based billing — exact cost not available from API)
+            daily_cost = self._track_daily_cost(ctx.author.id, 0.0)
             self._log_cost(
-                "research", ctx.author.id, research_params.agent, 0.0,
-                self._track_daily_cost(ctx.author.id, 0.0),
+                "research", ctx.author.id, research_params.agent, 0.0, daily_cost,
                 file_search=file_search,
                 completed=report_text is not None,
             )
