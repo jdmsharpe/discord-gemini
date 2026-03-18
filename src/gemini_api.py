@@ -41,13 +41,8 @@ from config.auth import (
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
-    ATTACHMENT_MAX_INLINE_SIZE,
-    ATTACHMENT_PDF_MAX_INLINE_SIZE,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
-    IMAGE_PRICING,
-    TTS_PRICING,
-    VIDEO_PRICING,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
@@ -1805,7 +1800,7 @@ class GeminiAPI(commands.Cog):
 
             # Track and log cost
             num_images = len(generated_images)
-            cost = calculate_image_cost(model, num_images, input_tokens)
+            cost = calculate_image_cost(model, num_images, input_tokens, image_size)
             daily_cost = self._track_daily_cost(ctx.author.id, cost)
             self._log_cost(
                 "image", ctx.author.id, model, cost, daily_cost,

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from copy import deepcopy
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from discord import Member, User
 
@@ -25,18 +25,23 @@ MODEL_PRICING: Dict[str, Tuple[float, float]] = {
     "gemini-2.0-flash-lite": (0.075, 0.30),
 }
 
-# Per-image pricing for image generation models: (input_per_M_tokens, cost_per_image)
-# Gemini image models: input is token-based, output is per-image at 1K resolution.
-# Higher resolutions (2K, 4K) cost more per image but we use the 1K rate as a
-# conservative estimate since resolution-aware pricing would need image_size context.
-# Imagen models: flat per-image pricing (no input token cost)
-IMAGE_PRICING: Dict[str, Tuple[float, float]] = {
-    "gemini-3.1-flash-image-preview": (0.50, 0.067),
-    "gemini-3-pro-image-preview": (2.00, 0.134),
-    "gemini-2.5-flash-image": (0.30, 0.039),
-    "imagen-4.0-generate-001": (0.0, 0.04),
-    "imagen-4.0-ultra-generate-001": (0.0, 0.06),
-    "imagen-4.0-fast-generate-001": (0.0, 0.02),
+# Per-image pricing for image generation models:
+#   (input_per_M_tokens, {image_size: cost_per_image})
+# Gemini image models: input is token-based, output is per-image with resolution tiers.
+# Imagen models: flat per-image pricing (no input token cost, no resolution tiers).
+IMAGE_PRICING: Dict[str, Tuple[float, Dict[Optional[str], float]]] = {
+    "gemini-3.1-flash-image-preview": (0.50, {
+        None: 0.067, "1k": 0.067, "2k": 0.101,
+    }),
+    "gemini-3-pro-image-preview": (2.00, {
+        None: 0.134, "1k": 0.134, "2k": 0.134,
+    }),
+    "gemini-2.5-flash-image": (0.30, {
+        None: 0.039, "1k": 0.039, "2k": 0.039,
+    }),
+    "imagen-4.0-generate-001": (0.0, {None: 0.04}),
+    "imagen-4.0-ultra-generate-001": (0.0, {None: 0.06}),
+    "imagen-4.0-fast-generate-001": (0.0, {None: 0.02}),
 }
 
 # Per-second pricing for video generation models
@@ -69,14 +74,22 @@ def calculate_cost(
 
 
 def calculate_image_cost(
-    model: str, num_images: int, input_tokens: int = 0
+    model: str,
+    num_images: int,
+    input_tokens: int = 0,
+    image_size: Optional[str] = None,
 ) -> float:
     """Calculate the cost for image generation.
 
-    For Gemini image models, includes input token cost plus per-image output cost.
+    For Gemini image models, includes input token cost plus per-image output cost
+    at the requested resolution (image_size). Falls back to default (1K) rate.
     For Imagen models, uses flat per-image pricing only.
     """
-    input_rate, per_image_cost = IMAGE_PRICING.get(model, (0.50, 0.067))
+    default_sizes: Dict[Optional[str], float] = {None: 0.067}
+    input_rate, size_prices = IMAGE_PRICING.get(model, (0.50, default_sizes))
+    # Normalize image_size to lowercase for lookup
+    key = image_size.lower() if image_size else None
+    per_image_cost = size_prices.get(key, size_prices.get(None, 0.067))
     return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost
 
 
@@ -369,15 +382,6 @@ class ResearchParameters:
     prompt: str
     agent: str = "deep-research-pro-preview-12-2025"
     file_search: bool = False
-
-
-@dataclass
-class EmbeddingParameters:
-    """A dataclass to store the parameters for an embedding."""
-
-    prompt: str
-    model: str = "gemini-embedding-exp"
-    model_options: Literal["gemini-embedding-exp"] = "gemini-embedding-exp"
 
 
 def resolve_tool_name(tool_config: Dict[str, Any]) -> Optional[str]:

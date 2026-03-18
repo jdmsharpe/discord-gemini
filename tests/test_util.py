@@ -29,7 +29,6 @@ from util import (
     SpeechGenerationParameters,
     MusicGenerationParameters,
     ResearchParameters,
-    EmbeddingParameters,
     chunk_text,
 )
 
@@ -570,14 +569,6 @@ class TestResearchParameters(unittest.TestCase):
         self.assertTrue(params.file_search)
 
 
-class TestEmbeddingParameters(unittest.TestCase):
-    def test_defaults(self):
-        params = EmbeddingParameters(prompt="Test text for embedding")
-        self.assertEqual(params.prompt, "Test text for embedding")
-        self.assertEqual(params.model, "gemini-embedding-exp")
-        self.assertEqual(params.model_options, "gemini-embedding-exp")
-
-
 class TestChunkText(unittest.TestCase):
     def test_chunk_text_small(self):
         text = "This is a test."
@@ -873,9 +864,10 @@ class TestImagePricing(unittest.TestCase):
 
     def test_pricing_values_are_non_negative(self):
         """Test that all pricing values are non-negative."""
-        for model, (input_rate, per_image) in IMAGE_PRICING.items():
+        for model, (input_rate, size_prices) in IMAGE_PRICING.items():
             self.assertGreaterEqual(input_rate, 0, f"{model} input rate should be >= 0")
-            self.assertGreater(per_image, 0, f"{model} per-image cost should be > 0")
+            for size, price in size_prices.items():
+                self.assertGreater(price, 0, f"{model} size={size} cost should be > 0")
 
     def test_imagen_models_have_zero_input_cost(self):
         """Test that Imagen models have zero input token cost (flat per-image pricing)."""
@@ -890,12 +882,34 @@ class TestImagePricing(unittest.TestCase):
 
     def test_calculate_image_cost_gemini_model(self):
         """Test cost calculation for a Gemini image model with input tokens."""
-        # gemini-3.1-flash-image-preview: $0.50/M input, $0.067/image
+        # gemini-3.1-flash-image-preview: $0.50/M input, $0.067/image at 1K
         cost = calculate_image_cost(
             "gemini-3.1-flash-image-preview", num_images=2, input_tokens=1_000_000
         )
         expected = 0.50 + 2 * 0.067  # input cost + 2 images
         self.assertAlmostEqual(cost, expected)
+
+    def test_calculate_image_cost_2k_resolution(self):
+        """Test that 2K resolution uses higher per-image cost."""
+        cost_1k = calculate_image_cost(
+            "gemini-3.1-flash-image-preview", num_images=1, image_size="1k"
+        )
+        cost_2k = calculate_image_cost(
+            "gemini-3.1-flash-image-preview", num_images=1, image_size="2k"
+        )
+        self.assertAlmostEqual(cost_1k, 0.067)
+        self.assertAlmostEqual(cost_2k, 0.101)
+        self.assertGreater(cost_2k, cost_1k)
+
+    def test_calculate_image_cost_case_insensitive(self):
+        """Test that image_size lookup is case-insensitive."""
+        cost_lower = calculate_image_cost(
+            "gemini-3.1-flash-image-preview", num_images=1, image_size="2k"
+        )
+        cost_upper = calculate_image_cost(
+            "gemini-3.1-flash-image-preview", num_images=1, image_size="2K"
+        )
+        self.assertAlmostEqual(cost_lower, cost_upper)
 
     def test_calculate_image_cost_imagen_model(self):
         """Test cost calculation for an Imagen model (no input tokens)."""
@@ -910,7 +924,7 @@ class TestImagePricing(unittest.TestCase):
     def test_calculate_image_cost_unknown_model(self):
         """Test that unknown models use default pricing."""
         cost = calculate_image_cost("unknown-image-model", num_images=1, input_tokens=0)
-        # Default: (0.50, 0.067) → $0.067
+        # Default: (0.50, {None: 0.067}) → $0.067
         self.assertAlmostEqual(cost, 0.067)
 
     def test_calculate_image_cost_with_input_tokens_only(self):
