@@ -10,7 +10,7 @@ TOOL_GOOGLE_MAPS = {"google_maps": {}}
 TOOL_URL_CONTEXT = {"url_context": {}}
 TOOL_FILE_SEARCH = {"file_search": {}}
 
-# Per-million-token pricing: (input_cost, output_cost)
+# Per-million-token pricing for chat models: (input_cost, output_cost)
 MODEL_PRICING: Dict[str, Tuple[float, float]] = {
     "gemini-3.1-pro-preview": (2.0, 12.0),
     "gemini-3.1-flash-lite-preview": (0.25, 1.50),
@@ -20,6 +20,33 @@ MODEL_PRICING: Dict[str, Tuple[float, float]] = {
     "gemini-2.5-flash-lite": (0.10, 0.40),
     "gemini-2.0-flash": (0.10, 0.40),
     "gemini-2.0-flash-lite": (0.075, 0.30),
+}
+
+# Per-image pricing for image generation models: (input_per_M_tokens, cost_per_image)
+# Gemini image models: input is token-based, output is per-image (at default 1K resolution)
+# Imagen models: flat per-image pricing (no input token cost)
+IMAGE_PRICING: Dict[str, Tuple[float, float]] = {
+    "gemini-3.1-flash-image-preview": (0.50, 0.067),
+    "gemini-3-pro-image-preview": (2.00, 0.134),
+    "gemini-2.5-flash-image": (0.30, 0.039),
+    "imagen-4.0-generate-001": (0.0, 0.04),
+    "imagen-4.0-ultra-generate-001": (0.0, 0.06),
+    "imagen-4.0-fast-generate-001": (0.0, 0.02),
+}
+
+# Per-second pricing for video generation models
+VIDEO_PRICING: Dict[str, float] = {
+    "veo-3.1-generate-preview": 0.40,
+    "veo-3.1-fast-generate-preview": 0.15,
+    "veo-3.0-generate-001": 0.40,
+    "veo-3.0-fast-generate-001": 0.15,
+    "veo-2.0-generate-001": 0.35,
+}
+
+# Per-million-token pricing for TTS models: (input_cost, output_cost)
+TTS_PRICING: Dict[str, Tuple[float, float]] = {
+    "gemini-2.5-flash-preview-tts": (0.50, 10.00),
+    "gemini-2.5-pro-preview-tts": (1.00, 20.00),
 }
 
 
@@ -33,6 +60,36 @@ def calculate_cost(
     input_price, output_price = MODEL_PRICING.get(model, (2.0, 12.0))
     return (input_tokens / 1_000_000) * input_price + (
         (output_tokens + thinking_tokens) / 1_000_000
+    ) * output_price
+
+
+def calculate_image_cost(
+    model: str, num_images: int, input_tokens: int = 0
+) -> float:
+    """Calculate the cost for image generation.
+
+    For Gemini image models, includes input token cost plus per-image output cost.
+    For Imagen models, uses flat per-image pricing only.
+    """
+    input_rate, per_image_cost = IMAGE_PRICING.get(model, (0.50, 0.067))
+    return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost
+
+
+def calculate_video_cost(
+    model: str, duration_seconds: int, num_videos: int = 1
+) -> float:
+    """Calculate the cost for video generation (per-second pricing)."""
+    price_per_second = VIDEO_PRICING.get(model, 0.35)
+    return duration_seconds * num_videos * price_per_second
+
+
+def calculate_tts_cost(
+    model: str, input_tokens: int, output_tokens: int
+) -> float:
+    """Calculate the cost for text-to-speech generation."""
+    input_price, output_price = TTS_PRICING.get(model, (0.50, 10.00))
+    return (input_tokens / 1_000_000) * input_price + (
+        output_tokens / 1_000_000
     ) * output_price
 
 # Minimum input token counts required for explicit context caching per model.

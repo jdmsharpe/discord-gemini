@@ -1143,30 +1143,17 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
 
     async def test_track_daily_cost_accumulates(self):
         """Test that _track_daily_cost accumulates costs for the same user and day."""
-        daily1 = self.cog._track_daily_cost(
-            user_id=12345, model="gemini-2.0-flash",
-            input_tokens=1_000_000, output_tokens=1_000_000,
-        )
-        # gemini-2.0-flash: $0.10/M in, $0.40/M out = $0.50
+        daily1 = self.cog._track_daily_cost(user_id=12345, cost=0.50)
         self.assertAlmostEqual(daily1, 0.50)
 
         # Second call same user — should accumulate
-        daily2 = self.cog._track_daily_cost(
-            user_id=12345, model="gemini-2.0-flash",
-            input_tokens=1_000_000, output_tokens=1_000_000,
-        )
+        daily2 = self.cog._track_daily_cost(user_id=12345, cost=0.50)
         self.assertAlmostEqual(daily2, 1.00)
 
     async def test_track_daily_cost_separate_users(self):
         """Test that _track_daily_cost tracks users independently."""
-        self.cog._track_daily_cost(
-            user_id=111, model="gemini-2.0-flash",
-            input_tokens=1_000_000, output_tokens=0,
-        )
-        daily_user2 = self.cog._track_daily_cost(
-            user_id=222, model="gemini-2.0-flash",
-            input_tokens=1_000_000, output_tokens=0,
-        )
+        self.cog._track_daily_cost(user_id=111, cost=0.10)
+        daily_user2 = self.cog._track_daily_cost(user_id=222, cost=0.10)
         self.assertAlmostEqual(daily_user2, 0.10)
 
     async def test_append_pricing_embed(self):
@@ -1786,16 +1773,46 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tokens in", embeds[0].description)
 
     async def test_track_daily_cost_with_thinking_tokens(self):
-        """Test that _track_daily_cost includes thinking tokens in cost."""
+        """Test that _track_daily_cost accumulates pre-calculated cost including thinking."""
+        from util import calculate_cost
         # gemini-2.0-flash: $0.10/M in, $0.40/M out
         # thinking tokens billed at output rate
-        daily = self.cog._track_daily_cost(
-            user_id=99, model="gemini-2.0-flash",
-            input_tokens=1_000_000, output_tokens=500_000,
-            thinking_tokens=500_000,
-        )
+        cost = calculate_cost("gemini-2.0-flash", 1_000_000, 500_000, thinking_tokens=500_000)
+        daily = self.cog._track_daily_cost(user_id=99, cost=cost)
         # $0.10 + ($0.40 * 1.0) = $0.50
         self.assertAlmostEqual(daily, 0.50)
+
+    async def test_log_cost_basic(self):
+        """Test that _log_cost calls logger.info with structured cost data."""
+        self.cog.logger = MagicMock()
+        self.cog._log_cost(
+            "chat", 12345, "gemini-2.0-flash", 0.50, 1.00,
+            input_tokens=1000, output_tokens=500,
+        )
+        self.cog.logger.info.assert_called_once()
+        call_args = self.cog.logger.info.call_args
+        fmt = call_args[0][0]
+        self.assertIn("COST", fmt)
+        self.assertIn("command=%s", fmt)
+        self.assertIn("daily_total=$%.4f", fmt)
+
+    async def test_log_cost_no_details(self):
+        """Test _log_cost with no extra detail kwargs."""
+        self.cog.logger = MagicMock()
+        self.cog._log_cost("video", 999, "veo-3.1-generate-preview", 3.20, 5.00)
+        self.cog.logger.info.assert_called_once()
+
+    async def test_log_cost_image_details(self):
+        """Test _log_cost with image-specific details."""
+        self.cog.logger = MagicMock()
+        self.cog._log_cost(
+            "image", 42, "gemini-3.1-flash-image-preview", 0.134, 0.50,
+            images=2, input_tokens=500,
+        )
+        self.cog.logger.info.assert_called_once()
+        call_args = self.cog.logger.info.call_args
+        # The formatted string should include image and input token details
+        self.assertIn("images=2", str(call_args))
 
 
 if __name__ == "__main__":

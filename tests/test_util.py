@@ -7,7 +7,10 @@ from util import (
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
+    IMAGE_PRICING,
     MODEL_PRICING,
+    TTS_PRICING,
+    VIDEO_PRICING,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
@@ -15,6 +18,9 @@ from util import (
     TOOL_URL_CONTEXT,
     ChatCompletionParameters,
     calculate_cost,
+    calculate_image_cost,
+    calculate_tts_cost,
+    calculate_video_cost,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
     resolve_tool_name,
@@ -846,6 +852,177 @@ class TestModelPricing(unittest.TestCase):
         # gemini-3-flash-preview: $0.50/M input, $3.00/M output
         cost = calculate_cost("gemini-3-flash-preview", 100_000, 50_000, thinking_tokens=1_000_000)
         expected = (100_000 / 1_000_000) * 0.50 + ((50_000 + 1_000_000) / 1_000_000) * 3.0
+        self.assertAlmostEqual(cost, expected)
+
+
+class TestImagePricing(unittest.TestCase):
+    """Tests for IMAGE_PRICING and calculate_image_cost."""
+
+    def test_pricing_contains_all_image_models(self):
+        """Test that IMAGE_PRICING includes all image generation models."""
+        expected_models = [
+            "gemini-3.1-flash-image-preview",
+            "gemini-3-pro-image-preview",
+            "gemini-2.5-flash-image",
+            "imagen-4.0-generate-001",
+            "imagen-4.0-ultra-generate-001",
+            "imagen-4.0-fast-generate-001",
+        ]
+        for model in expected_models:
+            self.assertIn(model, IMAGE_PRICING, f"{model} missing from IMAGE_PRICING")
+
+    def test_pricing_values_are_non_negative(self):
+        """Test that all pricing values are non-negative."""
+        for model, (input_rate, per_image) in IMAGE_PRICING.items():
+            self.assertGreaterEqual(input_rate, 0, f"{model} input rate should be >= 0")
+            self.assertGreater(per_image, 0, f"{model} per-image cost should be > 0")
+
+    def test_imagen_models_have_zero_input_cost(self):
+        """Test that Imagen models have zero input token cost (flat per-image pricing)."""
+        imagen_models = [
+            "imagen-4.0-generate-001",
+            "imagen-4.0-ultra-generate-001",
+            "imagen-4.0-fast-generate-001",
+        ]
+        for model in imagen_models:
+            input_rate, _ = IMAGE_PRICING[model]
+            self.assertEqual(input_rate, 0.0, f"{model} should have zero input rate")
+
+    def test_calculate_image_cost_gemini_model(self):
+        """Test cost calculation for a Gemini image model with input tokens."""
+        # gemini-3.1-flash-image-preview: $0.50/M input, $0.067/image
+        cost = calculate_image_cost(
+            "gemini-3.1-flash-image-preview", num_images=2, input_tokens=1_000_000
+        )
+        expected = 0.50 + 2 * 0.067  # input cost + 2 images
+        self.assertAlmostEqual(cost, expected)
+
+    def test_calculate_image_cost_imagen_model(self):
+        """Test cost calculation for an Imagen model (no input tokens)."""
+        cost = calculate_image_cost("imagen-4.0-generate-001", num_images=4)
+        self.assertAlmostEqual(cost, 4 * 0.04)
+
+    def test_calculate_image_cost_zero_images(self):
+        """Test cost calculation when no images are generated."""
+        cost = calculate_image_cost("gemini-3.1-flash-image-preview", num_images=0)
+        self.assertAlmostEqual(cost, 0.0)
+
+    def test_calculate_image_cost_unknown_model(self):
+        """Test that unknown models use default pricing."""
+        cost = calculate_image_cost("unknown-image-model", num_images=1, input_tokens=0)
+        # Default: (0.50, 0.067) → $0.067
+        self.assertAlmostEqual(cost, 0.067)
+
+    def test_calculate_image_cost_with_input_tokens_only(self):
+        """Test cost when images=0 but input tokens are charged."""
+        cost = calculate_image_cost(
+            "gemini-3.1-flash-image-preview", num_images=0, input_tokens=1_000_000
+        )
+        self.assertAlmostEqual(cost, 0.50)  # input cost only
+
+
+class TestVideoPricing(unittest.TestCase):
+    """Tests for VIDEO_PRICING and calculate_video_cost."""
+
+    def test_pricing_contains_all_video_models(self):
+        """Test that VIDEO_PRICING includes all video generation models."""
+        expected_models = [
+            "veo-3.1-generate-preview",
+            "veo-3.1-fast-generate-preview",
+            "veo-3.0-generate-001",
+            "veo-3.0-fast-generate-001",
+            "veo-2.0-generate-001",
+        ]
+        for model in expected_models:
+            self.assertIn(model, VIDEO_PRICING, f"{model} missing from VIDEO_PRICING")
+
+    def test_pricing_values_are_positive(self):
+        """Test that all per-second rates are positive."""
+        for model, rate in VIDEO_PRICING.items():
+            self.assertGreater(rate, 0, f"{model} rate should be positive")
+
+    def test_fast_models_cheaper_than_standard(self):
+        """Test that fast variants are cheaper than standard."""
+        self.assertLess(
+            VIDEO_PRICING["veo-3.1-fast-generate-preview"],
+            VIDEO_PRICING["veo-3.1-generate-preview"],
+        )
+        self.assertLess(
+            VIDEO_PRICING["veo-3.0-fast-generate-001"],
+            VIDEO_PRICING["veo-3.0-generate-001"],
+        )
+
+    def test_calculate_video_cost_basic(self):
+        """Test basic video cost calculation."""
+        # veo-3.1-generate-preview: $0.40/sec, 8 seconds
+        cost = calculate_video_cost("veo-3.1-generate-preview", duration_seconds=8)
+        self.assertAlmostEqual(cost, 3.20)
+
+    def test_calculate_video_cost_multiple_videos(self):
+        """Test cost for multiple videos."""
+        cost = calculate_video_cost("veo-2.0-generate-001", duration_seconds=5, num_videos=2)
+        self.assertAlmostEqual(cost, 5 * 2 * 0.35)
+
+    def test_calculate_video_cost_zero_duration(self):
+        """Test cost with zero duration."""
+        cost = calculate_video_cost("veo-3.1-generate-preview", duration_seconds=0)
+        self.assertAlmostEqual(cost, 0.0)
+
+    def test_calculate_video_cost_unknown_model(self):
+        """Test that unknown models use default pricing ($0.35/sec)."""
+        cost = calculate_video_cost("unknown-veo", duration_seconds=10)
+        self.assertAlmostEqual(cost, 3.50)
+
+
+class TestTtsPricing(unittest.TestCase):
+    """Tests for TTS_PRICING and calculate_tts_cost."""
+
+    def test_pricing_contains_all_tts_models(self):
+        """Test that TTS_PRICING includes all TTS models."""
+        expected_models = [
+            "gemini-2.5-flash-preview-tts",
+            "gemini-2.5-pro-preview-tts",
+        ]
+        for model in expected_models:
+            self.assertIn(model, TTS_PRICING, f"{model} missing from TTS_PRICING")
+
+    def test_pricing_values_are_positive(self):
+        """Test that all pricing values are positive."""
+        for model, (input_price, output_price) in TTS_PRICING.items():
+            self.assertGreater(input_price, 0, f"{model} input price should be positive")
+            self.assertGreater(output_price, 0, f"{model} output price should be positive")
+
+    def test_pro_more_expensive_than_flash(self):
+        """Test that Pro TTS is more expensive than Flash TTS."""
+        flash_in, flash_out = TTS_PRICING["gemini-2.5-flash-preview-tts"]
+        pro_in, pro_out = TTS_PRICING["gemini-2.5-pro-preview-tts"]
+        self.assertGreater(pro_in, flash_in)
+        self.assertGreater(pro_out, flash_out)
+
+    def test_calculate_tts_cost_basic(self):
+        """Test basic TTS cost calculation."""
+        # gemini-2.5-flash-preview-tts: $0.50/M input, $10.00/M output
+        cost = calculate_tts_cost(
+            "gemini-2.5-flash-preview-tts", input_tokens=1_000_000, output_tokens=1_000_000
+        )
+        self.assertAlmostEqual(cost, 10.50)
+
+    def test_calculate_tts_cost_zero_tokens(self):
+        """Test cost with zero tokens."""
+        cost = calculate_tts_cost("gemini-2.5-flash-preview-tts", 0, 0)
+        self.assertAlmostEqual(cost, 0.0)
+
+    def test_calculate_tts_cost_unknown_model(self):
+        """Test that unknown models use default pricing."""
+        cost = calculate_tts_cost("unknown-tts", input_tokens=1_000_000, output_tokens=1_000_000)
+        # Default: (0.50, 10.00)
+        self.assertAlmostEqual(cost, 10.50)
+
+    def test_calculate_tts_cost_small_token_count(self):
+        """Test cost calculation with realistic small token counts."""
+        # gemini-2.5-pro-preview-tts: $1.00/M input, $20.00/M output
+        cost = calculate_tts_cost("gemini-2.5-pro-preview-tts", input_tokens=500, output_tokens=10_000)
+        expected = (500 / 1_000_000) * 1.00 + (10_000 / 1_000_000) * 20.00
         self.assertAlmostEqual(cost, expected)
 
 

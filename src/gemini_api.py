@@ -45,6 +45,9 @@ from util import (
     ATTACHMENT_PDF_MAX_INLINE_SIZE,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
+    IMAGE_PRICING,
+    TTS_PRICING,
+    VIDEO_PRICING,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
@@ -57,6 +60,9 @@ from util import (
     SpeechGenerationParameters,
     VideoGenerationParameters,
     calculate_cost,
+    calculate_image_cost,
+    calculate_tts_cost,
+    calculate_video_cost,
     chunk_text,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
@@ -399,19 +405,33 @@ class GeminiAPI(commands.Cog):
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._session_lock = asyncio.Lock()
 
-    def _track_daily_cost(
-        self,
-        user_id: int,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        thinking_tokens: int = 0,
-    ) -> float:
-        """Add this request's cost to the user's daily total and return the new daily total."""
-        cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens)
+    def _track_daily_cost(self, user_id: int, cost: float) -> float:
+        """Add a pre-calculated cost to the user's daily total and return the new daily total."""
         key = (user_id, date.today().isoformat())
         self.daily_costs[key] = self.daily_costs.get(key, 0.0) + cost
         return self.daily_costs[key]
+
+    def _log_cost(
+        self,
+        command: str,
+        user_id: int,
+        model: str,
+        cost: float,
+        daily_total: float,
+        **details: Any,
+    ) -> None:
+        """Log cost data persistently for auditing and analytics."""
+        detail_parts = [f"{k}={v}" for k, v in details.items()]
+        detail_str = " | ".join(detail_parts) if detail_parts else ""
+        self.logger.info(
+            "COST | command=%s | user=%s | model=%s | cost=$%.4f%s | daily_total=$%.4f",
+            command,
+            user_id,
+            model,
+            cost,
+            f" | {detail_str}" if detail_str else "",
+            daily_total,
+        )
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self._http_session and not self._http_session.closed:
@@ -895,8 +915,12 @@ class GeminiAPI(commands.Cog):
             input_tokens = getattr(usage, "prompt_token_count", 0) or 0
             output_tokens = getattr(usage, "candidates_token_count", 0) or 0
             thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
-            daily_cost = self._track_daily_cost(
-                message.author.id, params.model, input_tokens, output_tokens, thinking_tokens
+            cost = calculate_cost(params.model, input_tokens, output_tokens, thinking_tokens)
+            daily_cost = self._track_daily_cost(message.author.id, cost)
+            self._log_cost(
+                "chat", message.author.id, params.model, cost, daily_cost,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+                thinking_tokens=thinking_tokens,
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
@@ -1489,8 +1513,12 @@ class GeminiAPI(commands.Cog):
             input_tokens = getattr(usage, "prompt_token_count", 0) or 0
             output_tokens = getattr(usage, "candidates_token_count", 0) or 0
             thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
-            daily_cost = self._track_daily_cost(
-                ctx.author.id, model, input_tokens, output_tokens, thinking_tokens
+            cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens)
+            daily_cost = self._track_daily_cost(ctx.author.id, cost)
+            self._log_cost(
+                "chat", ctx.author.id, model, cost, daily_cost,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+                thinking_tokens=thinking_tokens,
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
@@ -1752,10 +1780,11 @@ class GeminiAPI(commands.Cog):
             # Process response - handle both Gemini and Imagen response formats
             text_response = None
             generated_images = []
+            input_tokens = 0
 
             if is_gemini_model:
                 # Handle Gemini models using generate_content
-                text_response, generated_images = (
+                text_response, generated_images, input_tokens = (
                     await self._generate_image_with_gemini(
                         image_params, attachment
                     )
@@ -1774,6 +1803,15 @@ class GeminiAPI(commands.Cog):
 
                 generated_images = await self._generate_image_with_imagen(image_params)
 
+            # Track and log cost
+            num_images = len(generated_images)
+            cost = calculate_image_cost(model, num_images, input_tokens)
+            daily_cost = self._track_daily_cost(ctx.author.id, cost)
+            self._log_cost(
+                "image", ctx.author.id, model, cost, daily_cost,
+                images=num_images, input_tokens=input_tokens,
+            )
+
             # Send response
             if generated_images:
                 embed, files = await self._create_image_response_embed(
@@ -1783,7 +1821,17 @@ class GeminiAPI(commands.Cog):
                     text_response=text_response,
                 )
 
-                await ctx.send_followup(embed=embed, files=files)
+                embeds = [embed]
+                if SHOW_COST_EMBEDS:
+                    pricing_desc = (
+                        f"${cost:.4f} · {num_images} image{'s' if num_images != 1 else ''}"
+                    )
+                    if input_tokens:
+                        pricing_desc += f" · {input_tokens:,} input tokens"
+                    pricing_desc += f" · daily ${daily_cost:.2f}"
+                    embeds.append(Embed(description=pricing_desc, color=GEMINI_BLUE))
+
+                await ctx.send_followup(embeds=embeds, files=files)
             else:
                 # No images generated, but maybe there's text (only for Gemini)
                 embed_description = "The model did not generate any images.\n"
@@ -1810,13 +1858,20 @@ class GeminiAPI(commands.Cog):
                     if unsupported_params:
                         embed_description += f"\n*Note: These parameters are not yet implemented for Gemini: {', '.join(unsupported_params)}*"
 
-                await ctx.send_followup(
-                    embed=Embed(
+                embeds_no_img = [
+                    Embed(
                         title="No Images Generated",
                         description=embed_description,
                         color=Colour.orange(),
                     )
-                )
+                ]
+                if SHOW_COST_EMBEDS and cost > 0:
+                    pricing_desc = f"${cost:.4f} · 0 images"
+                    if input_tokens:
+                        pricing_desc += f" · {input_tokens:,} input tokens"
+                    pricing_desc += f" · daily ${daily_cost:.2f}"
+                    embeds_no_img.append(Embed(description=pricing_desc, color=GEMINI_BLUE))
+                await ctx.send_followup(embeds=embeds_no_img)
 
         except Exception as e:
             description = str(e)
@@ -1983,6 +2038,16 @@ class GeminiAPI(commands.Cog):
                 video_params, attachment
             )
 
+            # Track and log cost (use requested duration, default 8s if unset)
+            num_videos = len(generated_videos)
+            est_duration = video_params.duration_seconds or 8
+            cost = calculate_video_cost(model, est_duration, num_videos)
+            daily_cost = self._track_daily_cost(ctx.author.id, cost)
+            self._log_cost(
+                "video", ctx.author.id, model, cost, daily_cost,
+                videos=num_videos, duration_seconds=est_duration,
+            )
+
             # Send response
             if generated_videos:
                 embed, files = await self._create_video_response_embed(
@@ -1991,7 +2056,15 @@ class GeminiAPI(commands.Cog):
                     attachment=attachment,
                 )
 
-                await ctx.send_followup(embed=embed, files=files)
+                embeds = [embed]
+                if SHOW_COST_EMBEDS:
+                    pricing_desc = (
+                        f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
+                        f"× {est_duration}s · daily ${daily_cost:.2f}"
+                    )
+                    embeds.append(Embed(description=pricing_desc, color=GEMINI_BLUE))
+
+                await ctx.send_followup(embeds=embeds, files=files)
             else:
                 await ctx.send_followup(
                     embed=Embed(
@@ -2124,7 +2197,15 @@ class GeminiAPI(commands.Cog):
             )
 
             # Generate audio using Gemini TTS
-            audio_data = await self._generate_speech_with_gemini(tts_params)
+            audio_data, input_tokens, output_tokens = await self._generate_speech_with_gemini(tts_params)
+
+            # Track and log cost
+            cost = calculate_tts_cost(model, input_tokens, output_tokens)
+            daily_cost = self._track_daily_cost(ctx.author.id, cost)
+            self._log_cost(
+                "tts", ctx.author.id, model, cost, daily_cost,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+            )
 
             if audio_data:
                 # Create temporary audio file
@@ -2151,8 +2232,15 @@ class GeminiAPI(commands.Cog):
                     color=GEMINI_BLUE,
                 )
 
+                embeds = [embed]
+                if SHOW_COST_EMBEDS:
+                    pricing_desc = (
+                        f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out (audio) · daily ${daily_cost:.2f}"
+                    )
+                    embeds.append(Embed(description=pricing_desc, color=GEMINI_BLUE))
+
                 # Send the audio file
-                await ctx.send_followup(embed=embed, file=File(audio_file_path))
+                await ctx.send_followup(embeds=embeds, file=File(audio_file_path))
 
                 # Clean up the temporary file
                 audio_file_path.unlink(missing_ok=True)
@@ -2300,6 +2388,13 @@ class GeminiAPI(commands.Cog):
             # Generate music using Lyria RealTime
             audio_data = await self._generate_music_with_lyria(music_params)
 
+            # Log music generation (no published pricing for Lyria — experimental)
+            self._log_cost(
+                "music", ctx.author.id, "lyria-realtime-exp", 0.0,
+                self._track_daily_cost(ctx.author.id, 0.0),
+                duration_seconds=duration,
+            )
+
             if audio_data:
                 # Create temporary audio file
                 audio_file_path = Path(f"music_output_{int(time.time())}.wav")
@@ -2424,6 +2519,14 @@ class GeminiAPI(commands.Cog):
 
             report_text = await self._run_deep_research(research_params)
 
+            # Log research usage (agent-based billing — exact cost not available from API)
+            self._log_cost(
+                "research", ctx.author.id, research_params.agent, 0.0,
+                self._track_daily_cost(ctx.author.id, 0.0),
+                file_search=file_search,
+                completed=report_text is not None,
+            )
+
             if report_text:
                 embeds = self._create_research_response_embeds(research_params)
                 # Always attach the full report as a downloadable file
@@ -2456,12 +2559,12 @@ class GeminiAPI(commands.Cog):
         self,
         image_params: ImageGenerationParameters,
         attachment: Optional[Attachment],
-    ) -> tuple[Optional[str], List[Image.Image]]:
+    ) -> tuple[Optional[str], List[Image.Image], int]:
         """
         Generate images using Gemini models with generate_content API.
 
         Returns:
-            tuple: (text_response, generated_images)
+            tuple: (text_response, generated_images, input_tokens)
         """
         prompt = image_params.prompt
         number_of_images = image_params.number_of_images
@@ -2529,6 +2632,10 @@ class GeminiAPI(commands.Cog):
             model=image_params.model, contents=contents, config=generate_config
         )
 
+        # Extract input token count from usage metadata
+        usage = getattr(gemini_response, "usage_metadata", None)
+        input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+
         # Process Gemini response from generate_content
         text_response = None
         generated_images = []
@@ -2544,7 +2651,7 @@ class GeminiAPI(commands.Cog):
                             image = Image.open(BytesIO(part.inline_data.data))
                             generated_images.append(image)
 
-        return text_response, generated_images
+        return text_response, generated_images, input_tokens
 
     async def _generate_image_with_imagen(
         self, image_params: ImageGenerationParameters
@@ -2987,7 +3094,7 @@ class GeminiAPI(commands.Cog):
 
     async def _generate_speech_with_gemini(
         self, tts_params: SpeechGenerationParameters
-    ) -> Optional[bytes]:
+    ) -> tuple[Optional[bytes], int, int]:
         """
         Generate speech using Gemini TTS models.
 
@@ -2995,7 +3102,7 @@ class GeminiAPI(commands.Cog):
             tts_params: TTS parameters containing input text, model, voice, etc.
 
         Returns:
-            Raw audio data as bytes, or None if generation failed
+            tuple: (audio_data, input_tokens, output_tokens)
         """
         try:
             # Generate speech using Gemini TTS
@@ -3004,6 +3111,11 @@ class GeminiAPI(commands.Cog):
                 contents=tts_params.input_text,
                 config=types.GenerateContentConfig(**tts_params.to_dict()),
             )
+
+            # Extract token counts from usage metadata
+            usage = getattr(response, "usage_metadata", None)
+            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
 
             # Extract audio data from response
             if (
@@ -3015,10 +3127,10 @@ class GeminiAPI(commands.Cog):
                 for part in response.candidates[0].content.parts:
                     if hasattr(part, "inline_data") and part.inline_data:
                         if part.inline_data.data:
-                            return part.inline_data.data
+                            return part.inline_data.data, input_tokens, output_tokens
 
             self.logger.warning("No audio data found in Gemini TTS response")
-            return None
+            return None, input_tokens, output_tokens
 
         except Exception as e:
             self.logger.error(f"Error generating speech with Gemini: {e}")
