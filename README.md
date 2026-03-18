@@ -110,9 +110,10 @@ All commands are grouped under `/gemini` for clean namespacing.
 ## Requirements
 
 - Python 3.10+
-- google-genai ~1.65
+- google-genai ~1.68
 - py-cord ~2.7
-- Pillow ~12.0
+- Pillow ~12.1
+- aiohttp ~3.13
 - python-dotenv ~1.2
 
 ## Music Generation Examples

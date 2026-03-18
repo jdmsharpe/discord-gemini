@@ -33,9 +33,9 @@ discord-gemini/
 
 ## Core Dependencies
 
-- **google-genai** ~1.65: Google's Gemini API client library
-- **py-cord** ~2.6: Discord bot framework (fork of discord.py)
-- **Pillow** ~12.0: Image processing library
+- **google-genai** ~1.68: Google's Gemini API client library
+- **py-cord** ~2.7: Discord bot framework (fork of discord.py)
+- **Pillow** ~12.1: Image processing library
 - **aiohttp**: Async HTTP client for downloading attachments
 
 ## Available Models (As of March 2026)
@@ -570,6 +570,13 @@ If you see truncated content, either shorten your input or the model returned an
 - [ ] Admin commands for bot management
 
 ## Version History
+
+### March 2026 - google-genai 1.68 Upgrade
+
+- Updated google-genai from ~1.65 to ~1.68
+- Updated Pillow from ~12.0 to ~12.1
+- No code changes required — breaking changes in 1.68 are scoped to Interactions API types (`Annotation` → `URLCitation`/`FileCitation`/`PlaceCitation`, `ContentDelta*Delta` suffix removal, `rendered_content` → `search_suggestions`) which the bot does not reference directly
+- Key upstream fix: `typing-extensions` minimum bumped to >=4.14.0, resolving Python 3.10/3.11 import errors from 1.67
 
 ### March 2026 - Video Last Frame Interpolation & Temperature Warning
 
