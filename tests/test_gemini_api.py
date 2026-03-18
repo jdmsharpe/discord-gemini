@@ -639,6 +639,51 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
 
         self.cog.client.aio.files.delete.assert_not_called()
 
+    async def test_cleanup_conversation_strips_view_and_clears_state(self):
+        """Test that _cleanup_conversation edits the message to remove the view and cleans up views dict."""
+        user = MagicMock()
+        mock_message = AsyncMock()
+        self.cog.last_view_messages[user] = mock_message
+        self.cog.views[user] = MagicMock()
+
+        await self.cog._cleanup_conversation(user)
+
+        mock_message.edit.assert_awaited_once_with(view=None)
+        self.assertNotIn(user, self.cog.last_view_messages)
+        self.assertNotIn(user, self.cog.views)
+
+    async def test_cleanup_conversation_no_previous_message(self):
+        """Test that _cleanup_conversation handles missing last_view_messages gracefully."""
+        user = MagicMock()
+        self.cog.views[user] = MagicMock()
+
+        await self.cog._cleanup_conversation(user)
+
+        self.assertNotIn(user, self.cog.views)
+
+    async def test_cleanup_conversation_edit_fails(self):
+        """Test that _cleanup_conversation handles deleted messages without raising."""
+        user = MagicMock()
+        mock_message = AsyncMock()
+        mock_message.edit.side_effect = Exception("Unknown Message")
+        self.cog.last_view_messages[user] = mock_message
+        self.cog.views[user] = MagicMock()
+
+        await self.cog._cleanup_conversation(user)
+
+        mock_message.edit.assert_awaited_once_with(view=None)
+        self.assertNotIn(user, self.cog.last_view_messages)
+        self.assertNotIn(user, self.cog.views)
+
+    async def test_cleanup_conversation_unknown_user(self):
+        """Test that _cleanup_conversation is a no-op for users with no state."""
+        user = MagicMock()
+
+        await self.cog._cleanup_conversation(user)
+
+        self.assertNotIn(user, self.cog.last_view_messages)
+        self.assertNotIn(user, self.cog.views)
+
 
 class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
     """Tests for image generation text response handling and truncation."""

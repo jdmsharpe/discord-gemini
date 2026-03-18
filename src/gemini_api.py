@@ -742,6 +742,16 @@ class GeminiAPI(commands.Cog):
             except Exception:
                 pass  # Message may have been deleted
 
+    async def _cleanup_conversation(self, user) -> None:
+        """Remove button view from the last message and clean up view state."""
+        prev = self.last_view_messages.pop(user, None)
+        if prev is not None:
+            try:
+                await prev.edit(view=None)
+            except Exception:
+                pass  # Message may have been deleted
+        self.views.pop(user, None)
+
     async def handle_new_message_in_conversation(
         self, message, conversation_wrapper: Conversation
     ):
@@ -974,6 +984,12 @@ class GeminiAPI(commands.Cog):
             await message.reply(
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
+            # Clean up the conversation on error
+            await self._delete_conversation_cache(conversation_wrapper.params)
+            await self._cleanup_uploaded_files(conversation_wrapper.params)
+            conv_id = conversation_wrapper.params.conversation_id
+            self.conversations.pop(conv_id, None)
+            await self._cleanup_conversation(message.author)
 
         finally:
             # Cancel typing task if it exists
@@ -1590,6 +1606,7 @@ class GeminiAPI(commands.Cog):
             await ctx.send_followup(
                 embed=Embed(title="Error", description=description, color=Colour.red())
             )
+            await self._cleanup_conversation(ctx.author)
 
         finally:
             if typing_task:
