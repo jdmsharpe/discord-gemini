@@ -963,23 +963,32 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
 
         params = ResearchParameters(prompt="Research AI safety")
 
+        mock_usage = SimpleNamespace(
+            total_input_tokens=250_000, total_output_tokens=60_000, total_thought_tokens=5_000
+        )
         # First call returns in_progress, second returns completed
         interaction_started = SimpleNamespace(
-            id="interaction-1", status="in_progress", outputs=None
+            id="interaction-1", status="in_progress", outputs=None, usage=None
         )
         interaction_done = SimpleNamespace(
             id="interaction-1",
             status="completed",
             outputs=[SimpleNamespace(text="# AI Safety Report\n\nDetailed findings...")],
+            usage=mock_usage,
         )
 
         self.cog.client.aio.interactions.create.return_value = interaction_started
         self.cog.client.aio.interactions.get.return_value = interaction_done
 
         with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
-            result = await self.cog._run_deep_research(params)
+            report_text, input_tokens, output_tokens, thinking_tokens = (
+                await self.cog._run_deep_research(params)
+            )
 
-        self.assertEqual(result, "# AI Safety Report\n\nDetailed findings...")
+        self.assertEqual(report_text, "# AI Safety Report\n\nDetailed findings...")
+        self.assertEqual(input_tokens, 250_000)
+        self.assertEqual(output_tokens, 60_000)
+        self.assertEqual(thinking_tokens, 5_000)
         self.cog.client.aio.interactions.create.assert_called_once_with(
             input="Research AI safety",
             agent="deep-research-pro-preview-12-2025",
@@ -996,12 +1005,15 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
             id="interaction-2",
             status="completed",
             outputs=[SimpleNamespace(text="Report analysis...")],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
+            ),
         )
 
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
         with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
-            result = await self.cog._run_deep_research(params)
+            report_text, _, _, _ = await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
         self.assertIn("tools", call_kwargs.kwargs)
@@ -1047,21 +1059,27 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
             self.assertIn("failed", str(ctx.exception))
 
     async def test_run_deep_research_no_output(self):
-        """Test _run_deep_research returns None when no text output."""
+        """Test _run_deep_research returns None text when no output."""
         from util import ResearchParameters
 
         params = ResearchParameters(prompt="test")
 
         interaction_done = SimpleNamespace(
-            id="interaction-4", status="completed", outputs=[]
+            id="interaction-4", status="completed", outputs=[],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=0, total_thought_tokens=0
+            ),
         )
 
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
         with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
-            result = await self.cog._run_deep_research(params)
+            report_text, input_tokens, output_tokens, thinking_tokens = (
+                await self.cog._run_deep_research(params)
+            )
 
-        self.assertIsNone(result)
+        self.assertIsNone(report_text)
+        self.assertEqual(input_tokens, 100)
 
     async def test_create_research_response_embeds(self):
         """Test _create_research_response_embeds creates header embed only."""

@@ -2513,18 +2513,35 @@ class GeminiAPI(commands.Cog):
                 file_search=file_search,
             )
 
-            report_text = await self._run_deep_research(research_params)
+            report_text, input_tokens, output_tokens, thinking_tokens = (
+                await self._run_deep_research(research_params)
+            )
 
-            # Log research usage (agent-based billing — exact cost not available from API)
-            daily_cost = self._track_daily_cost(ctx.author.id, 0.0)
+            # Deep Research is billed at Gemini 3.1 Pro rates
+            research_model = "gemini-3.1-pro-preview"
+            cost = calculate_cost(research_model, input_tokens, output_tokens, thinking_tokens)
+            daily_cost = self._track_daily_cost(ctx.author.id, cost)
             self._log_cost(
-                "research", ctx.author.id, research_params.agent, 0.0, daily_cost,
-                file_search=file_search,
-                completed=report_text is not None,
+                "research", ctx.author.id, research_params.agent, cost, daily_cost,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+                thinking_tokens=thinking_tokens, file_search=file_search,
             )
 
             if report_text:
                 embeds = self._create_research_response_embeds(research_params)
+
+                if SHOW_COST_EMBEDS:
+                    if thinking_tokens > 0:
+                        pricing_desc = (
+                            f"${cost:.2f} · {input_tokens:,} in / {output_tokens:,} out / "
+                            f"{thinking_tokens:,} thinking · daily ${daily_cost:.2f}"
+                        )
+                    else:
+                        pricing_desc = (
+                            f"${cost:.2f} · {input_tokens:,} in / {output_tokens:,} out · daily ${daily_cost:.2f}"
+                        )
+                    embeds.append(Embed(description=pricing_desc, color=GEMINI_BLUE))
+
                 # Always attach the full report as a downloadable file
                 report_bytes = report_text.encode("utf-8")
                 report_file = File(
@@ -3134,7 +3151,7 @@ class GeminiAPI(commands.Cog):
 
     async def _run_deep_research(
         self, research_params: ResearchParameters
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], int, int, int]:
         """
         Run a deep research task using the Interactions API.
 
@@ -3142,7 +3159,7 @@ class GeminiAPI(commands.Cog):
         Typically takes 2-10 minutes.
 
         Returns:
-            The final research report text, or None if no output was produced.
+            tuple: (report_text, input_tokens, output_tokens, thinking_tokens)
         """
         kwargs: Dict[str, Any] = {
             "input": research_params.prompt,
@@ -3186,14 +3203,20 @@ class GeminiAPI(commands.Cog):
         if interaction.status == "cancelled":
             raise Exception("Research was cancelled")
 
+        # Extract token counts from interaction usage
+        usage = getattr(interaction, "usage", None)
+        input_tokens = getattr(usage, "total_input_tokens", 0) or 0
+        output_tokens = getattr(usage, "total_output_tokens", 0) or 0
+        thinking_tokens = getattr(usage, "total_thought_tokens", 0) or 0
+
         # Extract text from outputs
         if interaction.outputs:
             for output in reversed(interaction.outputs):
                 text = getattr(output, "text", None)
                 if text:
-                    return text
+                    return text, input_tokens, output_tokens, thinking_tokens
 
-        return None
+        return None, input_tokens, output_tokens, thinking_tokens
 
     def _create_research_response_embeds(
         self,
