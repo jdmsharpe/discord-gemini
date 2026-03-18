@@ -106,7 +106,8 @@ discord-gemini/
    - `SpeechGenerationParameters`: TTS config
    - `MusicGenerationParameters`: Music generation config
    - `ResearchParameters`: Deep research config (prompt, agent, file_search flag)
-   - Pricing constants: `MODEL_PRICING` (model → (input, output) per million tokens), `calculate_cost()` (accepts optional `thinking_tokens` billed at output rate)
+   - Pricing constants: `MODEL_PRICING` (chat models), `IMAGE_PRICING` (per-image models), `VIDEO_PRICING` (per-second models), `TTS_PRICING` (TTS models)
+   - Cost functions: `calculate_cost()` (chat, with `thinking_tokens`), `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()`
    - `chunk_text()`: Splits long text for Discord embeds
 
 ### Key Design Patterns
@@ -484,11 +485,11 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 
 ### Test Structure
 
-- **`test_util.py`** (90 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, `MODEL_PRICING` validation, thinking field defaults/isolation, `calculate_cost()` with thinking tokens, and `ImageGenerationParameters` new fields (`image_size`, `google_image_search`) defaults and isolation.
+- **`test_util.py`** (120 tests): Tests for all dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `EmbeddingParameters`) and utility functions (`chunk_text()`, `truncate_text()`, `resolve_tool_name()`, `filter_file_search_incompatible_tools()`, `calculate_cost()`), including conversation tools state, file search model compatibility, caching constants, cache field coverage, attachment size constants, `uploaded_file_names` isolation, `MODEL_PRICING` validation, thinking field defaults/isolation, `calculate_cost()` with thinking tokens, `ImageGenerationParameters` new fields (`image_size`, `google_image_search`) defaults and isolation, and comprehensive pricing coverage for all model types (`IMAGE_PRICING`, `VIDEO_PRICING`, `TTS_PRICING`, `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()`).
 
 - **`test_button_view.py`** (13 tests): Tests for ButtonView button callbacks (regenerate, play/pause, stop) plus tool select initialization and callback behavior, including file_search option.
 
-- **`test_gemini_api.py`** (100 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, image generation config (`_generate_image_with_gemini()` with `image_size`, `aspect_ratio`, `google_image_search`, combined config, and model-gating), tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), and thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens).
+- **`test_gemini_api.py`** (104 tests): Tests for GeminiAPI cog initialization, HTTP session management, message handling, attachment fetching, response embed generation, image generation text/prompt truncation, image generation config (`_generate_image_with_gemini()` with `image_size`, `aspect_ratio`, `google_image_search`, combined config, and model-gating), tool metadata extraction (including file_search detection), `enrich_file_search_tools()`, attachment validation (`_validate_attachment_size()`), attachment preparation (`_prepare_attachment_part()` with inline/File API routing and fallback), uploaded file cleanup (`_cleanup_uploaded_files()`), deep research (`_run_deep_research()`, `_create_research_response_embeds()`), explicit context caching (create/delete/TTL refresh/periodic re-caching/error handling), pricing (`append_pricing_embed()`, `_track_daily_cost()` accumulation and per-user isolation), URL MIME type detection (`_guess_url_mime_type()` with YouTube URL handling and fallback), thinking features (`_build_thinking_config()`, `extract_thinking_text()`, `_get_response_content_parts()`, `append_thinking_embeds()`, pricing with thinking tokens), and persistent cost logging (`_log_cost()` with structured output and detail kwargs).
 
 ### CI Pipeline
 
@@ -565,6 +566,21 @@ If you see truncated content, either shorten your input or the model returned an
 
 ## Version History
 
+### March 2026 - Comprehensive Pricing & Cost Logging
+
+- Extended pricing coverage from chat-only to all command types: image, video, TTS, music, and research
+- Added `IMAGE_PRICING` dict to `util.py` with per-image costs for 6 image models (Gemini image + Imagen)
+- Added `VIDEO_PRICING` dict to `util.py` with per-second costs for 5 Veo models
+- Added `TTS_PRICING` dict to `util.py` with per-million-token costs for 2 TTS models
+- Added `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()` functions to `util.py`
+- Added persistent cost logging via `_log_cost()` method — structured `self.logger.info()` calls after every API request (chat, image, video, TTS, music, research) with command, user, model, cost, and daily total
+- Refactored `_track_daily_cost()` to accept a pre-calculated cost (simpler, generic across all command types)
+- Added pricing embeds to `/gemini image` (per-image + input tokens), `/gemini video` (per-second × duration), and `/gemini tts` (input/output tokens)
+- Music and research commands log cost events but don't show pricing embeds (Lyria has no published pricing; research uses complex agent-based billing)
+- Modified `_generate_image_with_gemini()` to return `input_tokens` from `usage_metadata`
+- Modified `_generate_speech_with_gemini()` to return `(audio_data, input_tokens, output_tokens)` from `usage_metadata`
+- Added 30+ tests for new pricing dicts and cost functions (`TestImagePricing`, `TestVideoPricing`, `TestTtsPricing`) plus `_log_cost` tests
+
 ### March 2026 - Image Generation Enhancements
 
 - Added `image_size` parameter to `/gemini image` for controlling output resolution on Gemini models (1K, 2K)
@@ -613,15 +629,18 @@ If you see truncated content, either shorten your input or the model returned an
 
 ### March 2026 - Pricing Feedback
 
-- Added per-request cost and daily cost tracking to `/gemini chat` responses
-- Each chat response (initial and follow-up) shows a pricing embed: `$cost · N in / N out · daily $total`
-- Pricing and sources embeds are included in the same message as the response, before the buttons/tool select view
-- Pricing embed color matches the response embed color (dark blue)
+- Added per-request cost and daily cost tracking to all commands (chat, image, video, TTS)
+- Chat: `$cost · N in / N out · daily $total` (with thinking tokens when applicable)
+- Image: `$cost · N images · daily $total` (with input tokens for Gemini models)
+- Video: `$cost · N videos × Ns · daily $total`
+- TTS: `$cost · N in / N out (audio) · daily $total`
+- Music/research: cost events logged but no pricing embed (experimental/complex billing)
 - Pricing embeds are configurable via `SHOW_COST_EMBEDS` env var (default: `true`); daily cost is always tracked regardless of this setting
-- Added `MODEL_PRICING` dict to `util.py` with per-million-token rates for all 8 chat models
-- Added `calculate_cost()` utility function in `util.py`
+- Persistent structured cost logging via `_log_cost()` — every API call writes a `COST | command=... | user=... | model=... | cost=$... | daily_total=$...` log line
+- Added `MODEL_PRICING`, `IMAGE_PRICING`, `VIDEO_PRICING`, `TTS_PRICING` dicts to `util.py`
+- Added `calculate_cost()`, `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()` functions
 - Added `append_pricing_embed()` standalone function in `gemini_api.py`
-- Added `daily_costs` dict and `_track_daily_cost()` method to `GeminiAPI` for per-user daily accumulation
+- Added `daily_costs` dict and `_track_daily_cost(user_id, cost)` method to `GeminiAPI` for per-user daily accumulation
 - Token counts extracted from `response.usage_metadata` (`prompt_token_count`, `candidates_token_count`)
 - Added `SHOW_COST_EMBEDS` to `config/auth.py` (default: `true`)
 
