@@ -1147,7 +1147,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "attachment",
-        description="File to include (image, PDF, audio, video, document). Max 2 GB. (default: not set)",
+        description="Attach an image, PDF, audio, video, document, or code file. (default: not set)",
         required=False,
         type=Attachment,
     )
@@ -1285,7 +1285,7 @@ class GeminiAPI(commands.Cog):
             frequency_penalty: Controls repetition reduction (experimental)
             presence_penalty: Controls topic focus (experimental)
             seed: Random seed for deterministic responses
-            attachment: Optional file attachment for multimodal input (image, PDF, audio, etc.)
+            attachment: Attach an image, PDF, audio, video, document, or code file.
             url: URL to a file for the model to process (Gemini 2.5+ only)
             temperature: Response creativity (0.0 conservative → 2.0 creative)
             top_p: Nucleus sampling threshold (0.0 focused → 1.0 diverse)
