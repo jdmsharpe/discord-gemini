@@ -353,19 +353,20 @@ def append_pricing_embed(
     output_tokens: int,
     daily_cost: float,
     thinking_tokens: int = 0,
+    google_maps_grounded: bool = False,
 ) -> None:
     """Append a compact pricing embed showing cost and token usage."""
-    cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens)
+    cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens, google_maps_grounded)
+    parts = []
+    parts.append(f"${cost:.4f}")
     if thinking_tokens > 0:
-        description = (
-            f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out / "
-            f"{thinking_tokens:,} thinking · daily ${daily_cost:.2f}"
-        )
+        parts.append(f"{input_tokens:,} in / {output_tokens:,} out / {thinking_tokens:,} thinking")
     else:
-        description = (
-            f"${cost:.4f} · {input_tokens:,} tokens in / {output_tokens:,} tokens out · daily ${daily_cost:.2f}"
-        )
-    embeds.append(Embed(description=description, color=GEMINI_BLUE))
+        parts.append(f"{input_tokens:,} tokens in / {output_tokens:,} tokens out")
+    if google_maps_grounded:
+        parts.append("Maps grounded")
+    parts.append(f"daily ${daily_cost:.2f}")
+    embeds.append(Embed(description=" · ".join(parts), color=GEMINI_BLUE))
 
 
 class GeminiAPI(commands.Cog):
@@ -920,16 +921,18 @@ class GeminiAPI(commands.Cog):
             input_tokens = getattr(usage, "prompt_token_count", 0) or 0
             output_tokens = getattr(usage, "candidates_token_count", 0) or 0
             thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
-            cost = calculate_cost(params.model, input_tokens, output_tokens, thinking_tokens)
+            maps_grounded = "google_maps" in tool_info.get("tools_used", [])
+            cost = calculate_cost(params.model, input_tokens, output_tokens, thinking_tokens, maps_grounded)
             daily_cost = self._track_daily_cost(message.author.id, cost)
             self._log_cost(
                 "chat", message.author.id, params.model, cost, daily_cost,
                 input_tokens=input_tokens, output_tokens=output_tokens,
-                thinking_tokens=thinking_tokens,
+                thinking_tokens=thinking_tokens, google_maps_grounded=maps_grounded,
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
-                    embeds, params.model, input_tokens, output_tokens, daily_cost, thinking_tokens
+                    embeds, params.model, input_tokens, output_tokens, daily_cost,
+                    thinking_tokens, maps_grounded,
                 )
 
             view = self.views.get(message.author)
@@ -1228,7 +1231,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "google_maps",
-        description="Enable Google Maps grounding (supported on select Gemini 2.x models). (default: false)",
+        description="Enable Google Maps grounding (model-dependent). (default: false)",
         required=False,
         type=bool,
     )
@@ -1528,16 +1531,18 @@ class GeminiAPI(commands.Cog):
             input_tokens = getattr(usage, "prompt_token_count", 0) or 0
             output_tokens = getattr(usage, "candidates_token_count", 0) or 0
             thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
-            cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens)
+            maps_grounded = "google_maps" in tool_info.get("tools_used", [])
+            cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens, maps_grounded)
             daily_cost = self._track_daily_cost(ctx.author.id, cost)
             self._log_cost(
                 "chat", ctx.author.id, model, cost, daily_cost,
                 input_tokens=input_tokens, output_tokens=output_tokens,
-                thinking_tokens=thinking_tokens,
+                thinking_tokens=thinking_tokens, google_maps_grounded=maps_grounded,
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
-                    embeds, model, input_tokens, output_tokens, daily_cost, thinking_tokens
+                    embeds, model, input_tokens, output_tokens, daily_cost,
+                    thinking_tokens, maps_grounded,
                 )
 
             if not has_response:

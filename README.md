@@ -18,7 +18,7 @@ All commands are grouped under `/gemini` for clean namespacing.
 - Built-in tool calling support:
   - `google_search`
   - `code_execution`
-  - `google_maps` (model-dependent, no longer supported by Gemini 3 onward)
+  - `google_maps` (model-dependent)
   - `url_context` (model-dependent)
   - `file_search` (model-dependent, RAG over uploaded document stores)
 - Tools can be enabled:

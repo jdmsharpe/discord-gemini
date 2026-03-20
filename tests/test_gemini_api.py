@@ -1845,6 +1845,28 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         # $0.10 + ($0.40 * 1.0) = $0.50
         self.assertAlmostEqual(daily, 0.50)
 
+    async def test_append_pricing_embed_with_maps_grounding(self):
+        """Test pricing embed includes Maps grounding surcharge."""
+        embeds = []
+        self.append_pricing_embed(
+            embeds, "gemini-2.5-flash",
+            input_tokens=1000, output_tokens=500,
+            daily_cost=0.10, google_maps_grounded=True,
+        )
+        self.assertEqual(len(embeds), 1)
+        self.assertIn("Maps grounded", embeds[0].description)
+
+    async def test_append_pricing_embed_without_maps_grounding(self):
+        """Test pricing embed omits Maps label when not grounded."""
+        embeds = []
+        self.append_pricing_embed(
+            embeds, "gemini-2.5-flash",
+            input_tokens=1000, output_tokens=500,
+            daily_cost=0.10, google_maps_grounded=False,
+        )
+        self.assertEqual(len(embeds), 1)
+        self.assertNotIn("Maps", embeds[0].description)
+
     async def test_log_cost_basic(self):
         """Test that _log_cost calls logger.info with structured cost data."""
         self.cog.logger = MagicMock()

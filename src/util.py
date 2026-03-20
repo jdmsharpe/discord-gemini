@@ -60,17 +60,28 @@ TTS_PRICING: Dict[str, Tuple[float, float]] = {
 }
 
 
+MAPS_GROUNDING_COST_PER_REQUEST = 0.025  # $25 per 1K grounded prompts
+
+
 def calculate_cost(
-    model: str, input_tokens: int, output_tokens: int, thinking_tokens: int = 0
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    thinking_tokens: int = 0,
+    google_maps_grounded: bool = False,
 ) -> float:
     """Calculate the cost in dollars for a given model and token usage.
 
     Thinking tokens are billed at the output token rate.
+    When google_maps_grounded is True, adds the per-request Maps surcharge ($0.025).
     """
     input_price, output_price = MODEL_PRICING.get(model, (2.0, 12.0))
-    return (input_tokens / 1_000_000) * input_price + (
+    cost = (input_tokens / 1_000_000) * input_price + (
         (output_tokens + thinking_tokens) / 1_000_000
     ) * output_price
+    if google_maps_grounded:
+        cost += MAPS_GROUNDING_COST_PER_REQUEST
+    return cost
 
 
 def calculate_image_cost(
@@ -139,6 +150,9 @@ FILE_SEARCH_INCOMPATIBLE_TOOLS = frozenset({"google_search", "google_maps", "url
 # Model-specific compatibility constraints for tools that are not universally supported.
 TOOL_MODEL_COMPATIBILITY: Dict[str, Set[str]] = {
     "google_maps": {
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3-flash-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
