@@ -1152,6 +1152,70 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("File Search", embeds[0].description)
 
+    async def test_run_deep_research_with_google_maps(self):
+        """Test _run_deep_research passes google_maps tool when enabled."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(prompt="Best restaurants in Tokyo", google_maps=True)
+
+        interaction_done = SimpleNamespace(
+            id="interaction-maps",
+            status="completed",
+            outputs=[SimpleNamespace(text="Tokyo restaurant guide...")],
+            usage=SimpleNamespace(
+                total_input_tokens=200, total_output_tokens=100, total_thought_tokens=0
+            ),
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+            report_text, _, _, _ = await self.cog._run_deep_research(params)
+
+        call_kwargs = self.cog.client.aio.interactions.create.call_args
+        self.assertIn("tools", call_kwargs.kwargs)
+        self.assertIn({"google_maps": {}}, call_kwargs.kwargs["tools"])
+
+    async def test_run_deep_research_with_file_search_and_google_maps(self):
+        """Test _run_deep_research passes both file_search and google_maps tools."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(
+            prompt="Local docs about Tokyo", file_search=True, google_maps=True
+        )
+
+        interaction_done = SimpleNamespace(
+            id="interaction-both",
+            status="completed",
+            outputs=[SimpleNamespace(text="Combined report...")],
+            usage=SimpleNamespace(
+                total_input_tokens=300, total_output_tokens=150, total_thought_tokens=0
+            ),
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+            await self.cog._run_deep_research(params)
+
+        call_kwargs = self.cog.client.aio.interactions.create.call_args
+        tools = call_kwargs.kwargs["tools"]
+        self.assertEqual(len(tools), 2)
+        self.assertEqual(tools[0]["type"], "file_search")
+        self.assertIn({"google_maps": {}}, tools)
+
+    async def test_create_research_response_embeds_with_google_maps(self):
+        """Test _create_research_response_embeds shows Google Maps status."""
+        from util import ResearchParameters
+
+        params = ResearchParameters(
+            prompt="Find restaurants nearby", google_maps=True
+        )
+
+        embeds = self.cog._create_research_response_embeds(params)
+
+        self.assertIn("Google Maps", embeds[0].description)
+
     async def test_create_research_response_embeds_truncates_prompt(self):
         """Test _create_research_response_embeds truncates long prompts."""
         from util import ResearchParameters

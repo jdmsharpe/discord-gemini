@@ -597,16 +597,19 @@ class TestResearchParameters(unittest.TestCase):
         self.assertEqual(params.prompt, "Research quantum computing")
         self.assertEqual(params.agent, "deep-research-pro-preview-12-2025")
         self.assertFalse(params.file_search)
+        self.assertFalse(params.google_maps)
 
     def test_all_parameters(self):
         params = ResearchParameters(
             prompt="Compare EV batteries",
             agent="deep-research-pro-preview-12-2025",
             file_search=True,
+            google_maps=True,
         )
         self.assertEqual(params.prompt, "Compare EV batteries")
         self.assertEqual(params.agent, "deep-research-pro-preview-12-2025")
         self.assertTrue(params.file_search)
+        self.assertTrue(params.google_maps)
 
 
 class TestChunkText(unittest.TestCase):
