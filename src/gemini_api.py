@@ -54,6 +54,7 @@ from util import (
     ResearchParameters,
     SpeechGenerationParameters,
     VideoGenerationParameters,
+    check_mutually_exclusive_tools,
     calculate_cost,
     calculate_image_cost,
     calculate_tts_cost,
@@ -1378,6 +1379,23 @@ class GeminiAPI(commands.Cog):
                 "url_context": (url_context, TOOL_URL_CONTEXT),
                 "file_search": (file_search, TOOL_FILE_SEARCH),
             }
+
+            enabled_names = {
+                name for name, (enabled, _) in selected_tool_names.items() if enabled
+            }
+            exclusive_error = check_mutually_exclusive_tools(enabled_names)
+            if exclusive_error:
+                await ctx.send_followup(
+                    embed=Embed(
+                        title="Error",
+                        description=exclusive_error,
+                        color=Colour.red(),
+                    )
+                )
+                if typing_task:
+                    typing_task.cancel()
+                return
+
             requested_tools = [
                 deepcopy(tool_config)
                 for enabled, tool_config in selected_tool_names.values()

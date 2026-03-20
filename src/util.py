@@ -147,6 +147,11 @@ AVAILABLE_TOOLS = {
 # Tools that cannot be combined with file_search per API limitations.
 FILE_SEARCH_INCOMPATIBLE_TOOLS = frozenset({"google_search", "google_maps", "url_context"})
 
+# Sets of tools that are mutually exclusive — only one from each set can be active at a time.
+MUTUALLY_EXCLUSIVE_TOOLS: List[Tuple[str, str]] = [
+    ("google_search", "google_maps"),
+]
+
 # Model-specific compatibility constraints for tools that are not universally supported.
 TOOL_MODEL_COMPATIBILITY: Dict[str, Set[str]] = {
     "google_maps": {
@@ -464,6 +469,21 @@ def filter_file_search_incompatible_tools(
         else:
             filtered.append(tool)
     return filtered, removed
+
+
+def check_mutually_exclusive_tools(tool_names: Set[str]) -> Optional[str]:
+    """
+    Check whether any mutually exclusive tools have been selected together.
+
+    Returns an error message string if a conflict is found, or None if OK.
+    """
+    for tool_a, tool_b in MUTUALLY_EXCLUSIVE_TOOLS:
+        if tool_a in tool_names and tool_b in tool_names:
+            return (
+                f"`{tool_a}` and `{tool_b}` cannot be combined in the same "
+                f"request. Please choose one to continue."
+            )
+    return None
 
 
 def chunk_text(text: str, chunk_size: int = 4096) -> List[str]:

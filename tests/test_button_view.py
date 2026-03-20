@@ -111,6 +111,33 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Skipped", message)
         self.assertIn("google_maps", message)
 
+    async def test_tool_select_callback_rejects_mutually_exclusive_tools(self):
+        """Test that selecting google_search and google_maps together is rejected."""
+        conversation = MagicMock()
+        conversation.params = MagicMock()
+        conversation.params.tools = []
+        conversation.params.model = "gemini-2.5-pro"
+        self.cog.conversations[self.conversation_id] = conversation
+
+        interaction = MagicMock()
+        interaction.user = self.conversation_starter
+        interaction.data = {"values": ["google_search", "google_maps"]}
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await self.view.tool_select_callback(interaction)
+
+        interaction.response.send_message.assert_called_once()
+        call_kwargs = interaction.response.send_message.call_args.kwargs
+        call_args = interaction.response.send_message.call_args.args
+        message = call_args[0] if call_args else call_kwargs.get("content", "")
+        self.assertIn("google_search", message)
+        self.assertIn("google_maps", message)
+        self.assertIn("cannot be combined", message)
+        self.assertTrue(call_kwargs.get("ephemeral", False))
+        # Tools should NOT have been updated
+        self.assertEqual(conversation.params.tools, [])
+
     async def test_tool_select_callback_wrong_user(self):
         """Test that tool selection rejects non-conversation starters."""
         interaction = MagicMock()
