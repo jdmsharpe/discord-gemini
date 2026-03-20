@@ -397,6 +397,7 @@ class ResearchParameters:
     prompt: str
     agent: str = "deep-research-pro-preview-12-2025"
     file_search: bool = False
+    google_maps: bool = False
 
 
 def resolve_tool_name(tool_config: Dict[str, Any]) -> Optional[str]:

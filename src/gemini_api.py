@@ -2535,11 +2535,18 @@ class GeminiAPI(commands.Cog):
         required=False,
         type=bool,
     )
+    @option(
+        "google_maps",
+        description="Enable Google Maps grounding for location-aware research. (default: False)",
+        required=False,
+        type=bool,
+    )
     async def research(
         self,
         ctx: ApplicationContext,
         prompt: str,
         file_search: bool = False,
+        google_maps: bool = False,
     ):
         """
         Run a deep research task using the Gemini Deep Research agent.
@@ -2552,6 +2559,7 @@ class GeminiAPI(commands.Cog):
             ctx: Discord application context
             prompt: Research question or topic to investigate
             file_search: Whether to additionally search uploaded document stores
+            google_maps: Whether to enable Google Maps grounding
         """
         await ctx.defer()
 
@@ -2559,6 +2567,7 @@ class GeminiAPI(commands.Cog):
             research_params = ResearchParameters(
                 prompt=prompt,
                 file_search=file_search,
+                google_maps=google_maps,
             )
 
             report_text, input_tokens, output_tokens, thinking_tokens = (
@@ -2573,6 +2582,7 @@ class GeminiAPI(commands.Cog):
                 "research", ctx.author.id, research_params.agent, cost, daily_cost,
                 input_tokens=input_tokens, output_tokens=output_tokens,
                 thinking_tokens=thinking_tokens, file_search=file_search,
+                google_maps=google_maps,
             )
 
             if report_text:
@@ -3234,18 +3244,26 @@ class GeminiAPI(commands.Cog):
             "background": True,
         }
 
+        tools: List[Dict[str, Any]] = []
+
         if research_params.file_search:
             if not GEMINI_FILE_SEARCH_STORE_IDS:
                 raise Exception(
                     "File Search requires GEMINI_FILE_SEARCH_STORE_IDS "
                     "to be set in your .env file."
                 )
-            kwargs["tools"] = [
+            tools.append(
                 {
                     "type": "file_search",
                     "file_search_store_names": GEMINI_FILE_SEARCH_STORE_IDS.copy(),
                 }
-            ]
+            )
+
+        if research_params.google_maps:
+            tools.append({"google_maps": {}})
+
+        if tools:
+            kwargs["tools"] = tools
 
         interaction = await self.client.aio.interactions.create(**kwargs)
         self.logger.info(f"Started deep research: {interaction.id}")
@@ -3303,6 +3321,8 @@ class GeminiAPI(commands.Cog):
         description += f"**Agent:** {research_params.agent}\n"
         if research_params.file_search:
             description += "**File Search:** Enabled\n"
+        if research_params.google_maps:
+            description += "**Google Maps:** Enabled\n"
 
         embeds.append(
             Embed(
