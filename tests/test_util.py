@@ -8,6 +8,7 @@ from util import (
     CACHE_TTL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
     IMAGE_PRICING,
+    MAPS_GROUNDING_COST_PER_REQUEST,
     MODEL_PRICING,
     TTS_PRICING,
     VIDEO_PRICING,
@@ -129,14 +130,16 @@ class TestChatCompletionParameters(unittest.TestCase):
             TOOL_GOOGLE_MAPS,
             TOOL_URL_CONTEXT,
         ]
+        # gemini-2.0-flash-lite does not support google_maps or url_context
         supported, unsupported = filter_supported_tools_for_model(
-            "gemini-3-flash-preview", tools
+            "gemini-2.0-flash-lite", tools
         )
         self.assertEqual(
             supported,
-            [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION, TOOL_URL_CONTEXT],
+            [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION],
         )
-        self.assertEqual(unsupported, ["google_maps"])
+        self.assertIn("google_maps", unsupported)
+        self.assertIn("url_context", unsupported)
 
     def test_filter_supported_tools_file_search_supported_model(self):
         """Test that file_search is supported on compatible models."""
@@ -881,6 +884,24 @@ class TestModelPricing(unittest.TestCase):
         cost = calculate_cost("gemini-3-flash-preview", 100_000, 50_000, thinking_tokens=1_000_000)
         expected = (100_000 / 1_000_000) * 0.50 + ((50_000 + 1_000_000) / 1_000_000) * 3.0
         self.assertAlmostEqual(cost, expected)
+
+    def test_calculate_cost_with_maps_grounding(self):
+        """Test that Maps grounding adds the per-request surcharge."""
+        base_cost = calculate_cost("gemini-2.5-flash", 1000, 500)
+        maps_cost = calculate_cost("gemini-2.5-flash", 1000, 500, google_maps_grounded=True)
+        self.assertAlmostEqual(maps_cost - base_cost, MAPS_GROUNDING_COST_PER_REQUEST)
+
+    def test_calculate_cost_without_maps_grounding(self):
+        """Test that Maps surcharge is not applied when grounding is False."""
+        cost_default = calculate_cost("gemini-2.5-flash", 1000, 500)
+        cost_explicit = calculate_cost("gemini-2.5-flash", 1000, 500, google_maps_grounded=False)
+        self.assertAlmostEqual(cost_default, cost_explicit)
+
+    def test_calculate_cost_maps_grounding_with_thinking(self):
+        """Test that Maps surcharge stacks with thinking token cost."""
+        base = calculate_cost("gemini-3-flash-preview", 1000, 500, thinking_tokens=2000)
+        with_maps = calculate_cost("gemini-3-flash-preview", 1000, 500, thinking_tokens=2000, google_maps_grounded=True)
+        self.assertAlmostEqual(with_maps - base, MAPS_GROUNDING_COST_PER_REQUEST)
 
 
 class TestImagePricing(unittest.TestCase):

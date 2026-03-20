@@ -92,7 +92,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         conversation = MagicMock()
         conversation.params = MagicMock()
         conversation.params.tools = []
-        conversation.params.model = "gemini-3-flash-preview"
+        conversation.params.model = "gemini-2.0-flash-lite"
         self.cog.conversations[self.conversation_id] = conversation
         self.cog.enrich_file_search_tools = MagicMock(return_value=None)
 
@@ -104,7 +104,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         await self.view.tool_select_callback(interaction)
 
-        self.assertEqual(conversation.params.tools, [TOOL_URL_CONTEXT])
+        self.assertEqual(conversation.params.tools, [])
         call_kwargs = interaction.response.send_message.call_args.kwargs
         call_args = interaction.response.send_message.call_args.args
         message = call_args[0] if call_args else call_kwargs.get("content", "")
