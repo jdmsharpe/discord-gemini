@@ -22,8 +22,10 @@ from util import (
     calculate_image_cost,
     calculate_tts_cost,
     calculate_video_cost,
+    check_mutually_exclusive_tools,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
+    MUTUALLY_EXCLUSIVE_TOOLS,
     resolve_tool_name,
     ImageGenerationParameters,
     VideoGenerationParameters,
@@ -216,6 +218,32 @@ class TestFilterFileSearchIncompatibleTools(unittest.TestCase):
         self.assertIn("url_context", FILE_SEARCH_INCOMPATIBLE_TOOLS)
         self.assertNotIn("code_execution", FILE_SEARCH_INCOMPATIBLE_TOOLS)
         self.assertNotIn("file_search", FILE_SEARCH_INCOMPATIBLE_TOOLS)
+
+
+class TestMutuallyExclusiveTools(unittest.TestCase):
+    def test_no_conflict_returns_none(self):
+        """No error when non-conflicting tools are selected."""
+        self.assertIsNone(check_mutually_exclusive_tools({"google_search", "code_execution"}))
+
+    def test_google_search_and_maps_conflict(self):
+        """Error returned when google_search and google_maps are both selected."""
+        result = check_mutually_exclusive_tools({"google_search", "google_maps"})
+        self.assertIsNotNone(result)
+        self.assertIn("google_search", result)
+        self.assertIn("google_maps", result)
+
+    def test_single_tool_no_conflict(self):
+        """No error when only one tool from a conflicting pair is selected."""
+        self.assertIsNone(check_mutually_exclusive_tools({"google_search"}))
+        self.assertIsNone(check_mutually_exclusive_tools({"google_maps"}))
+
+    def test_empty_set_no_conflict(self):
+        """No error when no tools are selected."""
+        self.assertIsNone(check_mutually_exclusive_tools(set()))
+
+    def test_constant_contains_search_maps_pair(self):
+        """The MUTUALLY_EXCLUSIVE_TOOLS constant includes the search/maps pair."""
+        self.assertIn(("google_search", "google_maps"), MUTUALLY_EXCLUSIVE_TOOLS)
 
 
 class TestImageGenerationParameters(unittest.TestCase):

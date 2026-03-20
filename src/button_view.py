@@ -14,6 +14,7 @@ from discord.ui import Button, Select, View, button
 
 from util import (
     AVAILABLE_TOOLS,
+    check_mutually_exclusive_tools,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
     resolve_tool_name,
@@ -109,6 +110,13 @@ class ButtonView(View):
                 selected_values = [
                     value for value in raw_values if value in AVAILABLE_TOOLS
                 ]
+
+        exclusive_error = check_mutually_exclusive_tools(set(selected_values))
+        if exclusive_error:
+            await interaction.response.send_message(
+                exclusive_error, ephemeral=True
+            )
+            return
 
         requested_tools = [
             deepcopy(AVAILABLE_TOOLS[tool_name]) for tool_name in selected_values
