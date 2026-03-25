@@ -36,7 +36,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.view.conversation_id, self.conversation_id)
         tool_selects = [item for item in self.view.children if isinstance(item, Select)]
         self.assertEqual(len(tool_selects), 1)
-        self.assertEqual(tool_selects[0].max_values, 5)
+        self.assertEqual(tool_selects[0].max_values, 6)
 
     async def test_init_with_initial_tools(self):
         """Test that initial_tools marks matching select options as default."""
@@ -55,6 +55,46 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(defaults["google_maps"])
         self.assertFalse(defaults["url_context"])
         self.assertFalse(defaults["file_search"])
+        self.assertFalse(defaults["custom_functions"])
+
+    async def test_init_with_custom_functions_enabled(self):
+        """Test that custom_functions_enabled marks the option as default."""
+        from button_view import ButtonView
+
+        view = ButtonView(
+            self.cog,
+            self.conversation_starter,
+            self.conversation_id,
+            custom_functions_enabled=True,
+        )
+        tool_select = next(item for item in view.children if isinstance(item, Select))
+        defaults = {option.value: option.default for option in tool_select.options}
+        self.assertTrue(defaults["custom_functions"])
+        self.assertFalse(defaults["google_search"])
+
+    async def test_tool_select_callback_custom_functions_toggle(self):
+        """Test that selecting custom_functions sets the flag on params."""
+        conversation = MagicMock()
+        conversation.params = MagicMock()
+        conversation.params.tools = []
+        conversation.params.model = "gemini-2.5-flash"
+        conversation.params.custom_functions_enabled = False
+        self.cog.conversations[self.conversation_id] = conversation
+        self.cog.enrich_file_search_tools = MagicMock(return_value=None)
+
+        interaction = MagicMock()
+        interaction.user = self.conversation_starter
+        interaction.data = {"values": ["custom_functions"]}
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await self.view.tool_select_callback(interaction)
+
+        self.assertTrue(conversation.params.custom_functions_enabled)
+        call_args = interaction.response.send_message.call_args.args
+        call_kwargs = interaction.response.send_message.call_args.kwargs
+        message = call_args[0] if call_args else call_kwargs.get("content", "")
+        self.assertIn("custom_functions", message)
 
     async def test_tool_select_callback_updates_tools(self):
         """Test that tool selection updates conversation params tools."""

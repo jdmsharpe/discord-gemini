@@ -9,6 +9,7 @@ TOOL_CODE_EXECUTION = {"code_execution": {}}
 TOOL_GOOGLE_MAPS = {"google_maps": {}}
 TOOL_URL_CONTEXT = {"url_context": {}}
 TOOL_FILE_SEARCH = {"file_search": {}}
+TOOL_CUSTOM_FUNCTIONS = {"_custom_functions": True}  # Sentinel for ButtonView toggle
 
 # Per-million-token pricing for chat models: (input_cost, output_cost)
 # Note: Some models (gemini-2.5-pro, gemini-3.1-pro-preview) have tiered
@@ -131,6 +132,8 @@ CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {
 
 CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches
 
+MAX_AGENTIC_ITERATIONS = 10  # Max tool-calling round-trips per user message
+
 # Attachment size limits for Gemini API file input (bytes)
 ATTACHMENT_MAX_INLINE_SIZE = 100 * 1024 * 1024  # 100 MB general inline limit
 ATTACHMENT_PDF_MAX_INLINE_SIZE = 50 * 1024 * 1024  # 50 MB PDF inline limit
@@ -203,6 +206,7 @@ class ChatCompletionParameters:
     cache_name: Optional[str] = None
     cached_history_length: int = 0
     uploaded_file_names: List[str] = field(default_factory=list)
+    custom_functions_enabled: bool = False
 
 
 @dataclass
@@ -405,14 +409,35 @@ class ResearchParameters:
     google_maps: bool = False
 
 
-def resolve_tool_name(tool_config: Dict[str, Any]) -> Optional[str]:
-    """
-    Resolve a tool config dictionary back to its canonical tool name.
+@dataclass
+class AgenticResult:
+    """Aggregated result from an agentic tool-calling loop."""
 
-    Handles both exact matches and tools with dynamic configuration
-    (e.g., file_search with injected store IDs) by falling back to
-    top-level key matching.
+    response: Any  # Final GenerateContentResponse
+    contents: List[Dict[str, Any]]
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_thinking_tokens: int = 0
+    iterations: int = 0
+    tool_calls_made: List[str] = field(default_factory=list)
+
+
+def resolve_tool_name(tool_config: Any) -> Optional[str]:
     """
+    Resolve a tool config back to its canonical tool name.
+
+    Handles dict-based server-side tools, tools with dynamic configuration
+    (e.g., file_search with injected store IDs), function_declarations dicts,
+    and Python callables (custom function tools).
+    """
+    # Python callable — custom function tool
+    if callable(tool_config):
+        return "custom_functions"
+    if not isinstance(tool_config, dict):
+        return None
+    # function_declarations dict — custom function tools
+    if "function_declarations" in tool_config:
+        return "custom_functions"
     for tool_name, available_config in AVAILABLE_TOOLS.items():
         if tool_config == available_config:
             return tool_name
@@ -424,18 +449,25 @@ def resolve_tool_name(tool_config: Dict[str, Any]) -> Optional[str]:
 
 
 def filter_supported_tools_for_model(
-    model: str, tools: List[Dict[str, Any]]
-) -> Tuple[List[Dict[str, Any]], List[str]]:
+    model: str, tools: List[Any]
+) -> Tuple[List[Any], List[str]]:
     """
     Return model-compatible tools and a list of unsupported tool names.
+
+    Callables (custom function tools) are passed through unchanged since
+    they have no model compatibility constraints.
     """
-    supported_tools: List[Dict[str, Any]] = []
+    supported_tools: List[Any] = []
     unsupported_tools: List[str] = []
 
     for tool_config in tools:
         tool_name = resolve_tool_name(tool_config)
-        if tool_name is None:
-            supported_tools.append(deepcopy(tool_config))
+
+        # Callables and unknown tools pass through
+        if tool_name is None or tool_name == "custom_functions":
+            supported_tools.append(
+                tool_config if callable(tool_config) else deepcopy(tool_config)
+            )
             continue
 
         supported_models = TOOL_MODEL_COMPATIBILITY.get(tool_name)

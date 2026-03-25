@@ -28,6 +28,7 @@ class ButtonView(View):
         conversation_starter: Union[Member, User],
         conversation_id: int,
         initial_tools: Optional[List[Dict[str, Any]]] = None,
+        custom_functions_enabled: bool = False,
     ):
         """
         Initialize the ButtonView class.
@@ -36,9 +37,13 @@ class ButtonView(View):
         self.cog = cog
         self.conversation_starter = conversation_starter
         self.conversation_id = conversation_id
-        self._add_tool_select(initial_tools or [])
+        self._add_tool_select(initial_tools or [], custom_functions_enabled)
 
-    def _add_tool_select(self, initial_tools: List[Dict[str, Any]]) -> None:
+    def _add_tool_select(
+        self,
+        initial_tools: List[Dict[str, Any]],
+        custom_functions_enabled: bool = False,
+    ) -> None:
         selected_tools = {
             name
             for tool in initial_tools
@@ -47,7 +52,7 @@ class ButtonView(View):
         tool_select = Select(
             placeholder="Toggle conversation tools",
             min_values=0,
-            max_values=5,
+            max_values=6,
             row=1,
             options=[
                 SelectOption(
@@ -80,6 +85,12 @@ class ButtonView(View):
                     description="Search over uploaded document stores.",
                     default="file_search" in selected_tools,
                 ),
+                SelectOption(
+                    label="Custom Functions",
+                    value="custom_functions",
+                    description="Call Python tools (time, dice, etc.).",
+                    default=custom_functions_enabled,
+                ),
             ],
         )
         tool_select.callback = self.tool_select_callback
@@ -104,11 +115,14 @@ class ButtonView(View):
             return
 
         selected_values: List[str] = []
+        custom_functions_selected = False
         if isinstance(interaction.data, dict):
             raw_values = interaction.data.get("values", [])
             if isinstance(raw_values, list):
+                custom_functions_selected = "custom_functions" in raw_values
                 selected_values = [
-                    value for value in raw_values if value in AVAILABLE_TOOLS
+                    value for value in raw_values
+                    if value in AVAILABLE_TOOLS
                 ]
 
         exclusive_error = check_mutually_exclusive_tools(set(selected_values))
@@ -135,11 +149,14 @@ class ButtonView(View):
             return
 
         conversation.params.tools = supported_tools
+        conversation.params.custom_functions_enabled = custom_functions_selected
         selected_tool_names = {
             tool_name
             for tool_config in supported_tools
             if (tool_name := resolve_tool_name(tool_config)) is not None
         }
+        if custom_functions_selected:
+            selected_tool_names.add("custom_functions")
 
         for child in self.children:
             if isinstance(child, Select):
