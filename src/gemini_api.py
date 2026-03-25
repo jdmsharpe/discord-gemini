@@ -33,21 +33,25 @@ from google.genai import types
 # Local imports
 from button_view import ButtonView
 from config.auth import (
+    ENABLE_CUSTOM_TOOLS,
     GEMINI_API_KEY,
     GEMINI_FILE_SEARCH_STORE_IDS,
     GUILD_IDS,
     SHOW_COST_EMBEDS,
 )
+from tools import execute_tool_call, get_registered_tools, get_tool_callables
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
+    MAX_AGENTIC_ITERATIONS,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
     TOOL_GOOGLE_SEARCH,
     TOOL_URL_CONTEXT,
+    AgenticResult,
     ChatCompletionParameters,
     ImageGenerationParameters,
     MusicGenerationParameters,
@@ -435,7 +439,13 @@ class GeminiAPI(commands.Cog):
             return self._http_session
         async with self._session_lock:
             if self._http_session is None or self._http_session.closed:
-                self._http_session = aiohttp.ClientSession()
+                timeout = aiohttp.ClientTimeout(total=300, connect=15)
+                connector = aiohttp.TCPConnector(
+                    limit=20, limit_per_host=10, ttl_dns_cache=300
+                )
+                self._http_session = aiohttp.ClientSession(
+                    timeout=timeout, connector=connector
+                )
             return self._http_session
 
     async def _fetch_attachment_bytes(self, attachment: Attachment) -> Optional[bytes]:
@@ -618,6 +628,7 @@ class GeminiAPI(commands.Cog):
             cache = await self.client.aio.caches.create(
                 model=params.model,
                 config=types.CreateCachedContentConfig(
+                    display_name=f"conv-{params.conversation_id}",
                     system_instruction=params.system_instruction,
                     contents=contents,
                     ttl=CACHE_TTL,
@@ -651,6 +662,7 @@ class GeminiAPI(commands.Cog):
             cache = await self.client.aio.caches.create(
                 model=params.model,
                 config=types.CreateCachedContentConfig(
+                    display_name=f"conv-{params.conversation_id}",
                     system_instruction=params.system_instruction,
                     contents=contents,
                     ttl=CACHE_TTL,
@@ -700,6 +712,71 @@ class GeminiAPI(commands.Cog):
             self.logger.warning("Failed to delete cache %s: %s", params.cache_name, e)
         params.cache_name = None
         params.cached_history_length = 0
+
+    async def _run_agentic_loop(
+        self,
+        model: str,
+        contents: list,
+        config: Optional[types.GenerateContentConfig],
+    ) -> AgenticResult:
+        """Run generate_content in a loop, executing custom function calls.
+
+        When the model returns function_calls, the registered tool functions
+        are executed and their results fed back. The loop continues until the
+        model returns a text-only response or MAX_AGENTIC_ITERATIONS is hit.
+
+        The final model response is NOT appended to ``contents`` — the caller
+        is responsible for adding it to the conversation history.
+        """
+        result = AgenticResult(response=None, contents=contents)
+
+        for iteration in range(MAX_AGENTIC_ITERATIONS):
+            response = await self.client.aio.models.generate_content(
+                model=model, contents=contents, config=config,
+            )
+            result.response = response
+            result.iterations = iteration + 1
+
+            # Accumulate tokens (each API call is billed separately)
+            usage = getattr(response, "usage_metadata", None)
+            result.total_input_tokens += getattr(usage, "prompt_token_count", 0) or 0
+            result.total_output_tokens += getattr(usage, "candidates_token_count", 0) or 0
+            result.total_thinking_tokens += getattr(usage, "thoughts_token_count", 0) or 0
+
+            function_calls = response.function_calls
+            if not function_calls:
+                break  # Model returned text — done
+
+            # Append model's function-call turn to contents
+            model_parts = _get_response_content_parts(response)
+            if model_parts:
+                contents.append({"role": "model", "parts": model_parts})
+
+            # Execute each function and build response parts
+            func_response_parts = []
+            for fc in function_calls:
+                name = fc.name or ""
+                if not name:
+                    continue
+                self.logger.info(
+                    "Agentic loop iter %d: calling %s(%s)",
+                    iteration + 1, name, fc.args,
+                )
+                result.tool_calls_made.append(name)
+                call_result = await execute_tool_call(name, fc.args)
+                func_response_parts.append(
+                    types.Part.from_function_response(
+                        name=name, response=call_result,
+                    )
+                )
+
+            contents.append({"role": "user", "parts": func_response_parts})
+        else:
+            self.logger.warning(
+                "Agentic loop hit max iterations (%d)", MAX_AGENTIC_ITERATIONS,
+            )
+
+        return result
 
     def cog_unload(self):
         loop = getattr(self.bot, "loop", None)
@@ -841,6 +918,14 @@ class GeminiAPI(commands.Cog):
                 if supported_tools:
                     config_args["tools"] = supported_tools
 
+            # Inject custom function callables when enabled
+            if params.custom_functions_enabled and ENABLE_CUSTOM_TOOLS:
+                callables = get_tool_callables()
+                if callables:
+                    tool_list = config_args.get("tools", [])
+                    tool_list.extend(callables)
+                    config_args["tools"] = tool_list
+
             # Convert history to the format expected by Gemini API.
             # If a cache exists, send only the uncached portion of history.
             history_start = params.cached_history_length if params.cache_name else 0
@@ -853,11 +938,10 @@ class GeminiAPI(commands.Cog):
             generation_config = (
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
+            pre_loop_len = len(contents)
             try:
-                response = await self.client.aio.models.generate_content(
-                    model=params.model,
-                    contents=contents,
-                    config=generation_config,
+                result = await self._run_agentic_loop(
+                    params.model, contents, generation_config,
                 )
             except Exception as cache_err:
                 if not params.cache_name:
@@ -874,19 +958,23 @@ class GeminiAPI(commands.Cog):
                 contents = []
                 for entry in history:
                     contents.append({"role": entry["role"], "parts": entry["parts"]})
+                pre_loop_len = len(contents)
                 generation_config = (
                     types.GenerateContentConfig(**config_args)
                     if config_args
                     else None
                 )
-                response = await self.client.aio.models.generate_content(
-                    model=params.model,
-                    contents=contents,
-                    config=generation_config,
+                result = await self._run_agentic_loop(
+                    params.model, contents, generation_config,
                 )
+            response = result.response
 
             response_text = response.text
             tool_info = extract_tool_info(response)
+            # Merge function calls made during agentic loop into tool_info
+            for fc_name in result.tool_calls_made:
+                if fc_name not in tool_info["tools_used"]:
+                    tool_info["tools_used"].append(fc_name)
             self.logger.debug(f"Received response from Gemini: {response_text}")
 
             # Stop typing indicator as soon as we have the response
@@ -901,6 +989,10 @@ class GeminiAPI(commands.Cog):
             if response_text is None:
                 response_text = "No response generated by the model."
                 self.logger.warning("Model returned None as response text")
+
+            # Sync intermediate agentic turns (function call/response pairs) to history
+            for entry in contents[pre_loop_len:]:
+                history.append(entry)
 
             # Store full response parts to preserve thought signatures for multi-turn context
             response_parts = _get_response_content_parts(response)
@@ -918,10 +1010,9 @@ class GeminiAPI(commands.Cog):
             # Append sources and pricing embeds to main embeds (before buttons)
             append_sources_embed(embeds, tool_info)
 
-            usage = getattr(response, "usage_metadata", None)
-            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-            thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+            input_tokens = result.total_input_tokens
+            output_tokens = result.total_output_tokens
+            thinking_tokens = result.total_thinking_tokens
             maps_grounded = "google_maps" in tool_info.get("tools_used", [])
             cost = calculate_cost(params.model, input_tokens, output_tokens, thinking_tokens, maps_grounded)
             daily_cost = self._track_daily_cost(message.author.id, cost)
@@ -1248,6 +1339,12 @@ class GeminiAPI(commands.Cog):
         required=False,
         type=bool,
     )
+    @option(
+        "custom_functions",
+        description="Enable custom function tool calling (time, dice, etc.). (default: false)",
+        required=False,
+        type=bool,
+    )
     async def chat(
         self,
         ctx: ApplicationContext,
@@ -1269,6 +1366,7 @@ class GeminiAPI(commands.Cog):
         google_maps: bool = False,
         url_context: bool = False,
         file_search: bool = False,
+        custom_functions: bool = False,
     ):
         """
         Creates a persistent conversation session with a Gemini model.
@@ -1441,6 +1539,15 @@ class GeminiAPI(commands.Cog):
             if tools:
                 config_args["tools"] = tools
 
+            # Inject custom function callables when enabled
+            custom_functions_enabled = custom_functions and ENABLE_CUSTOM_TOOLS
+            if custom_functions_enabled:
+                callables = get_tool_callables()
+                if callables:
+                    tool_list = config_args.get("tools", [])
+                    tool_list.extend(callables)
+                    config_args["tools"] = tool_list
+
             generation_config = (
                 types.GenerateContentConfig(**config_args) if config_args else None
             )
@@ -1466,13 +1573,17 @@ class GeminiAPI(commands.Cog):
                     # Assume it's a string or other supported type
                     formatted_parts.append(part)
 
-            response = await self.client.aio.models.generate_content(
-                model=model,
-                contents=[{"role": "user", "parts": formatted_parts}],
-                config=generation_config,
+            initial_contents = [{"role": "user", "parts": formatted_parts}]
+            result = await self._run_agentic_loop(
+                model, initial_contents, generation_config,
             )
+            response = result.response
             response_text = response.text
             tool_info = extract_tool_info(response)
+            # Merge function calls made during agentic loop into tool_info
+            for fc_name in result.tool_calls_made:
+                if fc_name not in tool_info["tools_used"]:
+                    tool_info["tools_used"].append(fc_name)
 
             self.logger.debug(f"Received response from Gemini: {response_text}")
 
@@ -1545,10 +1656,9 @@ class GeminiAPI(commands.Cog):
             # Append sources and pricing embeds to main embeds (before buttons)
             append_sources_embed(embeds, tool_info)
 
-            usage = getattr(response, "usage_metadata", None)
-            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-            thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+            input_tokens = result.total_input_tokens
+            output_tokens = result.total_output_tokens
+            thinking_tokens = result.total_thinking_tokens
             maps_grounded = "google_maps" in tool_info.get("tools_used", [])
             cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens, maps_grounded)
             daily_cost = self._track_daily_cost(ctx.author.id, cost)
@@ -1585,6 +1695,7 @@ class GeminiAPI(commands.Cog):
                 conversation_starter=ctx.author,
                 conversation_id=main_conversation_id,
                 initial_tools=tools,
+                custom_functions_enabled=custom_functions_enabled,
             )
             self.views[ctx.author] = view
 
@@ -1610,13 +1721,17 @@ class GeminiAPI(commands.Cog):
                 thinking_budget=thinking_budget,
                 tools=tools,
                 uploaded_file_names=uploaded_file_names,
+                custom_functions_enabled=custom_functions_enabled,
             )
-            # Store full response parts to preserve thought signatures for multi-turn context
+            # Build history: original user parts + agentic turns + final model response
             response_parts = _get_response_content_parts(response)
-            history = [
-                {"role": "user", "parts": parts},
-                {"role": "model", "parts": response_parts or [{"text": response_text}]},
-            ]
+            history = [{"role": "user", "parts": parts}]
+            # Add intermediate agentic turns (function call/response pairs)
+            for entry in initial_contents[1:]:
+                history.append(entry)
+            history.append(
+                {"role": "model", "parts": response_parts or [{"text": response_text}]}
+            )
             conversation_wrapper = Conversation(params=params, history=history)
             self.conversations[main_conversation_id] = conversation_wrapper
 

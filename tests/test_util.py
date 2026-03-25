@@ -9,6 +9,7 @@ from util import (
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
     IMAGE_PRICING,
     MAPS_GROUNDING_COST_PER_REQUEST,
+    MAX_AGENTIC_ITERATIONS,
     MODEL_PRICING,
     TTS_PRICING,
     VIDEO_PRICING,
@@ -17,6 +18,7 @@ from util import (
     TOOL_GOOGLE_MAPS,
     TOOL_GOOGLE_SEARCH,
     TOOL_URL_CONTEXT,
+    AgenticResult,
     ChatCompletionParameters,
     calculate_cost,
     calculate_image_cost,
@@ -58,6 +60,7 @@ class TestChatCompletionParameters(unittest.TestCase):
         self.assertIsNone(params.cache_name)
         self.assertEqual(params.cached_history_length, 0)
         self.assertEqual(params.uploaded_file_names, [])
+        self.assertFalse(params.custom_functions_enabled)
 
     def test_all_parameters(self):
         params = ChatCompletionParameters(
@@ -181,6 +184,60 @@ class TestResolveToolName(unittest.TestCase):
     def test_resolve_unknown_tool(self):
         """Test that unknown tool configs return None."""
         self.assertIsNone(resolve_tool_name({"unknown_tool": {}}))
+
+    def test_resolve_callable(self):
+        """Test that a Python callable resolves to 'custom_functions'."""
+        def my_func():
+            pass
+        self.assertEqual(resolve_tool_name(my_func), "custom_functions")
+
+    def test_resolve_function_declarations_dict(self):
+        """Test that a function_declarations dict resolves to 'custom_functions'."""
+        tool = {"function_declarations": [{"name": "test", "description": "test"}]}
+        self.assertEqual(resolve_tool_name(tool), "custom_functions")
+
+
+class TestAgenticResult(unittest.TestCase):
+    def test_default_values(self):
+        result = AgenticResult(response=None, contents=[])
+        self.assertIsNone(result.response)
+        self.assertEqual(result.contents, [])
+        self.assertEqual(result.total_input_tokens, 0)
+        self.assertEqual(result.total_output_tokens, 0)
+        self.assertEqual(result.total_thinking_tokens, 0)
+        self.assertEqual(result.iterations, 0)
+        self.assertEqual(result.tool_calls_made, [])
+
+    def test_tool_calls_made_isolation(self):
+        """Test that tool_calls_made list is isolated between instances."""
+        r1 = AgenticResult(response=None, contents=[])
+        r1.tool_calls_made.append("get_time")
+        r2 = AgenticResult(response=None, contents=[])
+        self.assertEqual(r2.tool_calls_made, [])
+
+    def test_max_agentic_iterations_constant(self):
+        self.assertEqual(MAX_AGENTIC_ITERATIONS, 10)
+
+
+class TestFilterSupportedToolsWithCallables(unittest.TestCase):
+    def test_callables_pass_through(self):
+        """Test that Python callables pass through model filtering unchanged."""
+        def my_func():
+            pass
+        tools = [TOOL_GOOGLE_SEARCH, my_func]
+        supported, unsupported = filter_supported_tools_for_model(
+            "gemini-2.0-flash-lite", tools
+        )
+        self.assertIn(my_func, supported)
+        self.assertEqual(unsupported, [])
+
+    def test_callables_not_deepcopied(self):
+        """Test that callables are the same object (not deepcopied)."""
+        def my_func():
+            pass
+        tools = [my_func]
+        supported, _ = filter_supported_tools_for_model("gemini-3-flash-preview", tools)
+        self.assertIs(supported[0], my_func)
 
 
 class TestFilterFileSearchIncompatibleTools(unittest.TestCase):

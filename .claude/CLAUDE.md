@@ -8,15 +8,17 @@ A Discord bot integrating Google's Gemini AI API for text generation, image gene
 discord-gemini/
 ├── src/
 │   ├── bot.py                 # Main bot entry point
-│   ├── gemini_api.py          # Core API integration & slash commands (~2600 lines)
+│   ├── gemini_api.py          # Core API integration & slash commands (~2700 lines)
 │   ├── button_view.py         # Discord UI button controls (pause/resume/regenerate/stop + tool select)
+│   ├── tools.py               # Custom function tool registry, @tool decorator, starter tools
 │   ├── util.py                # Dataclasses, constants, pricing, and utility functions
 │   └── config/
 │       └── auth.py            # API keys, guild IDs, env var config
 ├── tests/
 │   ├── test_util.py           # Dataclass and utility function tests
 │   ├── test_button_view.py    # ButtonView UI tests
-│   └── test_gemini_api.py     # GeminiAPI cog tests
+│   ├── test_gemini_api.py     # GeminiAPI cog tests
+│   └── test_tools.py          # Tool registry and execution tests
 ├── .github/workflows/
 │   └── main.yml               # CI: tests + Docker build
 └── requirements.txt
@@ -33,9 +35,10 @@ discord-gemini/
 
 ### Key Components
 
-- **GeminiAPI Cog** (`gemini_api.py`): All slash commands, conversation state, HTTP sessions, API calls
-- **ButtonView** (`button_view.py`): Interactive buttons + tool select dropdown for mid-conversation toggling
-- **util.py**: Parameter dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`), pricing dicts/functions, constants, text utilities
+- **GeminiAPI Cog** (`gemini_api.py`): All slash commands, conversation state, HTTP sessions, API calls, agentic tool-calling loop
+- **ButtonView** (`button_view.py`): Interactive buttons + tool select dropdown (6 options incl. Custom Functions) for mid-conversation toggling
+- **tools.py**: Custom function tool registry with `@tool` decorator, `execute_tool_call()`, starter tools (`get_current_time`, `roll_dice`)
+- **util.py**: Parameter dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `AgenticResult`), pricing dicts/functions, constants, text utilities
 
 ### Slash Commands
 
@@ -43,7 +46,7 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 
 | Command | API Method | Notes |
 |---------|-----------|-------|
-| `/gemini chat` | `client.aio.models.generate_content()` | Multi-turn, 18 params, `on_message` for follow-ups |
+| `/gemini chat` | `client.aio.models.generate_content()` | Multi-turn, 19 params, `on_message` for follow-ups, agentic tool-calling loop |
 | `/gemini image` | `generate_content` (Gemini) or `generate_images` (Imagen) | Different APIs per model family |
 | `/gemini video` | `client.aio.models.generate_videos()` | Long-running op, polls every 20s, 10min timeout |
 | `/gemini tts` | `generate_content` with `response_modalities` | WAV output (24kHz, 16-bit, Mono) |
@@ -55,15 +58,23 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 1. **Native async**: All API calls use `client.aio.*` — no thread offloading
 2. **Conversation state**: `self.conversations` (ID→obj), `self.message_to_conversation_id` (msg→conv), `self.views` (user→ButtonView), `self.last_view_messages` (user→msg for stripping previous view)
 3. **One conversation per user per channel** — enforced, persists until ended or bot restarts
-4. **Explicit context caching**: Gemini 3.x models auto-cache when token count exceeds `CACHE_MIN_TOKEN_COUNT`; Gemini 2.5 and below use implicit caching (automatic). Cache includes system instruction, TTL refreshed each turn, re-cached when uncached tail grows large, cleaned up on conversation end/cog unload
+4. **Explicit context caching**: Gemini 3.x models auto-cache when token count exceeds `CACHE_MIN_TOKEN_COUNT`; Gemini 2.5 and below use implicit caching (automatic). Cache includes system instruction + `display_name` for observability, TTL refreshed each turn, re-cached when uncached tail grows large, cleaned up on conversation end/cog unload
 5. **Typing indicators**: `asyncio.create_task(self.keep_typing(ctx.channel))` for long ops
-6. **Shared HTTP session**: Lazy-initialized with lock via `_get_http_session()`
+6. **Shared HTTP session**: Lazy-initialized with lock via `_get_http_session()`, configured with `ClientTimeout(total=300, connect=15)` and `TCPConnector(limit=20, limit_per_host=10, ttl_dns_cache=300)`
+7. **Agentic tool-calling loop**: `_run_agentic_loop()` wraps `generate_content()` calls — when the model returns `function_calls`, registered Python tools are executed and results fed back, up to `MAX_AGENTIC_ITERATIONS` (10) rounds. Token usage accumulated across iterations for accurate pricing.
 
-### Tool Constraints
+### Tool System
+
+**Server-side tools** (executed by Google): `google_search`, `code_execution`, `google_maps`, `url_context`, `file_search`
+
+**Custom function tools** (executed locally): Registered via `@tool` decorator in `tools.py`. Model calls them via `function_calls` in the response; `_run_agentic_loop()` executes them and feeds `FunctionResponse` back. Toggled via `custom_functions` param on `/gemini chat` or ButtonView dropdown. Controlled by `ENABLE_CUSTOM_TOOLS` env var (default: true).
+
+**Constraints:**
 
 - `file_search` is incompatible with `google_search`, `google_maps`, `url_context` (enforced via `FILE_SEARCH_INCOMPATIBLE_TOOLS`)
 - `google_search` and `google_maps` are mutually exclusive (enforced via `MUTUALLY_EXCLUSIVE_TOOLS`)
 - File Search requires `GEMINI_FILE_SEARCH_STORE_IDS` env var; store IDs injected at runtime via `enrich_file_search_tools()`
+- Custom function callables pass through model compatibility and file_search filters unchanged
 
 ### Attachment Handling
 
@@ -101,9 +112,10 @@ PYTHONPATH=src .venv/Scripts/python.exe -m pytest tests/ -v    # Windows
 PYTHONPATH=src .venv/bin/python -m pytest tests/ -v            # Unix
 ```
 
-- `test_util.py` — dataclasses, constants, pricing, utility functions
-- `test_button_view.py` — button callbacks, tool select behavior
+- `test_util.py` — dataclasses, constants, pricing, utility functions, AgenticResult, callable tool handling
+- `test_button_view.py` — button callbacks, tool select behavior, custom functions toggle
 - `test_gemini_api.py` — cog methods, attachments, caching, pricing, embeds
+- `test_tools.py` — tool registry, @tool decorator, execute_tool_call, starter tools
 - Use `unittest.IsolatedAsyncioTestCase` for async tests; `MagicMock`/`AsyncMock` for mocks
 - CI runs on every push/PR; Docker build only proceeds if tests pass
 
@@ -113,6 +125,13 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/ -v            # Unix
 2. `await ctx.defer()` immediately, wrap in try/except, errors as red embeds
 3. Use parameter dataclass from `util.py` for config
 4. Add tests in `test_gemini_api.py`
+
+## Adding a Custom Tool
+
+1. Define an async or sync function in `src/tools.py` with type-hinted params and a docstring
+2. Decorate with `@tool` — the SDK auto-generates JSON schema from type hints
+3. The tool is automatically available when "Custom Functions" is enabled in a chat
+4. Add tests in `tests/test_tools.py`
 
 ## External Resources
 
