@@ -663,9 +663,14 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
 
     async def test_cleanup_conversation_edit_fails(self):
         """Test that _cleanup_conversation handles deleted messages without raising."""
+        import discord
+
         user = MagicMock()
         mock_message = AsyncMock()
-        mock_message.edit.side_effect = Exception("Unknown Message")
+        mock_response = MagicMock()
+        mock_response.status = 404
+        mock_response.reason = "Not Found"
+        mock_message.edit.side_effect = discord.NotFound(mock_response, "Unknown Message")
         self.cog.last_view_messages[user] = mock_message
         self.cog.views[user] = MagicMock()
 

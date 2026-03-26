@@ -10,14 +10,15 @@ from dataclasses import dataclass
 from datetime import date
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, cast
+from typing import Any, Dict, List, Optional, Protocol, Tuple, TypedDict, Union, cast
 
 # Third-party imports
 import aiohttp
 from PIL import Image
 
 # Discord imports
-from discord import Attachment, Colour, Embed, File
+import discord
+from discord import Attachment, Colour, Embed, File, Member, User
 from discord.commands import (
     ApplicationContext,
     OptionChoice,
@@ -32,6 +33,7 @@ from google.genai import types
 
 # Local imports
 from button_view import ButtonView
+from exceptions import APICallError, MusicGenerationError, ValidationError
 from config.auth import (
     ENABLE_CUSTOM_TOOLS,
     GEMINI_API_KEY,
@@ -39,13 +41,16 @@ from config.auth import (
     GUILD_IDS,
     SHOW_COST_EMBEDS,
 )
-from tools import execute_tool_call, get_registered_tools, get_tool_callables
+from tools import execute_tool_call, get_tool_callables
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
     MAX_AGENTIC_ITERATIONS,
+    TYPING_INDICATOR_INTERVAL,
+    VIDEO_GENERATION_TIMEOUT,
+    WS_DRAIN_INTERVAL,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
@@ -397,14 +402,39 @@ class GeminiAPI(commands.Cog):
         self.conversations: Dict[int, Conversation] = {}
         # Dictionary to map any message ID to the main conversation ID for tracking
         self.message_to_conversation_id: Dict[int, int] = {}
-        # Dictionary to store UI views for each conversation
-        self.views = {}
+        # Dictionary to store UI views keyed by the conversation-starting user
+        self.views: Dict[Union[Member, User], ButtonView] = {}
         # Track the last message carrying the view per user for cleanup
-        self.last_view_messages: Dict[Any, Any] = {}
+        self.last_view_messages: Dict[Union[Member, User], discord.Message] = {}
         # Daily cost tracking: (user_id, date_iso) -> cumulative cost
-        self.daily_costs: Dict[tuple, float] = {}
+        self.daily_costs: Dict[Tuple[int, str], float] = {}
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._session_lock = asyncio.Lock()
+
+    # -- ConversationHost protocol methods (used by ButtonView) --
+
+    def get_conversation(self, conversation_id: int) -> Optional[Conversation]:
+        """Return the Conversation for *conversation_id*, or ``None``."""
+        return self.conversations.get(conversation_id)
+
+    async def end_conversation(
+        self, conversation_id: int, user: Union[Member, User]
+    ) -> None:
+        """Fully tear down a conversation: delete cache, files, and state."""
+        conversation = self.conversations.get(conversation_id)
+        if conversation is not None:
+            await self._delete_conversation_cache(conversation.params)
+            await self._cleanup_uploaded_files(conversation.params)
+            del self.conversations[conversation_id]
+        # Remove all message-to-conversation mappings for this conversation
+        stale_keys = [
+            msg_id
+            for msg_id, conv_id in self.message_to_conversation_id.items()
+            if conv_id == conversation_id
+        ]
+        for key in stale_keys:
+            del self.message_to_conversation_id[key]
+        await self._cleanup_conversation(user)
 
     def _track_daily_cost(self, user_id: int, cost: float) -> float:
         """Add a pre-calculated cost to the user's daily total and return the new daily total."""
@@ -433,6 +463,30 @@ class GeminiAPI(commands.Cog):
             f" | {detail_str}" if detail_str else "",
             daily_total,
         )
+
+    async def _send_error_followup(
+        self,
+        ctx: ApplicationContext,
+        error: Exception,
+        command_name: str,
+    ) -> None:
+        """Log an error and send a red error embed as a followup message."""
+        description = str(error)
+        self.logger.error(
+            "Error in %s: %s", command_name, description, exc_info=True
+        )
+        if len(description) > 4000:
+            description = description[:4000] + "\n\n... (error message truncated)"
+        try:
+            await ctx.send_followup(
+                embed=Embed(title="Error", description=description, color=Colour.red())
+            )
+        except Exception as followup_err:
+            self.logger.error(
+                "Failed to send error followup for %s: %s",
+                command_name,
+                followup_err,
+            )
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self._http_session and not self._http_session.closed:
@@ -630,7 +684,7 @@ class GeminiAPI(commands.Cog):
                 config=types.CreateCachedContentConfig(
                     display_name=f"conv-{params.conversation_id}",
                     system_instruction=params.system_instruction,
-                    contents=contents,
+                    contents=cast(Any, contents),
                     ttl=CACHE_TTL,
                 ),
             )
@@ -664,7 +718,7 @@ class GeminiAPI(commands.Cog):
                 config=types.CreateCachedContentConfig(
                     display_name=f"conv-{params.conversation_id}",
                     system_instruction=params.system_instruction,
-                    contents=contents,
+                    contents=cast(Any, contents),
                     ttl=CACHE_TTL,
                 ),
             )
@@ -682,16 +736,20 @@ class GeminiAPI(commands.Cog):
             return  # Keep the old cache
 
         # Clean up the old cache after the new one is safely created
-        try:
-            await self.client.aio.caches.delete(name=old_cache_name)
-        except Exception as e:
-            self.logger.warning("Failed to delete old cache %s: %s", old_cache_name, e)
+        if old_cache_name is not None:
+            try:
+                await self.client.aio.caches.delete(name=old_cache_name)
+            except Exception as e:
+                self.logger.warning("Failed to delete old cache %s: %s", old_cache_name, e)
 
     async def _refresh_cache_ttl(self, params: ChatCompletionParameters) -> None:
         """Extend the TTL of an existing cache so it doesn't expire between turns."""
+        cache_name = params.cache_name
+        if cache_name is None:
+            return
         try:
             await self.client.aio.caches.update(
-                name=params.cache_name,
+                name=cache_name,
                 config=types.UpdateCachedContentConfig(ttl=CACHE_TTL),
             )
         except Exception as e:
@@ -818,17 +876,18 @@ class GeminiAPI(commands.Cog):
         if prev_view_msg is not None:
             try:
                 await prev_view_msg.edit(view=None)
-            except Exception:
-                pass  # Message may have been deleted
+            except discord.NotFound:
+                pass  # Message was deleted before we could edit it
+            except discord.HTTPException as exc:
+                self.logger.debug(
+                    "Failed to strip view from message %s: %s",
+                    prev_view_msg.id,
+                    exc,
+                )
 
     async def _cleanup_conversation(self, user) -> None:
         """Remove button view from the last message and clean up view state."""
-        prev = self.last_view_messages.pop(user, None)
-        if prev is not None:
-            try:
-                await prev.edit(view=None)
-            except Exception:
-                pass  # Message may have been deleted
+        await self._strip_previous_view(user)
         self.views.pop(user, None)
 
     async def handle_new_message_in_conversation(
@@ -1070,10 +1129,10 @@ class GeminiAPI(commands.Cog):
         except Exception as e:
             description = str(e)
             self.logger.error(
-                f"Error in handle_new_message_in_conversation: {description}",
+                "Error in handle_new_message_in_conversation: %s",
+                description,
                 exc_info=True,
             )
-            # Truncate the description to fit within Discord's embed limits
             if len(description) > 4000:
                 description = description[:4000] + "\n\n... (error message truncated)"
             await message.reply(
@@ -1083,7 +1142,8 @@ class GeminiAPI(commands.Cog):
             await self._delete_conversation_cache(conversation_wrapper.params)
             await self._cleanup_uploaded_files(conversation_wrapper.params)
             conv_id = conversation_wrapper.params.conversation_id
-            self.conversations.pop(conv_id, None)
+            if conv_id is not None:
+                self.conversations.pop(conv_id, None)
             await self._cleanup_conversation(message.author)
 
         finally:
@@ -1103,7 +1163,7 @@ class GeminiAPI(commands.Cog):
             while True:
                 async with channel.typing():
                     self.logger.debug(f"Sent typing indicator to channel {channel.id}")
-                    await asyncio.sleep(5)  # Resend typing indicator every 5 seconds
+                    await asyncio.sleep(TYPING_INDICATOR_INTERVAL)
         except asyncio.CancelledError:
             # Task was cancelled, stop typing
             self.logger.debug(f"Typing indicator cancelled for channel {channel.id}")
@@ -1691,7 +1751,7 @@ class GeminiAPI(commands.Cog):
 
             main_conversation_id = interaction.id
             view = ButtonView(
-                cog=self,
+                host=self,
                 conversation_starter=ctx.author,
                 conversation_id=main_conversation_id,
                 initial_tools=tools,
@@ -1736,14 +1796,7 @@ class GeminiAPI(commands.Cog):
             self.conversations[main_conversation_id] = conversation_wrapper
 
         except Exception as e:
-            description = str(e)
-            self.logger.error(
-                f"Error in chat: {description}",
-                exc_info=True,
-            )
-            await ctx.send_followup(
-                embed=Embed(title="Error", description=description, color=Colour.red())
-            )
+            await self._send_error_followup(ctx, e, "chat")
             await self._cleanup_conversation(ctx.author)
 
         finally:
@@ -2028,14 +2081,7 @@ class GeminiAPI(commands.Cog):
                 await ctx.send_followup(embeds=embeds_no_img)
 
         except Exception as e:
-            description = str(e)
-            self.logger.error(
-                f"Error in image: {description}",
-                exc_info=True,
-            )
-            await ctx.send_followup(
-                embed=Embed(title="Error", description=description, color=Colour.red())
-            )
+            await self._send_error_followup(ctx, e, "image")
 
     @gemini.command(
         name="video",
@@ -2252,14 +2298,7 @@ class GeminiAPI(commands.Cog):
                 )
 
         except Exception as e:
-            description = str(e)
-            self.logger.error(
-                f"Error in video: {description}",
-                exc_info=True,
-            )
-            await ctx.send_followup(
-                embed=Embed(title="Error", description=description, color=Colour.red())
-            )
+            await self._send_error_followup(ctx, e, "video")
 
     @gemini.command(
         name="tts",
@@ -2431,14 +2470,7 @@ class GeminiAPI(commands.Cog):
                 )
 
         except Exception as e:
-            description = str(e)
-            self.logger.error(
-                f"Error in tts: {description}",
-                exc_info=True,
-            )
-            await ctx.send_followup(
-                embed=Embed(title="Error", description=description, color=Colour.red())
-            )
+            await self._send_error_followup(ctx, e, "tts")
 
     @gemini.command(
         name="music",
@@ -2620,37 +2652,20 @@ class GeminiAPI(commands.Cog):
                     )
                 )
 
-        except Exception as e:
+        except MusicGenerationError as e:
+            self.logger.error("Music generation error: %s", e, exc_info=True)
             description = str(e)
-            self.logger.error(
-                f"Error in music: {description}",
-                exc_info=True,
-            )
-
-            # Provide more helpful error messages for common issues
-            if "Music generation is currently unavailable" in description:
-                embed_title = "Music Generation Unavailable"
-                embed_color = Colour.orange()
-            elif "Authentication error" in description:
-                embed_title = "Authentication Error"
-                embed_color = Colour.red()
-            elif "404" in description:
-                embed_title = "Service Not Available"
-                embed_color = Colour.orange()
-                description = (
-                    "The Lyria RealTime music generation service is not available. "
-                    "This feature may not be enabled for your account or region. "
-                    "Please check Google AI Studio for availability."
-                )
-            else:
-                embed_title = "Music Generation Error"
-                embed_color = Colour.red()
-
+            if len(description) > 4000:
+                description = description[:4000] + "\n\n... (error message truncated)"
             await ctx.send_followup(
                 embed=Embed(
-                    title=embed_title, description=description, color=embed_color
+                    title="Music Generation Error",
+                    description=description,
+                    color=Colour.orange(),
                 )
             )
+        except Exception as e:
+            await self._send_error_followup(ctx, e, "music")
 
     @gemini.command(
         name="research",
@@ -2750,14 +2765,7 @@ class GeminiAPI(commands.Cog):
                 )
 
         except Exception as e:
-            description = str(e)
-            self.logger.error(
-                f"Error in research: {description}",
-                exc_info=True,
-            )
-            await ctx.send_followup(
-                embed=Embed(title="Error", description=description, color=Colour.red())
-            )
+            await self._send_error_followup(ctx, e, "research")
 
     async def _generate_image_with_gemini(
         self,
@@ -3053,13 +3061,12 @@ class GeminiAPI(commands.Cog):
         self.logger.info(f"Started video generation operation: {operation.name}")
 
         # Poll for completion (this can take 2-6 minutes)
-        max_wait_time = 600  # 10 minutes timeout
         start_time = time.time()
         poll_interval = 20  # Poll every 20 seconds
 
         while not operation.done:
-            if time.time() - start_time > max_wait_time:
-                raise Exception("Video generation timed out after 10 minutes")
+            if time.time() - start_time > VIDEO_GENERATION_TIMEOUT:
+                raise TimeoutError("Video generation timed out after 10 minutes")
 
             await asyncio.sleep(poll_interval)
             operation = await self.client.aio.operations.get(operation)
@@ -3269,8 +3276,8 @@ class GeminiAPI(commands.Cog):
 
                         # Give the task a moment to finish cancellation
                         try:
-                            await asyncio.sleep(0.1)  # Brief pause for cleanup
-                        except Exception:
+                            await asyncio.sleep(WS_DRAIN_INTERVAL)
+                        except asyncio.CancelledError:
                             pass
 
                 # Combine all audio chunks
@@ -3287,7 +3294,7 @@ class GeminiAPI(commands.Cog):
                 # Handle specific WebSocket connection errors
                 if "404" in str(websocket_error):
                     self.logger.error("Lyria RealTime endpoint not found (404).")
-                    raise Exception(
+                    raise MusicGenerationError(
                         "Music generation is currently unavailable. This could be due to:\n"
                         "1. The Lyria RealTime model is not available in your region\n"
                         "2. Your account doesn't have access to the music generation API\n"
@@ -3298,22 +3305,18 @@ class GeminiAPI(commands.Cog):
                     self.logger.error(
                         "Authentication/authorization error for Lyria RealTime"
                     )
-                    raise Exception(
+                    raise MusicGenerationError(
                         "Authentication error: Please check your API key permissions for music generation."
                     )
                 else:
                     self.logger.error(f"WebSocket connection error: {websocket_error}")
-                    raise Exception(f"Connection error: {websocket_error}")
+                    raise MusicGenerationError(f"Connection error: {websocket_error}")
 
+        except MusicGenerationError:
+            raise
         except Exception as e:
-            if "Music generation is currently unavailable" in str(
-                e
-            ) or "Authentication error" in str(e):
-                # Re-raise our custom error messages
-                raise
-            else:
-                self.logger.error(f"Error generating music with Lyria RealTime: {e}")
-                raise Exception(f"Music generation failed: {e}")
+            self.logger.error(f"Error generating music with Lyria RealTime: {e}")
+            raise MusicGenerationError(f"Music generation failed: {e}")
 
     async def _generate_speech_with_gemini(
         self, tts_params: SpeechGenerationParameters
@@ -3381,7 +3384,7 @@ class GeminiAPI(commands.Cog):
 
         if research_params.file_search:
             if not GEMINI_FILE_SEARCH_STORE_IDS:
-                raise Exception(
+                raise ValidationError(
                     "File Search requires GEMINI_FILE_SEARCH_STORE_IDS "
                     "to be set in your .env file."
                 )
@@ -3407,7 +3410,7 @@ class GeminiAPI(commands.Cog):
 
         while interaction.status not in ("completed", "failed", "cancelled"):
             if time.time() - start_time > max_wait_time:
-                raise Exception("Deep research timed out after 20 minutes")
+                raise TimeoutError("Deep research timed out after 20 minutes")
 
             await asyncio.sleep(poll_interval)
             interaction = await self.client.aio.interactions.get(interaction.id)
@@ -3416,10 +3419,10 @@ class GeminiAPI(commands.Cog):
             )
 
         if interaction.status == "failed":
-            raise Exception(f"Research failed: {interaction.status}")
+            raise APICallError(f"Research failed: {interaction.status}")
 
         if interaction.status == "cancelled":
-            raise Exception("Research was cancelled")
+            raise APICallError("Research was cancelled")
 
         # Extract token counts from interaction usage
         usage = getattr(interaction, "usage", None)

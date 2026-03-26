@@ -1,5 +1,6 @@
+import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Protocol, Union, cast
 
 from discord import (
     ButtonStyle,
@@ -9,7 +10,6 @@ from discord import (
     TextChannel,
     User,
 )
-import logging
 from discord.ui import Button, Select, View, button
 
 from util import (
@@ -21,10 +21,41 @@ from util import (
 )
 
 
+class ConversationHost(Protocol):
+    """Protocol defining the interface ButtonView needs from its host (the cog).
+
+    This decouples ButtonView from the concrete GeminiAPI class, following
+    the Dependency Inversion Principle.  Any object satisfying this protocol
+    can serve as the host.
+    """
+
+    def get_conversation(self, conversation_id: int) -> Any:
+        """Return the Conversation for *conversation_id*, or ``None``."""
+        ...
+
+    def enrich_file_search_tools(
+        self, tools: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """Inject file search store IDs.  Return an error string, or ``None``."""
+        ...
+
+    async def handle_new_message_in_conversation(
+        self, message: Any, conversation: Any
+    ) -> None:
+        """Re-run generation for the given message in *conversation*."""
+        ...
+
+    async def end_conversation(
+        self, conversation_id: int, user: Union[Member, User]
+    ) -> None:
+        """Fully tear down a conversation (cache, files, state)."""
+        ...
+
+
 class ButtonView(View):
     def __init__(
         self,
-        cog: Any,
+        host: ConversationHost,
         conversation_starter: Union[Member, User],
         conversation_id: int,
         initial_tools: Optional[List[Dict[str, Any]]] = None,
@@ -34,7 +65,7 @@ class ButtonView(View):
         Initialize the ButtonView class.
         """
         super().__init__(timeout=None)
-        self.cog = cog
+        self.host = host
         self.conversation_starter = conversation_starter
         self.conversation_id = conversation_id
         self._add_tool_select(initial_tools or [], custom_functions_enabled)
@@ -107,7 +138,7 @@ class ButtonView(View):
             )
             return
 
-        conversation = self.cog.conversations.get(self.conversation_id)
+        conversation = self.host.get_conversation(self.conversation_id)
         if conversation is None:
             await interaction.response.send_message(
                 "No active conversation found.", ephemeral=True
@@ -142,8 +173,8 @@ class ButtonView(View):
             supported_tools
         )
 
-        # Enrich file_search tools with store IDs via the cog
-        enrich_error = self.cog.enrich_file_search_tools(supported_tools)
+        # Enrich file_search tools with store IDs via the host
+        enrich_error = self.host.enrich_file_search_tools(supported_tools)
         if enrich_error:
             await interaction.response.send_message(enrich_error, ephemeral=True)
             return
@@ -200,7 +231,7 @@ class ButtonView(View):
                 )
                 return
 
-            conversation = self.cog.conversations.get(self.conversation_id)
+            conversation = self.host.get_conversation(self.conversation_id)
             if conversation is None:
                 await interaction.response.send_message(
                     "No active conversation found.", ephemeral=True
@@ -245,7 +276,7 @@ class ButtonView(View):
                 )
                 return
 
-            await self.cog.handle_new_message_in_conversation(
+            await self.host.handle_new_message_in_conversation(
                 user_message, conversation
             )
             await interaction.followup.send(
@@ -258,7 +289,7 @@ class ButtonView(View):
             )
 
             if removed_entries:
-                conversation = self.cog.conversations.get(self.conversation_id)
+                conversation = self.host.get_conversation(self.conversation_id)
                 if conversation is not None:
                     conversation.history.extend(removed_entries)
 
@@ -287,8 +318,8 @@ class ButtonView(View):
             return
 
         # Toggle the paused state
-        if self.conversation_id in self.cog.conversations:
-            conversation = self.cog.conversations[self.conversation_id]
+        conversation = self.host.get_conversation(self.conversation_id)
+        if conversation is not None:
             conversation.params.paused = not conversation.params.paused
             status = "paused" if conversation.params.paused else "resumed"
             await interaction.response.send_message(
@@ -316,13 +347,12 @@ class ButtonView(View):
             )
             return
 
-        # End the conversation
-        if self.conversation_id in self.cog.conversations:
-            conversation = self.cog.conversations[self.conversation_id]
-            await self.cog._delete_conversation_cache(conversation.params)
-            await self.cog._cleanup_uploaded_files(conversation.params)
-            del self.cog.conversations[self.conversation_id]
-            await self.cog._cleanup_conversation(self.conversation_starter)
+        # End the conversation via the host
+        conversation = self.host.get_conversation(self.conversation_id)
+        if conversation is not None:
+            await self.host.end_conversation(
+                self.conversation_id, self.conversation_starter
+            )
             await interaction.response.send_message(
                 "Conversation ended.", ephemeral=True, delete_after=3
             )

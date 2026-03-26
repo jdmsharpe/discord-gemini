@@ -15,10 +15,12 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         # Import here after the environment is set up
         from button_view import ButtonView
 
-        self.cog = MagicMock()
-        self.cog.conversations = {}
-        self.cog.last_view_messages = {}
-        self.cog.handle_new_message_in_conversation = AsyncMock()
+        # Build a mock that satisfies the ConversationHost protocol
+        self.host = MagicMock()
+        self.host.get_conversation = MagicMock(return_value=None)
+        self.host.enrich_file_search_tools = MagicMock(return_value=None)
+        self.host.handle_new_message_in_conversation = AsyncMock()
+        self.host.end_conversation = AsyncMock()
 
         self.conversation_starter = MagicMock()
         self.conversation_starter.id = 123456789
@@ -26,12 +28,12 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         self.conversation_id = 987654321
 
         self.view = ButtonView(
-            self.cog, self.conversation_starter, self.conversation_id
+            self.host, self.conversation_starter, self.conversation_id
         )
 
     async def test_init(self):
         """Test that ButtonView initializes correctly."""
-        self.assertEqual(self.view.cog, self.cog)
+        self.assertEqual(self.view.host, self.host)
         self.assertEqual(self.view.conversation_starter, self.conversation_starter)
         self.assertEqual(self.view.conversation_id, self.conversation_id)
         tool_selects = [item for item in self.view.children if isinstance(item, Select)]
@@ -43,7 +45,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         from button_view import ButtonView
 
         view = ButtonView(
-            self.cog,
+            self.host,
             self.conversation_starter,
             self.conversation_id,
             initial_tools=[TOOL_GOOGLE_SEARCH],
@@ -62,7 +64,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         from button_view import ButtonView
 
         view = ButtonView(
-            self.cog,
+            self.host,
             self.conversation_starter,
             self.conversation_id,
             custom_functions_enabled=True,
@@ -79,8 +81,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         conversation.params.tools = []
         conversation.params.model = "gemini-2.5-flash"
         conversation.params.custom_functions_enabled = False
-        self.cog.conversations[self.conversation_id] = conversation
-        self.cog.enrich_file_search_tools = MagicMock(return_value=None)
+        self.host.get_conversation.return_value = conversation
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -102,8 +103,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         conversation.params = MagicMock()
         conversation.params.tools = []
         conversation.params.model = "gemini-2.5-flash"
-        self.cog.conversations[self.conversation_id] = conversation
-        self.cog.enrich_file_search_tools = MagicMock(return_value=None)
+        self.host.get_conversation.return_value = conversation
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -133,8 +133,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         conversation.params = MagicMock()
         conversation.params.tools = []
         conversation.params.model = "gemini-2.0-flash-lite"
-        self.cog.conversations[self.conversation_id] = conversation
-        self.cog.enrich_file_search_tools = MagicMock(return_value=None)
+        self.host.get_conversation.return_value = conversation
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -157,7 +156,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         conversation.params = MagicMock()
         conversation.params.tools = []
         conversation.params.model = "gemini-2.5-pro"
-        self.cog.conversations[self.conversation_id] = conversation
+        self.host.get_conversation.return_value = conversation
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -221,7 +220,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         interaction.response.send_message = AsyncMock()
         interaction.response.defer = AsyncMock()
 
-        # No conversation in cog.conversations
+        # host.get_conversation returns None by default
         await self.view.regenerate_button.callback(interaction)
 
         interaction.response.send_message.assert_called_once()
@@ -253,7 +252,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         interaction.response = MagicMock()
         interaction.response.send_message = AsyncMock()
 
-        # No conversation in cog.conversations
+        # host.get_conversation returns None by default
         await self.view.play_pause_button.callback(interaction)
 
         interaction.response.send_message.assert_called_once()
@@ -269,7 +268,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         mock_conversation.params = MagicMock()
         mock_conversation.params.paused = False
 
-        self.cog.conversations[self.conversation_id] = mock_conversation
+        self.host.get_conversation.return_value = mock_conversation
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -318,7 +317,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         interaction.response = MagicMock()
         interaction.response.send_message = AsyncMock()
 
-        # No conversation in cog.conversations
+        # host.get_conversation returns None by default
         await self.view.stop_button.callback(interaction)
 
         interaction.response.send_message.assert_called_once()
@@ -330,10 +329,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
     async def test_stop_button_ends_conversation(self):
         """Test that stop button properly ends the conversation."""
         mock_conversation = MagicMock()
-        self.cog.conversations[self.conversation_id] = mock_conversation
-        self.cog._delete_conversation_cache = AsyncMock()
-        self.cog._cleanup_uploaded_files = AsyncMock()
-        self.cog._cleanup_conversation = AsyncMock()
+        self.host.get_conversation.return_value = mock_conversation
 
         interaction = MagicMock()
         interaction.user = self.conversation_starter
@@ -342,11 +338,9 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         await self.view.stop_button.callback(interaction)
 
-        # Verify conversation was deleted
-        self.assertNotIn(self.conversation_id, self.cog.conversations)
-        # Verify _cleanup_conversation was called to strip view and clean up state
-        self.cog._cleanup_conversation.assert_awaited_once_with(
-            self.conversation_starter
+        # Verify end_conversation was called with the right args
+        self.host.end_conversation.assert_awaited_once_with(
+            self.conversation_id, self.conversation_starter
         )
 
         # Verify response was sent
