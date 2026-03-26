@@ -10,10 +10,11 @@ discord-gemini/
 │   ├── bot.py                 # Main bot entry point
 │   ├── gemini_api.py          # Core API integration & slash commands (~2700 lines)
 │   ├── button_view.py         # Discord UI button controls (pause/resume/regenerate/stop + tool select)
+│   ├── exceptions.py          # Custom exception hierarchy (GeminiBotError base)
 │   ├── tools.py               # Custom function tool registry, @tool decorator, starter tools
 │   ├── util.py                # Dataclasses, constants, pricing, and utility functions
 │   └── config/
-│       └── auth.py            # API keys, guild IDs, env var config
+│       └── auth.py            # API keys, guild IDs, env var config (fail-fast via _require_env)
 ├── tests/
 │   ├── test_util.py           # Dataclass and utility function tests
 │   ├── test_button_view.py    # ButtonView UI tests
@@ -35,8 +36,9 @@ discord-gemini/
 
 ### Key Components
 
-- **GeminiAPI Cog** (`gemini_api.py`): All slash commands, conversation state, HTTP sessions, API calls, agentic tool-calling loop
-- **ButtonView** (`button_view.py`): Interactive buttons + tool select dropdown (6 options incl. Custom Functions) for mid-conversation toggling
+- **GeminiAPI Cog** (`gemini_api.py`): All slash commands, conversation state, HTTP sessions, API calls, agentic tool-calling loop. Implements the `ConversationHost` protocol for ButtonView decoupling.
+- **ButtonView** (`button_view.py`): Interactive buttons + tool select dropdown (6 options incl. Custom Functions) for mid-conversation toggling. Communicates with the cog via the `ConversationHost` protocol (not direct attribute access).
+- **exceptions.py**: Custom exception hierarchy rooted at `GeminiBotError` — `APICallError`, `CacheError`, `FileUploadError`, `ValidationError`, `MusicGenerationError`. Replaces bare `Exception` raises for precise catch blocks.
 - **tools.py**: Custom function tool registry with `@tool` decorator, `execute_tool_call()`, starter tools (`get_current_time`, `roll_dice`)
 - **util.py**: Parameter dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `AgenticResult`), pricing dicts/functions, constants, text utilities
 
@@ -56,12 +58,13 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 ### Key Design Patterns
 
 1. **Native async**: All API calls use `client.aio.*` — no thread offloading
-2. **Conversation state**: `self.conversations` (ID→obj), `self.message_to_conversation_id` (msg→conv), `self.views` (user→ButtonView), `self.last_view_messages` (user→msg for stripping previous view)
+2. **Conversation state**: `self.conversations: Dict[int, Conversation]`, `self.message_to_conversation_id: Dict[int, int]`, `self.views: Dict[Member|User, ButtonView]`, `self.last_view_messages: Dict[Member|User, Message]`
 3. **One conversation per user per channel** — enforced, persists until ended or bot restarts
 4. **Explicit context caching**: Gemini 3.x models auto-cache when token count exceeds `CACHE_MIN_TOKEN_COUNT`; Gemini 2.5 and below use implicit caching (automatic). Cache includes system instruction + `display_name` for observability, TTL refreshed each turn, re-cached when uncached tail grows large, cleaned up on conversation end/cog unload
 5. **Typing indicators**: `asyncio.create_task(self.keep_typing(ctx.channel))` for long ops
 6. **Shared HTTP session**: Lazy-initialized with lock via `_get_http_session()`, configured with `ClientTimeout(total=300, connect=15)` and `TCPConnector(limit=20, limit_per_host=10, ttl_dns_cache=300)`
 7. **Agentic tool-calling loop**: `_run_agentic_loop()` wraps `generate_content()` calls — when the model returns `function_calls`, registered Python tools are executed and results fed back, up to `MAX_AGENTIC_ITERATIONS` (10) rounds. Token usage accumulated across iterations for accurate pricing.
+8. **Error handling**: Centralized via `_send_error_followup()` for slash commands; custom exceptions from `exceptions.py` for domain-specific errors. Error followup is wrapped in try/except to ensure cleanup runs even if Discord API fails.
 
 ### Tool System
 

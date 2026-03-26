@@ -133,6 +133,9 @@ CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {
 CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches
 
 MAX_AGENTIC_ITERATIONS = 10  # Max tool-calling round-trips per user message
+TYPING_INDICATOR_INTERVAL = 5  # Seconds between typing indicator resends
+VIDEO_GENERATION_TIMEOUT = 600  # Max seconds to wait for video generation
+WS_DRAIN_INTERVAL = 0.1  # Seconds to wait for WebSocket cleanup drain
 
 # Attachment size limits for Gemini API file input (bytes)
 ATTACHMENT_MAX_INLINE_SIZE = 100 * 1024 * 1024  # 100 MB general inline limit
@@ -532,17 +535,19 @@ def chunk_text(text: str, chunk_size: int = 4096) -> List[str]:
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 
-def truncate_text(text: str, max_length: int, suffix: str = "...") -> str:
-    """
-    Truncate text to max_length, adding suffix if truncated.
+def truncate_text(
+    text: Optional[str], max_length: int, suffix: str = "..."
+) -> Optional[str]:
+    """Truncate text to max_length, adding suffix if truncated.
 
     Args:
-        text: The text to truncate
-        max_length: Maximum length before truncation
-        suffix: String to append when truncated (default "...")
+        text: The text to truncate (``None`` passes through unchanged).
+        max_length: Maximum length before truncation.
+        suffix: String to append when truncated (default ``"..."``).
 
     Returns:
-        Original text if under max_length, otherwise truncated with suffix
+        Original text if under max_length, truncated with suffix otherwise,
+        or ``None`` if *text* was ``None``.
     """
     if text is None:
         return None
