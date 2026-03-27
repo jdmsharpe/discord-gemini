@@ -105,9 +105,8 @@ All commands are grouped under `/gemini` for clean namespacing.
    - `GEMINI_FILE_SEARCH_STORE_IDS` (optional): Comma-separated File Search store IDs for RAG
    - `SHOW_COST_EMBEDS` (optional): Show per-request cost embeds in chat responses (default: `true`)
    - `ENABLE_CUSTOM_TOOLS` (optional): Enable custom function tool calling in chat (default: `true`)
-3. Enable git hooks: `git config core.hooksPath .githooks`
-4. Set up Discord bot permissions in your server
-5. Run the bot: `python src/bot.py`
+3. Set up Discord bot permissions in your server
+4. Run the bot: `python src/bot.py`
 
 ## Requirements
 
