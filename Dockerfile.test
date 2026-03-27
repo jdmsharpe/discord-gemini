@@ -12,4 +12,4 @@ COPY ./tests /bot/tests/
 
 ENV PYTHONPATH=/bot/src
 
-CMD ["python", "-m", "unittest", "discover", "-s", "tests", "-v"]
+CMD ["python", "-m", "pytest", "-v"]
