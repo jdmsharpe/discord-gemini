@@ -20,8 +20,11 @@ discord-gemini/
 │   ├── test_button_view.py    # ButtonView UI tests
 │   ├── test_gemini_api.py     # GeminiAPI cog tests
 │   └── test_tools.py          # Tool registry and execution tests
+├── .githooks/
+│   └── pre-commit             # ruff format + lint on staged Python files
 ├── .github/workflows/
 │   └── main.yml               # CI: tests + Docker build
+├── pyproject.toml             # ruff + pyright config (single source of truth)
 └── requirements.txt
 ```
 
@@ -31,6 +34,7 @@ discord-gemini/
 - **py-cord** ~2.7 — Discord bot framework (fork of discord.py)
 - **Pillow** ~12.1 — Image processing
 - **aiohttp** — Async HTTP for attachment downloads
+- **ruff** ~0.15 — Linting and formatting
 
 ## Architecture
 
@@ -106,6 +110,14 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 
 - HTTP session, async client (`client.aio.aclose()`), sync client (`client.close()`)
 - All active caches deleted, uploaded files cleaned up, temp files removed
+
+## Linting & Formatting
+
+- **ruff** handles both linting and formatting, configured in `pyproject.toml`
+- Rules: `E`, `W`, `F`, `I`, `UP`, `B`, `SIM` (E501 ignored — formatter handles line length)
+- Line length: 100, target: Python 3.12
+- Pre-commit hook in `.githooks/pre-commit`: auto-formats staged files, blocks commit on lint failure
+- After cloning, run `git config core.hooksPath .githooks` to enable the hook
 
 ## Testing
 
