@@ -1,74 +1,87 @@
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from discord import Bot, Intents
+import gemini_api
+from gemini_api import (
+    Conversation,
+    GeminiAPI,
+    _build_thinking_config,
+    _get_response_content_parts,
+    _guess_url_mime_type,
+    append_pricing_embed,
+    append_response_embeds,
+    append_thinking_embeds,
+    extract_thinking_text,
+    extract_tool_info,
+)
 
 
-class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        # Mock the auth module before importing GeminiAPI
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
-                )
-            },
+def build_mock_bot() -> MagicMock:
+    bot = MagicMock()
+    bot.user = MagicMock(name="bot-user")
+    bot.owner_id = 1234567890
+    bot.sync_commands = AsyncMock()
+    bot.add_cog = MagicMock()
+    bot.loop = None
+    return bot
+
+
+class GeminiCogTestCase(unittest.TestCase):
+    file_search_store_ids = ["store-1", "store-2"]
+
+    def setUp(self):
+        self.store_ids_patcher = patch.object(
+            gemini_api,
+            "GEMINI_FILE_SEARCH_STORE_IDS",
+            self.file_search_store_ids.copy(),
         )
-        self.auth_patcher.start()
+        self.store_ids_patcher.start()
 
-        # Mock the genai Client
         self.genai_patcher = patch("gemini_api.genai.Client")
         self.mock_genai_client = self.genai_patcher.start()
 
-        # Configure the mock client's async interface
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
+        self.mock_client_instance = self.mock_genai_client.return_value
+        self.mock_client_instance.aio.aclose = AsyncMock()
+        self.mock_client_instance.close = MagicMock()
 
-        # Now import GeminiAPI after mocking
-        from gemini_api import (
-            Conversation,
-            GeminiAPI,
-            _build_thinking_config,
-            _get_response_content_parts,
-            append_pricing_embed,
-            append_response_embeds,
-            append_thinking_embeds,
-            extract_thinking_text,
-            extract_tool_info,
-        )
-
-        self.GeminiAPI = GeminiAPI
-        self.Conversation = Conversation
-        self.append_pricing_embed = append_pricing_embed
-        self.append_response_embeds = append_response_embeds
-        self.append_thinking_embeds = append_thinking_embeds
-        self.extract_thinking_text = extract_thinking_text
-        self.extract_tool_info = extract_tool_info
-        self._get_response_content_parts = _get_response_content_parts
-        self._build_thinking_config = _build_thinking_config
-
-        # Setting up the bot with the GeminiAPI cog
-        intents = Intents.default()
-        intents.presences = False
-        intents.members = True
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
+        self.bot = build_mock_bot()
         self.cog = GeminiAPI(bot=self.bot)
-        self.bot.add_cog(self.cog)
-        self.bot.owner_id = 1234567890
 
-        # Mock bot commands
-        self.bot.sync_commands = AsyncMock()
+    def tearDown(self):
+        self.genai_patcher.stop()
+        self.store_ids_patcher.stop()
+
+
+class AsyncGeminiCogTestCase(unittest.IsolatedAsyncioTestCase):
+    file_search_store_ids = ["store-1", "store-2"]
+
+    async def asyncSetUp(self):
+        self.store_ids_patcher = patch.object(
+            gemini_api,
+            "GEMINI_FILE_SEARCH_STORE_IDS",
+            self.file_search_store_ids.copy(),
+        )
+        self.store_ids_patcher.start()
+
+        self.genai_patcher = patch("gemini_api.genai.Client")
+        self.mock_genai_client = self.genai_patcher.start()
+
+        self.mock_client_instance = self.mock_genai_client.return_value
+        self.mock_client_instance.aio.aclose = AsyncMock()
+        self.mock_client_instance.close = MagicMock()
+
+        self.bot = build_mock_bot()
+        self.bot.loop = gemini_api.asyncio.get_running_loop()
+        self.cog = GeminiAPI(bot=self.bot)
 
     async def asyncTearDown(self):
-        self.auth_patcher.stop()
         self.genai_patcher.stop()
+        self.store_ids_patcher.stop()
 
+
+class TestGeminiAPI(AsyncGeminiCogTestCase):
     async def test_cog_init(self):
         """Test that GeminiAPI cog initializes correctly."""
         self.assertEqual(self.cog.bot, self.bot)
@@ -83,41 +96,102 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         await self.cog.on_ready()
         self.bot.sync_commands.assert_called_once()
 
-    async def test_append_response_embeds_short(self):
+    async def test_get_http_session_creates_session(self):
+        """Test that _get_http_session creates a new session."""
+        self.assertIsNone(self.cog._http_session)
+        session = await self.cog._get_http_session()
+        self.assertIsNotNone(session)
+        self.assertEqual(self.cog._http_session, session)
+        await session.close()
+
+    async def test_get_http_session_reuses_session(self):
+        """Test that _get_http_session reuses existing session."""
+        session1 = await self.cog._get_http_session()
+        session2 = await self.cog._get_http_session()
+        self.assertEqual(session1, session2)
+        await session1.close()
+
+    async def test_on_message_ignores_bot(self):
+        """Test that on_message ignores messages from the bot itself."""
+        message = MagicMock()
+        message.author = self.bot.user
+
+        await self.cog.on_message(message)
+
+        self.assertEqual(len(self.cog.conversations), 0)
+
+    async def test_on_message_no_matching_conversation(self):
+        """Test that on_message handles no matching conversation gracefully."""
+        message = MagicMock()
+        message.author = MagicMock()
+        message.author.id = 999
+        message.channel = MagicMock()
+        message.channel.id = 888
+        message.content = "Hello"
+
+        await self.cog.on_message(message)
+
+    async def test_cog_unload_closes_session(self):
+        """Test that cog_unload closes the HTTP session."""
+        session = await self.cog._get_http_session()
+        self.assertFalse(session.closed)
+
+        self.cog.cog_unload()
+        await gemini_api.asyncio.sleep(0)
+
+        self.assertIsNone(self.cog._http_session)
+
+
+class TestConversation(unittest.TestCase):
+    def test_conversation_dataclass(self):
+        """Test the Conversation dataclass."""
+        from util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-3-flash-preview")
+        history = [{"role": "user", "parts": [{"text": "Hello"}]}]
+        conversation = Conversation(params=params, history=history)
+
+        self.assertEqual(conversation.params, params)
+        self.assertEqual(conversation.history, history)
+
+
+class TestAppendResponseEmbeds(unittest.TestCase):
+    def test_append_response_embeds_short(self):
         """Test append_response_embeds with short text."""
         embeds = []
-        self.append_response_embeds(embeds, "Hello, World!")
+        append_response_embeds(embeds, "Hello, World!")
         self.assertEqual(len(embeds), 1)
         self.assertEqual(embeds[0].description, "Hello, World!")
         self.assertEqual(embeds[0].title, "Response")
 
-    async def test_append_response_embeds_long(self):
+    def test_append_response_embeds_long(self):
         """Test append_response_embeds with long text that needs chunking."""
         embeds = []
-        long_text = "A" * 7000  # Over the 3500 chunk limit
-        self.append_response_embeds(embeds, long_text)
+        long_text = "A" * 7000
+        append_response_embeds(embeds, long_text)
         self.assertEqual(len(embeds), 2)
         self.assertEqual(embeds[0].title, "Response")
         self.assertEqual(embeds[1].title, "Response (Part 2)")
 
-    async def test_append_response_embeds_very_long(self):
+    def test_append_response_embeds_very_long(self):
         """Test append_response_embeds truncates very long text."""
         embeds = []
-        very_long_text = "B" * 25000  # Over the 20000 truncation limit
-        self.append_response_embeds(embeds, very_long_text)
-        # Should truncate to ~19500 chars plus truncation message
+        very_long_text = "B" * 25000
+        append_response_embeds(embeds, very_long_text)
         total_length = sum(len(e.description) for e in embeds)
-        self.assertLess(total_length, 21000)  # Should be well under 25000
+        self.assertLess(total_length, 21000)
 
-    async def test_extract_tool_info_empty_output(self):
+
+class TestExtractToolInfo(unittest.TestCase):
+    def test_extract_tool_info_empty_output(self):
         """Test extract_tool_info with empty candidates."""
         response = SimpleNamespace(candidates=[])
-        tool_info = self.extract_tool_info(response)
+        tool_info = extract_tool_info(response)
         self.assertEqual(tool_info["tools_used"], [])
         self.assertEqual(tool_info["citations"], [])
         self.assertEqual(tool_info["search_queries"], [])
 
-    async def test_extract_tool_info_google_search(self):
+    def test_extract_tool_info_google_search(self):
         """Test extract_tool_info detects google_search and citations."""
         response = SimpleNamespace(
             candidates=[
@@ -139,7 +213,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        tool_info = self.extract_tool_info(response)
+        tool_info = extract_tool_info(response)
         self.assertIn("google_search", tool_info["tools_used"])
         self.assertEqual(tool_info["search_queries"], ["who won euro 2024"])
         self.assertEqual(
@@ -147,7 +221,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             [{"title": "Example Source", "uri": "https://example.com/source"}],
         )
 
-    async def test_extract_tool_info_code_execution(self):
+    def test_extract_tool_info_code_execution(self):
         """Test extract_tool_info detects code_execution from response parts."""
         response = SimpleNamespace(
             candidates=[
@@ -165,12 +239,12 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        tool_info = self.extract_tool_info(response)
+        tool_info = extract_tool_info(response)
         self.assertIn("code_execution", tool_info["tools_used"])
         self.assertEqual(tool_info["citations"], [])
         self.assertEqual(tool_info["search_queries"], [])
 
-    async def test_extract_tool_info_google_maps(self):
+    def test_extract_tool_info_google_maps(self):
         """Test extract_tool_info detects google_maps citations and widget token."""
         response = SimpleNamespace(
             candidates=[
@@ -194,7 +268,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        tool_info = self.extract_tool_info(response)
+        tool_info = extract_tool_info(response)
         self.assertIn("google_maps", tool_info["tools_used"])
         self.assertEqual(
             tool_info["citations"],
@@ -202,7 +276,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(tool_info["maps_widget_token"], "widgetcontent/token")
 
-    async def test_extract_tool_info_url_context(self):
+    def test_extract_tool_info_url_context(self):
         """Test extract_tool_info detects url_context metadata."""
         response = SimpleNamespace(
             candidates=[
@@ -221,7 +295,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        tool_info = self.extract_tool_info(response)
+        tool_info = extract_tool_info(response)
         self.assertIn("url_context", tool_info["tools_used"])
         self.assertEqual(
             tool_info["url_context_sources"],
@@ -233,7 +307,7 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_extract_tool_info_file_search_via_retrieval_metadata(self):
+    def test_extract_tool_info_file_search_via_retrieval_metadata(self):
         """Test extract_tool_info detects file_search via retrieval_metadata."""
         response = SimpleNamespace(
             candidates=[
@@ -259,22 +333,17 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        tool_info = self.extract_tool_info(response)
+        tool_info = extract_tool_info(response)
         self.assertIn("file_search", tool_info["tools_used"])
 
-    async def test_extract_tool_info_file_search_fallback(self):
+    def test_extract_tool_info_file_search_fallback(self):
         """Test extract_tool_info detects file_search when grounding chunks present without search/maps."""
         response = SimpleNamespace(
             candidates=[
                 SimpleNamespace(
                     grounding_metadata=SimpleNamespace(
                         web_search_queries=[],
-                        grounding_chunks=[
-                            SimpleNamespace(
-                                web=None,
-                                maps=None,
-                            )
-                        ],
+                        grounding_chunks=[SimpleNamespace(web=None, maps=None)],
                         search_entry_point=None,
                         google_maps_widget_context_token=None,
                     ),
@@ -284,107 +353,11 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        tool_info = self.extract_tool_info(response)
+        tool_info = extract_tool_info(response)
         self.assertIn("file_search", tool_info["tools_used"])
 
-    async def test_get_http_session_creates_session(self):
-        """Test that _get_http_session creates a new session."""
-        self.assertIsNone(self.cog._http_session)
-        session = await self.cog._get_http_session()
-        self.assertIsNotNone(session)
-        self.assertEqual(self.cog._http_session, session)
-        # Clean up
-        await session.close()
 
-    async def test_get_http_session_reuses_session(self):
-        """Test that _get_http_session reuses existing session."""
-        session1 = await self.cog._get_http_session()
-        session2 = await self.cog._get_http_session()
-        self.assertEqual(session1, session2)
-        # Clean up
-        await session1.close()
-
-    async def test_conversation_dataclass(self):
-        """Test the Conversation dataclass."""
-        from util import ChatCompletionParameters
-
-        params = ChatCompletionParameters(model="gemini-3-flash-preview")
-        history = [{"role": "user", "parts": [{"text": "Hello"}]}]
-        conversation = self.Conversation(params=params, history=history)
-
-        self.assertEqual(conversation.params, params)
-        self.assertEqual(conversation.history, history)
-
-    async def test_on_message_ignores_bot(self):
-        """Test that on_message ignores messages from the bot itself."""
-        message = MagicMock()
-        message.author = self.bot.user
-
-        # Should return early without processing
-        await self.cog.on_message(message)
-
-        # No conversations should be affected
-        self.assertEqual(len(self.cog.conversations), 0)
-
-    async def test_on_message_no_matching_conversation(self):
-        """Test that on_message handles no matching conversation gracefully."""
-        message = MagicMock()
-        message.author = MagicMock()
-        message.author.id = 999
-        message.channel = MagicMock()
-        message.channel.id = 888
-        message.content = "Hello"
-
-        # Should complete without errors
-        await self.cog.on_message(message)
-
-    async def test_cog_unload_closes_session(self):
-        """Test that cog_unload closes the HTTP session."""
-        # Create a session first
-        session = await self.cog._get_http_session()
-        self.assertFalse(session.closed)
-
-        # Unload the cog
-        self.cog.cog_unload()
-
-        # Session should be closed or set to None
-        self.assertIsNone(self.cog._http_session)
-
-
-class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        # Mock the auth module before importing GeminiAPI
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
-                )
-            },
-        )
-        self.auth_patcher.start()
-
-        # Mock the genai Client
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        # Configure the mock client's async interface
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
-
-        from gemini_api import GeminiAPI
-
-        intents = Intents.default()
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
-        self.cog = GeminiAPI(bot=self.bot)
-
-    async def asyncTearDown(self):
-        self.auth_patcher.stop()
-        self.genai_patcher.stop()
+class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
     async def test_fetch_attachment_bytes_success(self):
         """Test successful attachment download."""
@@ -683,55 +656,10 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(user, self.cog.views)
 
 
-class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
+class TestGeminiImageResponseText(unittest.TestCase):
     """Tests for image generation text response handling and truncation."""
 
-    async def asyncSetUp(self):
-        # Mock the auth module
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
-                )
-            },
-        )
-        self.auth_patcher.start()
-
-        # Mock the genai Client
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
-
-        from gemini_api import GeminiAPI
-
-        intents = Intents.default()
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
-        self.cog = GeminiAPI(bot=self.bot)
-
-    async def asyncTearDown(self):
-        self.auth_patcher.stop()
-        self.genai_patcher.stop()
-
-    async def test_prompt_prefix_for_generation(self):
-        """Test that prompts are prefixed with 'Create image:' for Gemini models."""
-        # Placeholder test - would need to mock the API response
-        # The logic is tested indirectly through integration tests
-        pass
-
-    async def test_prompt_unchanged_for_editing(self):
-        """Test that prompts are NOT prefixed when an attachment is provided."""
-        # Placeholder test - would need to mock the API response
-        # The logic is tested indirectly through integration tests
-        pass
-
-    async def test_text_response_truncation_under_limit(self):
+    def test_text_response_truncation_under_limit(self):
         """Test that short text responses are not truncated."""
         short_text = "This is a short response"
         max_length = 3800
@@ -742,7 +670,7 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(truncated, short_text)
         self.assertNotIn("...", truncated)
 
-    async def test_text_response_truncation_over_limit(self):
+    def test_text_response_truncation_over_limit(self):
         """Test that long text responses are truncated to 3800 chars."""
         long_text = "A" * 5000  # Exceeds 3800 char limit
         max_length = 3800
@@ -753,7 +681,7 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(truncated), max_length + 3)  # 3800 + "..."
         self.assertTrue(truncated.endswith("..."))
 
-    async def test_text_response_fits_in_discord_embed(self):
+    def test_text_response_fits_in_discord_embed(self):
         """Test that truncated text + other content fits Discord's 4096 char limit."""
         # Maximum text we allow
         max_text_length = 3800
@@ -773,7 +701,7 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         # Discord's limit is 4096 characters
         self.assertLessEqual(len(embed_description), 4096)
 
-    async def test_user_prompt_truncation_under_limit(self):
+    def test_user_prompt_truncation_under_limit(self):
         """Test that short user prompts are not truncated."""
         short_prompt = "Generate a beautiful sunset"
         max_length = 2000
@@ -786,7 +714,7 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(truncated, short_prompt)
         self.assertNotIn("...", truncated)
 
-    async def test_user_prompt_truncation_over_limit(self):
+    def test_user_prompt_truncation_over_limit(self):
         """Test that long user prompts are truncated to 2000 chars."""
         long_prompt = "A" * 3000  # Exceeds 2000 char limit
         max_length = 2000
@@ -799,7 +727,7 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(truncated), max_length + 3)  # 2000 + "..."
         self.assertTrue(truncated.endswith("..."))
 
-    async def test_user_prompt_truncation_fits_embed(self):
+    def test_user_prompt_truncation_fits_embed(self):
         """Test that truncated prompt + metadata fits Discord's 4096 char limit."""
         max_prompt_length = 2000
         huge_prompt = "C" * 5000
@@ -818,6 +746,42 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
 
         # Discord's limit is 4096 characters
         self.assertLessEqual(len(embed_description), 4096)
+
+
+class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
+    """Tests for Gemini image generation config."""
+
+    async def test_prompt_prefix_for_generation(self):
+        """Test that prompts are prefixed with 'Create image:' for Gemini models."""
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image-preview")
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        self.assertEqual(call_kwargs.kwargs["contents"], "Create image: A cat")
+
+    async def test_prompt_unchanged_for_editing(self):
+        """Test that prompts are NOT prefixed when an attachment is provided."""
+        from util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="Edit this cat",
+            model="gemini-3.1-flash-image-preview",
+        )
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=None)
+
+        await self.cog._generate_image_with_gemini(params, attachment=MagicMock())
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        self.assertEqual(call_kwargs.kwargs["contents"], "Edit this cat")
 
     async def test_generate_image_with_gemini_default_config(self):
         """Test that default config has response_modalities and no custom image_config/tools."""
@@ -959,41 +923,13 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(config.tools[0].google_search.search_types.image_search)
 
 
-class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
+class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
     """Tests for deep research helper methods."""
 
     async def asyncSetUp(self):
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
-                )
-            },
-        )
-        self.auth_patcher.start()
-
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
-        mock_client_instance.aio.interactions.create = AsyncMock()
-        mock_client_instance.aio.interactions.get = AsyncMock()
-
-        from gemini_api import GeminiAPI
-
-        intents = Intents.default()
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
-        self.cog = GeminiAPI(bot=self.bot)
-
-    async def asyncTearDown(self):
-        self.auth_patcher.stop()
-        self.genai_patcher.stop()
+        await super().asyncSetUp()
+        self.mock_client_instance.aio.interactions.create = AsyncMock()
+        self.mock_client_instance.aio.interactions.get = AsyncMock()
 
     async def test_run_deep_research_success(self):
         """Test _run_deep_research with a successful completion."""
@@ -1221,47 +1157,14 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         self.assertIn("...", embeds[0].description)
 
 
-class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
+class TestGeminiAPIPricing(GeminiCogTestCase):
     """Tests for pricing embed and daily cost tracking."""
 
-    async def asyncSetUp(self):
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
-                )
-            },
-        )
-        self.auth_patcher.start()
-
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
-
-        from gemini_api import GeminiAPI, append_pricing_embed
-
-        self.append_pricing_embed = append_pricing_embed
-
-        intents = Intents.default()
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
-        self.cog = GeminiAPI(bot=self.bot)
-
-    async def asyncTearDown(self):
-        self.auth_patcher.stop()
-        self.genai_patcher.stop()
-
-    async def test_cog_init_daily_costs(self):
+    def test_cog_init_daily_costs(self):
         """Test that GeminiAPI cog initializes daily_costs dict."""
         self.assertEqual(self.cog.daily_costs, {})
 
-    async def test_track_daily_cost_accumulates(self):
+    def test_track_daily_cost_accumulates(self):
         """Test that _track_daily_cost accumulates costs for the same user and day."""
         daily1 = self.cog._track_daily_cost(user_id=12345, cost=0.50)
         self.assertAlmostEqual(daily1, 0.50)
@@ -1270,16 +1173,16 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         daily2 = self.cog._track_daily_cost(user_id=12345, cost=0.50)
         self.assertAlmostEqual(daily2, 1.00)
 
-    async def test_track_daily_cost_separate_users(self):
+    def test_track_daily_cost_separate_users(self):
         """Test that _track_daily_cost tracks users independently."""
         self.cog._track_daily_cost(user_id=111, cost=0.10)
         daily_user2 = self.cog._track_daily_cost(user_id=222, cost=0.10)
         self.assertAlmostEqual(daily_user2, 0.10)
 
-    async def test_append_pricing_embed(self):
+    def test_append_pricing_embed(self):
         """Test that append_pricing_embed creates a Gemini Blue embed with cost info."""
         embeds = []
-        self.append_pricing_embed(
+        append_pricing_embed(
             embeds,
             "gemini-2.0-flash",
             input_tokens=500_000,
@@ -1293,10 +1196,10 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         self.assertIn("200,000 tokens out", embed.description)
         self.assertIn("daily $1.25", embed.description)
 
-    async def test_append_pricing_embed_zero_tokens(self):
+    def test_append_pricing_embed_zero_tokens(self):
         """Test pricing embed with zero tokens."""
         embeds = []
-        self.append_pricing_embed(
+        append_pricing_embed(
             embeds,
             "gemini-2.5-pro",
             input_tokens=0,
@@ -1309,42 +1212,14 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         self.assertIn("0 tokens out", embeds[0].description)
 
 
-class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
+class TestGeminiAPICaching(AsyncGeminiCogTestCase):
     """Tests for explicit context caching logic."""
 
     async def asyncSetUp(self):
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
-                )
-            },
-        )
-        self.auth_patcher.start()
-
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
-        mock_client_instance.aio.caches.create = AsyncMock()
-        mock_client_instance.aio.caches.delete = AsyncMock()
-        mock_client_instance.aio.caches.update = AsyncMock()
-
-        from gemini_api import GeminiAPI
-
-        intents = Intents.default()
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
-        self.cog = GeminiAPI(bot=self.bot)
-
-    async def asyncTearDown(self):
-        self.auth_patcher.stop()
-        self.genai_patcher.stop()
+        await super().asyncSetUp()
+        self.mock_client_instance.aio.caches.create = AsyncMock()
+        self.mock_client_instance.aio.caches.delete = AsyncMock()
+        self.mock_client_instance.aio.caches.update = AsyncMock()
 
     async def test_maybe_create_cache_below_threshold(self):
         """Test that _maybe_create_cache does nothing when below token threshold."""
@@ -1592,132 +1467,85 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
 class TestGuessUrlMimeType(unittest.TestCase):
     """Tests for _guess_url_mime_type YouTube detection and fallback."""
 
-    def setUp(self):
-        from gemini_api import _guess_url_mime_type
-
-        self._guess_url_mime_type = _guess_url_mime_type
-
     def test_youtube_long_url(self):
-        result = self._guess_url_mime_type("https://www.youtube.com/watch?v=abc123")
+        result = _guess_url_mime_type("https://www.youtube.com/watch?v=abc123")
         self.assertEqual(result, "video/mp4")
 
     def test_youtube_short_url(self):
-        result = self._guess_url_mime_type("https://youtu.be/abc123")
+        result = _guess_url_mime_type("https://youtu.be/abc123")
         self.assertEqual(result, "video/mp4")
 
     def test_youtube_no_scheme(self):
-        result = self._guess_url_mime_type("youtube.com/watch?v=abc123")
+        result = _guess_url_mime_type("youtube.com/watch?v=abc123")
         self.assertEqual(result, "video/mp4")
 
     def test_youtube_http(self):
-        result = self._guess_url_mime_type("http://www.youtube.com/watch?v=abc123")
+        result = _guess_url_mime_type("http://www.youtube.com/watch?v=abc123")
         self.assertEqual(result, "video/mp4")
 
     def test_regular_image_url(self):
-        result = self._guess_url_mime_type("https://example.com/photo.jpg")
+        result = _guess_url_mime_type("https://example.com/photo.jpg")
         self.assertEqual(result, "image/jpeg")
 
     def test_regular_pdf_url(self):
-        result = self._guess_url_mime_type("https://example.com/doc.pdf")
+        result = _guess_url_mime_type("https://example.com/doc.pdf")
         self.assertEqual(result, "application/pdf")
 
     def test_unknown_url_fallback(self):
-        result = self._guess_url_mime_type("https://example.com/api/data")
+        result = _guess_url_mime_type("https://example.com/api/data")
         self.assertEqual(result, "application/octet-stream")
 
 
-class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
+class TestThinkingFeatures(GeminiCogTestCase):
     """Tests for thinking config, thinking embeds, and response part extraction."""
 
-    async def asyncSetUp(self):
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1"],
-                )
-            },
-        )
-        self.auth_patcher.start()
-
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
-
-        from gemini_api import (
-            GeminiAPI,
-            _build_thinking_config,
-            _get_response_content_parts,
-            append_pricing_embed,
-            append_thinking_embeds,
-            extract_thinking_text,
-        )
-
-        self.append_thinking_embeds = append_thinking_embeds
-        self.append_pricing_embed = append_pricing_embed
-        self.extract_thinking_text = extract_thinking_text
-        self._get_response_content_parts = _get_response_content_parts
-        self._build_thinking_config = _build_thinking_config
-
-        intents = Intents.default()
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
-        self.cog = GeminiAPI(bot=self.bot)
-
-    async def asyncTearDown(self):
-        self.auth_patcher.stop()
-        self.genai_patcher.stop()
+    file_search_store_ids = ["store-1"]
 
     # --- _build_thinking_config ---
 
-    async def test_build_thinking_config_none_when_no_params(self):
+    def test_build_thinking_config_none_when_no_params(self):
         """Test that _build_thinking_config returns None when both params are None."""
-        result = self._build_thinking_config(None, None)
+        result = _build_thinking_config(None, None)
         self.assertIsNone(result)
 
-    async def test_build_thinking_config_with_level(self):
+    def test_build_thinking_config_with_level(self):
         """Test that _build_thinking_config sets thinking_level and include_thoughts."""
-        result = self._build_thinking_config("high", None)
+        result = _build_thinking_config("high", None)
         self.assertIsNotNone(result)
         # SDK converts string to ThinkingLevel enum
         self.assertIn("HIGH", str(result.thinking_level))
         self.assertTrue(result.include_thoughts)
 
-    async def test_build_thinking_config_with_budget(self):
+    def test_build_thinking_config_with_budget(self):
         """Test that _build_thinking_config sets thinking_budget and include_thoughts."""
-        result = self._build_thinking_config(None, 1024)
+        result = _build_thinking_config(None, 1024)
         self.assertIsNotNone(result)
         self.assertEqual(result.thinking_budget, 1024)
         self.assertTrue(result.include_thoughts)
 
-    async def test_build_thinking_config_with_both(self):
+    def test_build_thinking_config_with_both(self):
         """Test that _build_thinking_config sets both level and budget."""
-        result = self._build_thinking_config("low", 512)
+        result = _build_thinking_config("low", 512)
         self.assertIsNotNone(result)
         self.assertIn("LOW", str(result.thinking_level))
         self.assertEqual(result.thinking_budget, 512)
         self.assertTrue(result.include_thoughts)
 
-    async def test_build_thinking_config_budget_zero(self):
+    def test_build_thinking_config_budget_zero(self):
         """Test that _build_thinking_config handles budget=0 (disable thinking)."""
-        result = self._build_thinking_config(None, 0)
+        result = _build_thinking_config(None, 0)
         self.assertIsNotNone(result)
         self.assertEqual(result.thinking_budget, 0)
 
-    async def test_build_thinking_config_budget_dynamic(self):
+    def test_build_thinking_config_budget_dynamic(self):
         """Test that _build_thinking_config handles budget=-1 (dynamic)."""
-        result = self._build_thinking_config(None, -1)
+        result = _build_thinking_config(None, -1)
         self.assertIsNotNone(result)
         self.assertEqual(result.thinking_budget, -1)
 
     # --- extract_thinking_text ---
 
-    async def test_extract_thinking_text_with_thoughts(self):
+    def test_extract_thinking_text_with_thoughts(self):
         """Test extracting thought summaries from response parts."""
         response = SimpleNamespace(
             candidates=[
@@ -1731,10 +1559,10 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
                 )
             ]
         )
-        result = self.extract_thinking_text(response)
+        result = extract_thinking_text(response)
         self.assertEqual(result, "Let me think...")
 
-    async def test_extract_thinking_text_multiple_thought_parts(self):
+    def test_extract_thinking_text_multiple_thought_parts(self):
         """Test extracting multiple thought summary parts."""
         response = SimpleNamespace(
             candidates=[
@@ -1749,10 +1577,10 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
                 )
             ]
         )
-        result = self.extract_thinking_text(response)
+        result = extract_thinking_text(response)
         self.assertEqual(result, "Step 1: analyze\n\nStep 2: compute")
 
-    async def test_extract_thinking_text_no_thoughts(self):
+    def test_extract_thinking_text_no_thoughts(self):
         """Test that no thinking text is returned when there are no thought parts."""
         response = SimpleNamespace(
             candidates=[
@@ -1765,60 +1593,60 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
                 )
             ]
         )
-        result = self.extract_thinking_text(response)
+        result = extract_thinking_text(response)
         self.assertEqual(result, "")
 
-    async def test_extract_thinking_text_empty_response(self):
+    def test_extract_thinking_text_empty_response(self):
         """Test extracting thinking text from an empty response."""
         response = SimpleNamespace(candidates=[])
-        result = self.extract_thinking_text(response)
+        result = extract_thinking_text(response)
         self.assertEqual(result, "")
 
-    async def test_extract_thinking_text_no_candidates(self):
+    def test_extract_thinking_text_no_candidates(self):
         """Test extracting thinking text when candidates is None."""
         response = SimpleNamespace(candidates=None)
-        result = self.extract_thinking_text(response)
+        result = extract_thinking_text(response)
         self.assertEqual(result, "")
 
     # --- _get_response_content_parts ---
 
-    async def test_get_response_content_parts_returns_parts(self):
+    def test_get_response_content_parts_returns_parts(self):
         """Test that response parts are extracted correctly."""
         part1 = SimpleNamespace(text="Hello", thought=False)
         part2 = SimpleNamespace(text="Thinking...", thought=True)
         response = SimpleNamespace(
             candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part1, part2]))]
         )
-        result = self._get_response_content_parts(response)
+        result = _get_response_content_parts(response)
         self.assertIsNotNone(result)
         self.assertEqual(len(result), 2)
         self.assertIs(result[0], part1)
         self.assertIs(result[1], part2)
 
-    async def test_get_response_content_parts_empty_candidates(self):
+    def test_get_response_content_parts_empty_candidates(self):
         """Test that None is returned for empty candidates."""
         response = SimpleNamespace(candidates=[])
-        result = self._get_response_content_parts(response)
+        result = _get_response_content_parts(response)
         self.assertIsNone(result)
 
-    async def test_get_response_content_parts_no_content(self):
+    def test_get_response_content_parts_no_content(self):
         """Test that None is returned when content is None."""
         response = SimpleNamespace(candidates=[SimpleNamespace(content=None)])
-        result = self._get_response_content_parts(response)
+        result = _get_response_content_parts(response)
         self.assertIsNone(result)
 
-    async def test_get_response_content_parts_no_parts(self):
+    def test_get_response_content_parts_no_parts(self):
         """Test that None is returned when parts is empty."""
         response = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))])
-        result = self._get_response_content_parts(response)
+        result = _get_response_content_parts(response)
         self.assertIsNone(result)
 
     # --- append_thinking_embeds ---
 
-    async def test_append_thinking_embeds_with_text(self):
+    def test_append_thinking_embeds_with_text(self):
         """Test that thinking embed is created with spoilered text."""
         embeds = []
-        self.append_thinking_embeds(embeds, "My thought process")
+        append_thinking_embeds(embeds, "My thought process")
         self.assertEqual(len(embeds), 1)
         self.assertEqual(embeds[0].title, "Thinking")
         self.assertEqual(embeds[0].description, "||My thought process||")
@@ -1827,17 +1655,17 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(embeds[0].color, Colour.light_grey())
 
-    async def test_append_thinking_embeds_empty_text(self):
+    def test_append_thinking_embeds_empty_text(self):
         """Test that no embed is created for empty thinking text."""
         embeds = []
-        self.append_thinking_embeds(embeds, "")
+        append_thinking_embeds(embeds, "")
         self.assertEqual(len(embeds), 0)
 
-    async def test_append_thinking_embeds_truncates_long_text(self):
+    def test_append_thinking_embeds_truncates_long_text(self):
         """Test that long thinking text is truncated."""
         embeds = []
         long_text = "A" * 4000  # Over 3500 limit
-        self.append_thinking_embeds(embeds, long_text)
+        append_thinking_embeds(embeds, long_text)
         self.assertEqual(len(embeds), 1)
         self.assertIn("[thinking truncated]", embeds[0].description)
         # Check total length is under Discord limit (spoiler markers add 4 chars)
@@ -1845,10 +1673,10 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
 
     # --- pricing with thinking tokens ---
 
-    async def test_append_pricing_embed_with_thinking_tokens(self):
+    def test_append_pricing_embed_with_thinking_tokens(self):
         """Test pricing embed shows thinking token count."""
         embeds = []
-        self.append_pricing_embed(
+        append_pricing_embed(
             embeds,
             "gemini-3-flash-preview",
             input_tokens=100_000,
@@ -1861,10 +1689,10 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertIn("100,000 in", embeds[0].description)
         self.assertIn("50,000 out", embeds[0].description)
 
-    async def test_append_pricing_embed_zero_thinking_tokens(self):
+    def test_append_pricing_embed_zero_thinking_tokens(self):
         """Test pricing embed omits thinking when zero."""
         embeds = []
-        self.append_pricing_embed(
+        append_pricing_embed(
             embeds,
             "gemini-2.5-flash",
             input_tokens=100_000,
@@ -1876,7 +1704,7 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("thinking", embeds[0].description)
         self.assertIn("tokens in", embeds[0].description)
 
-    async def test_track_daily_cost_with_thinking_tokens(self):
+    def test_track_daily_cost_with_thinking_tokens(self):
         """Test that _track_daily_cost accumulates pre-calculated cost including thinking."""
         from util import calculate_cost
 
@@ -1887,10 +1715,10 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         # $0.10 + ($0.40 * 1.0) = $0.50
         self.assertAlmostEqual(daily, 0.50)
 
-    async def test_append_pricing_embed_with_maps_grounding(self):
+    def test_append_pricing_embed_with_maps_grounding(self):
         """Test pricing embed includes Maps grounding surcharge."""
         embeds = []
-        self.append_pricing_embed(
+        append_pricing_embed(
             embeds,
             "gemini-2.5-flash",
             input_tokens=1000,
@@ -1901,10 +1729,10 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(embeds), 1)
         self.assertIn("Maps grounded", embeds[0].description)
 
-    async def test_append_pricing_embed_without_maps_grounding(self):
+    def test_append_pricing_embed_without_maps_grounding(self):
         """Test pricing embed omits Maps label when not grounded."""
         embeds = []
-        self.append_pricing_embed(
+        append_pricing_embed(
             embeds,
             "gemini-2.5-flash",
             input_tokens=1000,
@@ -1915,7 +1743,7 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(embeds), 1)
         self.assertNotIn("Maps", embeds[0].description)
 
-    async def test_log_cost_basic(self):
+    def test_log_cost_basic(self):
         """Test that _log_cost calls logger.info with structured cost data."""
         self.cog.logger = MagicMock()
         self.cog._log_cost(
@@ -1934,13 +1762,13 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertIn("command=%s", fmt)
         self.assertIn("daily=$%.4f", fmt)
 
-    async def test_log_cost_no_details(self):
+    def test_log_cost_no_details(self):
         """Test _log_cost with no extra detail kwargs."""
         self.cog.logger = MagicMock()
         self.cog._log_cost("video", 999, "veo-3.1-generate-preview", 3.20, 5.00)
         self.cog.logger.info.assert_called_once()
 
-    async def test_log_cost_image_details(self):
+    def test_log_cost_image_details(self):
         """Test _log_cost with image-specific details."""
         self.cog.logger = MagicMock()
         self.cog._log_cost(
@@ -1958,81 +1786,56 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertIn("images=2", str(call_args))
 
 
-class TestVideoResponseEmbed(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.auth_patcher = patch.dict(
-            "sys.modules",
-            {
-                "config.auth": MagicMock(
-                    GEMINI_API_KEY="test-api-key",
-                    GUILD_IDS=[123456789],
-                    GEMINI_FILE_SEARCH_STORE_IDS=["store-1", "store-2"],
-                )
-            },
-        )
-        self.auth_patcher.start()
-
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        mock_client_instance = self.mock_genai_client.return_value
-        mock_client_instance.aio.aclose = AsyncMock()
-        mock_client_instance.close = MagicMock()
-
-        from gemini_api import GeminiAPI
-        from util import VideoGenerationParameters
-
-        intents = Intents.default()
-        intents.message_content = True
-        self.bot = Bot(intents=intents)
-        self.cog = GeminiAPI(bot=self.bot)
-        self.VideoGenerationParameters = VideoGenerationParameters
-
-    async def asyncTearDown(self):
-        self.auth_patcher.stop()
-        self.genai_patcher.stop()
+class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
+    async def _assert_video_mode(self, params, expected_mode, attachment=None):
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as video_file:
+            embed, files = await self.cog._create_video_response_embed(
+                video_params=params,
+                generated_videos=[video_file.name],
+                attachment=attachment,
+            )
+            for file in files:
+                file.close()
+        self.assertIn(expected_mode, embed.description)
+        self.assertEqual(len(files), 1)
 
     async def test_mode_text_to_video(self):
         """Test embed shows Text-to-Video mode when no attachments."""
-        params = self.VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
-        embed, _ = await self.cog._create_video_response_embed(
-            video_params=params, generated_videos=["test.mp4"], attachment=None
-        )
-        self.assertIn("Text-to-Video", embed.description)
+        from util import VideoGenerationParameters
+
+        params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
+        await self._assert_video_mode(params, "Text-to-Video")
 
     async def test_mode_image_to_video(self):
         """Test embed shows Image-to-Video mode when attachment provided."""
-        params = self.VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
+        from util import VideoGenerationParameters
+
+        params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
         mock_attachment = MagicMock()
-        embed, _ = await self.cog._create_video_response_embed(
-            video_params=params, generated_videos=["test.mp4"], attachment=mock_attachment
-        )
-        self.assertIn("Image-to-Video", embed.description)
+        await self._assert_video_mode(params, "Image-to-Video", attachment=mock_attachment)
 
     async def test_mode_interpolation(self):
         """Test embed shows Interpolation mode when both attachment and last_frame."""
-        params = self.VideoGenerationParameters(
+        from util import VideoGenerationParameters
+
+        params = VideoGenerationParameters(
             prompt="A sunset",
             model="veo-3.1-generate-preview",
             has_last_frame=True,
         )
         mock_attachment = MagicMock()
-        embed, _ = await self.cog._create_video_response_embed(
-            video_params=params, generated_videos=["test.mp4"], attachment=mock_attachment
-        )
-        self.assertIn("Interpolation", embed.description)
+        await self._assert_video_mode(params, "Interpolation", attachment=mock_attachment)
 
     async def test_mode_last_frame_only(self):
         """Test embed shows Last Frame Constrained mode when only last_frame."""
-        params = self.VideoGenerationParameters(
+        from util import VideoGenerationParameters
+
+        params = VideoGenerationParameters(
             prompt="A sunset",
             model="veo-3.1-generate-preview",
             has_last_frame=True,
         )
-        embed, _ = await self.cog._create_video_response_embed(
-            video_params=params, generated_videos=["test.mp4"], attachment=None
-        )
-        self.assertIn("Last Frame Constrained", embed.description)
+        await self._assert_video_mode(params, "Last Frame Constrained")
 
 
 class TestTemperatureWarning(unittest.TestCase):
