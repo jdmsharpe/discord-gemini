@@ -6,6 +6,7 @@ COPY ./requirements.txt /bot
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements.txt
 
 # Copy the source and test directories
+COPY ./pyproject.toml /bot/
 COPY ./src /bot/src/
 COPY ./tests /bot/tests/
 
