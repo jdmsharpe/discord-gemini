@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from dataclasses import dataclass, field
+from typing import Any
 
 from discord import Member, User
 
@@ -15,7 +15,7 @@ TOOL_CUSTOM_FUNCTIONS = {"_custom_functions": True}  # Sentinel for ButtonView t
 # Note: Some models (gemini-2.5-pro, gemini-3.1-pro-preview) have tiered
 # pricing for prompts >200K tokens. We use the lower-tier rate as an
 # approximation; actual cost may be higher for very long conversations.
-MODEL_PRICING: Dict[str, Tuple[float, float]] = {
+MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gemini-3.1-pro-preview": (2.0, 12.0),
     "gemini-3.1-flash-lite-preview": (0.25, 1.50),
     "gemini-3-flash-preview": (0.50, 3.0),
@@ -30,23 +30,38 @@ MODEL_PRICING: Dict[str, Tuple[float, float]] = {
 #   (input_per_M_tokens, {image_size: cost_per_image})
 # Gemini image models: input is token-based, output is per-image with resolution tiers.
 # Imagen models: flat per-image pricing (no input token cost, no resolution tiers).
-IMAGE_PRICING: Dict[str, Tuple[float, Dict[Optional[str], float]]] = {
-    "gemini-3.1-flash-image-preview": (0.50, {
-        None: 0.067, "1k": 0.067, "2k": 0.101,
-    }),
-    "gemini-3-pro-image-preview": (2.00, {
-        None: 0.134, "1k": 0.134, "2k": 0.134,
-    }),
-    "gemini-2.5-flash-image": (0.30, {
-        None: 0.039, "1k": 0.039, "2k": 0.039,
-    }),
+IMAGE_PRICING: dict[str, tuple[float, dict[str | None, float]]] = {
+    "gemini-3.1-flash-image-preview": (
+        0.50,
+        {
+            None: 0.067,
+            "1k": 0.067,
+            "2k": 0.101,
+        },
+    ),
+    "gemini-3-pro-image-preview": (
+        2.00,
+        {
+            None: 0.134,
+            "1k": 0.134,
+            "2k": 0.134,
+        },
+    ),
+    "gemini-2.5-flash-image": (
+        0.30,
+        {
+            None: 0.039,
+            "1k": 0.039,
+            "2k": 0.039,
+        },
+    ),
     "imagen-4.0-generate-001": (0.0, {None: 0.04}),
     "imagen-4.0-ultra-generate-001": (0.0, {None: 0.06}),
     "imagen-4.0-fast-generate-001": (0.0, {None: 0.02}),
 }
 
 # Per-second pricing for video generation models
-VIDEO_PRICING: Dict[str, float] = {
+VIDEO_PRICING: dict[str, float] = {
     "veo-3.1-generate-preview": 0.40,
     "veo-3.1-fast-generate-preview": 0.15,
     "veo-3.0-generate-001": 0.40,
@@ -55,7 +70,7 @@ VIDEO_PRICING: Dict[str, float] = {
 }
 
 # Per-million-token pricing for TTS models: (input_cost, output_cost)
-TTS_PRICING: Dict[str, Tuple[float, float]] = {
+TTS_PRICING: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash-preview-tts": (0.50, 10.00),
     "gemini-2.5-pro-preview-tts": (1.00, 20.00),
 }
@@ -89,7 +104,7 @@ def calculate_image_cost(
     model: str,
     num_images: int,
     input_tokens: int = 0,
-    image_size: Optional[str] = None,
+    image_size: str | None = None,
 ) -> float:
     """Calculate the cost for image generation.
 
@@ -97,7 +112,7 @@ def calculate_image_cost(
     at the requested resolution (image_size). Falls back to default (1K) rate.
     For Imagen models, uses flat per-image pricing only.
     """
-    default_sizes: Dict[Optional[str], float] = {None: 0.067}
+    default_sizes: dict[str | None, float] = {None: 0.067}
     input_rate, size_prices = IMAGE_PRICING.get(model, (0.50, default_sizes))
     # Normalize image_size to lowercase for lookup
     key = image_size.lower() if image_size else None
@@ -105,27 +120,22 @@ def calculate_image_cost(
     return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost
 
 
-def calculate_video_cost(
-    model: str, duration_seconds: int, num_videos: int = 1
-) -> float:
+def calculate_video_cost(model: str, duration_seconds: int, num_videos: int = 1) -> float:
     """Calculate the cost for video generation (per-second pricing)."""
     price_per_second = VIDEO_PRICING.get(model, 0.35)
     return duration_seconds * num_videos * price_per_second
 
 
-def calculate_tts_cost(
-    model: str, input_tokens: int, output_tokens: int
-) -> float:
+def calculate_tts_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Calculate the cost for text-to-speech generation."""
     input_price, output_price = TTS_PRICING.get(model, (0.50, 10.00))
-    return (input_tokens / 1_000_000) * input_price + (
-        output_tokens / 1_000_000
-    ) * output_price
+    return (input_tokens / 1_000_000) * input_price + (output_tokens / 1_000_000) * output_price
+
 
 # Minimum input token counts required for explicit context caching per model.
 # Models not listed here rely on implicit caching (automatic, no dev work).
 # Only Gemini 3.x models use explicit caching; 2.5 and below use implicit.
-CACHE_MIN_TOKEN_COUNT: Dict[str, int] = {
+CACHE_MIN_TOKEN_COUNT: dict[str, int] = {
     "gemini-3.1-pro-preview": 4096,
     "gemini-3-flash-preview": 1024,
 }
@@ -154,12 +164,12 @@ AVAILABLE_TOOLS = {
 FILE_SEARCH_INCOMPATIBLE_TOOLS = frozenset({"google_search", "google_maps", "url_context"})
 
 # Sets of tools that are mutually exclusive — only one from each set can be active at a time.
-MUTUALLY_EXCLUSIVE_TOOLS: List[Tuple[str, str]] = [
+MUTUALLY_EXCLUSIVE_TOOLS: list[tuple[str, str]] = [
     ("google_search", "google_maps"),
 ]
 
 # Model-specific compatibility constraints for tools that are not universally supported.
-TOOL_MODEL_COMPATIBILITY: Dict[str, Set[str]] = {
+TOOL_MODEL_COMPATIBILITY: dict[str, set[str]] = {
     "google_maps": {
         "gemini-3.1-pro-preview",
         "gemini-3.1-flash-lite-preview",
@@ -191,24 +201,24 @@ class ChatCompletionParameters:
     """A dataclass to store the parameters for a chat completion."""
 
     model: str
-    system_instruction: Optional[str] = None
-    frequency_penalty: Optional[float] = None
-    presence_penalty: Optional[float] = None
-    seed: Optional[int] = None
-    temperature: Optional[float] = None
-    top_p: Optional[float] = None
-    media_resolution: Optional[str] = None
-    thinking_level: Optional[str] = None
-    thinking_budget: Optional[int] = None
-    conversation_starter: Optional[Union[Member, User]] = None
-    conversation_id: Optional[int] = None
-    channel_id: Optional[int] = None
-    paused: Optional[bool] = False
-    history: List[Dict[str, Any]] = field(default_factory=list)
-    tools: List[Dict[str, Any]] = field(default_factory=list)
-    cache_name: Optional[str] = None
+    system_instruction: str | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    seed: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    media_resolution: str | None = None
+    thinking_level: str | None = None
+    thinking_budget: int | None = None
+    conversation_starter: Member | User | None = None
+    conversation_id: int | None = None
+    channel_id: int | None = None
+    paused: bool | None = False
+    history: list[dict[str, Any]] = field(default_factory=list)
+    tools: list[dict[str, Any]] = field(default_factory=list)
+    cache_name: str | None = None
     cached_history_length: int = 0
-    uploaded_file_names: List[str] = field(default_factory=list)
+    uploaded_file_names: list[str] = field(default_factory=list)
     custom_functions_enabled: bool = False
 
 
@@ -219,12 +229,12 @@ class ImageGenerationParameters:
     prompt: str
     model: str
     number_of_images: int = 1
-    aspect_ratio: Optional[str] = None
-    person_generation: Optional[str] = None
-    negative_prompt: Optional[str] = None
-    seed: Optional[int] = None
-    guidance_scale: Optional[float] = None
-    image_size: Optional[str] = None
+    aspect_ratio: str | None = None
+    person_generation: str | None = None
+    negative_prompt: str | None = None
+    seed: int | None = None
+    guidance_scale: float | None = None
+    image_size: str | None = None
     google_image_search: bool = False
 
     def to_dict(self):
@@ -250,9 +260,7 @@ class ImageGenerationParameters:
                 "allow_all": "ALLOW_ALL",
             }
             if self.person_generation in person_gen_map:
-                config_dict["person_generation"] = person_gen_map[
-                    self.person_generation
-                ]
+                config_dict["person_generation"] = person_gen_map[self.person_generation]
 
         return config_dict
 
@@ -263,12 +271,12 @@ class VideoGenerationParameters:
 
     prompt: str
     model: str
-    aspect_ratio: Optional[str] = None
-    person_generation: Optional[str] = None
-    negative_prompt: Optional[str] = None
-    number_of_videos: Optional[int] = None
-    duration_seconds: Optional[int] = None
-    enhance_prompt: Optional[bool] = None
+    aspect_ratio: str | None = None
+    person_generation: str | None = None
+    negative_prompt: str | None = None
+    number_of_videos: int | None = None
+    duration_seconds: int | None = None
+    enhance_prompt: bool | None = None
     has_last_frame: bool = False
 
     def to_dict(self):
@@ -294,9 +302,7 @@ class VideoGenerationParameters:
                 "allow_all": "allow_all",
             }
             if self.person_generation in person_gen_map:
-                config_dict["person_generation"] = person_gen_map[
-                    self.person_generation
-                ]
+                config_dict["person_generation"] = person_gen_map[self.person_generation]
 
         return config_dict
 
@@ -307,17 +313,17 @@ class SpeechGenerationParameters:
 
     input_text: str
     model: str = "gemini-2.5-flash-preview-tts"
-    voice_name: Optional[str] = "Kore"
+    voice_name: str | None = "Kore"
     multi_speaker: bool = False
-    speaker_configs: Optional[List[Dict[str, str]]] = None
-    style_prompt: Optional[str] = None
+    speaker_configs: list[dict[str, str]] | None = None
+    style_prompt: str | None = None
 
     def to_dict(self):
         """Convert to dictionary for API calls, filtering out None values."""
-        config_dict: Dict[str, Any] = {"response_modalities": ["AUDIO"]}
+        config_dict: dict[str, Any] = {"response_modalities": ["AUDIO"]}
 
         # Add speech config
-        speech_config: Dict[str, Any] = {}
+        speech_config: dict[str, Any] = {}
 
         if self.multi_speaker and self.speaker_configs:
             # Multi-speaker configuration
@@ -327,9 +333,7 @@ class SpeechGenerationParameters:
                     {
                         "speaker": speaker_config["speaker"],
                         "voice_config": {
-                            "prebuilt_voice_config": {
-                                "voice_name": speaker_config["voice_name"]
-                            }
+                            "prebuilt_voice_config": {"voice_name": speaker_config["voice_name"]}
                         },
                     }
                 )
@@ -350,33 +354,33 @@ class SpeechGenerationParameters:
 class MusicGenerationParameters:
     """A dataclass to store parameters for music generation using Lyria RealTime."""
 
-    prompts: List[str]
-    prompt_weights: Optional[List[float]] = None
+    prompts: list[str]
+    prompt_weights: list[float] | None = None
     duration: int = 30  # seconds
-    bpm: Optional[int] = None  # 60-200
-    scale: Optional[str] = None  # e.g., "C_MAJOR_A_MINOR"
+    bpm: int | None = None  # 60-200
+    scale: str | None = None  # e.g., "C_MAJOR_A_MINOR"
     guidance: float = 4.0  # 0.0-6.0
-    density: Optional[float] = None  # 0.0-1.0
-    brightness: Optional[float] = None  # 0.0-1.0
+    density: float | None = None  # 0.0-1.0
+    brightness: float | None = None  # 0.0-1.0
     temperature: float = 1.1  # 0.0-3.0
     top_k: int = 40  # 1-1000
-    seed: Optional[int] = None
+    seed: int | None = None
     mute_bass: bool = False
     mute_drums: bool = False
     only_bass_and_drums: bool = False
 
-    def to_weighted_prompts(self) -> List[Dict[str, Any]]:
+    def to_weighted_prompts(self) -> list[dict[str, Any]]:
         """Convert prompts to WeightedPrompt format for Gemini API."""
         if self.prompt_weights and len(self.prompt_weights) == len(self.prompts):
             return [
                 {"text": prompt, "weight": weight}
-                for prompt, weight in zip(self.prompts, self.prompt_weights)
+                for prompt, weight in zip(self.prompts, self.prompt_weights, strict=True)
             ]
         else:
             # Default weight of 1.0 for all prompts
             return [{"text": prompt, "weight": 1.0} for prompt in self.prompts]
 
-    def to_music_config(self) -> Dict[str, Any]:
+    def to_music_config(self) -> dict[str, Any]:
         """Convert to MusicGenerationConfig format for Gemini API."""
         config = {
             "guidance": self.guidance,
@@ -417,15 +421,15 @@ class AgenticResult:
     """Aggregated result from an agentic tool-calling loop."""
 
     response: Any  # Final GenerateContentResponse
-    contents: List[Dict[str, Any]]
+    contents: list[dict[str, Any]]
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_thinking_tokens: int = 0
     iterations: int = 0
-    tool_calls_made: List[str] = field(default_factory=list)
+    tool_calls_made: list[str] = field(default_factory=list)
 
 
-def resolve_tool_name(tool_config: Any) -> Optional[str]:
+def resolve_tool_name(tool_config: Any) -> str | None:
     """
     Resolve a tool config back to its canonical tool name.
 
@@ -451,26 +455,22 @@ def resolve_tool_name(tool_config: Any) -> Optional[str]:
     return None
 
 
-def filter_supported_tools_for_model(
-    model: str, tools: List[Any]
-) -> Tuple[List[Any], List[str]]:
+def filter_supported_tools_for_model(model: str, tools: list[Any]) -> tuple[list[Any], list[str]]:
     """
     Return model-compatible tools and a list of unsupported tool names.
 
     Callables (custom function tools) are passed through unchanged since
     they have no model compatibility constraints.
     """
-    supported_tools: List[Any] = []
-    unsupported_tools: List[str] = []
+    supported_tools: list[Any] = []
+    unsupported_tools: list[str] = []
 
     for tool_config in tools:
         tool_name = resolve_tool_name(tool_config)
 
         # Callables and unknown tools pass through
         if tool_name is None or tool_name == "custom_functions":
-            supported_tools.append(
-                tool_config if callable(tool_config) else deepcopy(tool_config)
-            )
+            supported_tools.append(tool_config if callable(tool_config) else deepcopy(tool_config))
             continue
 
         supported_models = TOOL_MODEL_COMPATIBILITY.get(tool_name)
@@ -484,8 +484,8 @@ def filter_supported_tools_for_model(
 
 
 def filter_file_search_incompatible_tools(
-    tools: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[str]]:
+    tools: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
     """
     Remove tools incompatible with file_search when file_search is present.
 
@@ -495,8 +495,8 @@ def filter_file_search_incompatible_tools(
     if not has_file_search:
         return tools, []
 
-    filtered: List[Dict[str, Any]] = []
-    removed: List[str] = []
+    filtered: list[dict[str, Any]] = []
+    removed: list[str] = []
     for tool in tools:
         name = resolve_tool_name(tool)
         if name in FILE_SEARCH_INCOMPATIBLE_TOOLS:
@@ -506,7 +506,7 @@ def filter_file_search_incompatible_tools(
     return filtered, removed
 
 
-def check_mutually_exclusive_tools(tool_names: Set[str]) -> Optional[str]:
+def check_mutually_exclusive_tools(tool_names: set[str]) -> str | None:
     """
     Check whether any mutually exclusive tools have been selected together.
 
@@ -521,7 +521,7 @@ def check_mutually_exclusive_tools(tool_names: Set[str]) -> Optional[str]:
     return None
 
 
-def chunk_text(text: str, chunk_size: int = 4096) -> List[str]:
+def chunk_text(text: str, chunk_size: int = 4096) -> list[str]:
     """
     Splits a string into chunks of a specified size.
 
@@ -535,9 +535,7 @@ def chunk_text(text: str, chunk_size: int = 4096) -> List[str]:
     return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 
-def truncate_text(
-    text: Optional[str], max_length: int, suffix: str = "..."
-) -> Optional[str]:
+def truncate_text(text: str | None, max_length: int, suffix: str = "...") -> str | None:
     """Truncate text to max_length, adding suffix if truncated.
 
     Args:

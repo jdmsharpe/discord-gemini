@@ -1,4 +1,3 @@
-import asyncio
 import unittest
 
 from tools import (
@@ -7,8 +6,6 @@ from tools import (
     execute_tool_call,
     get_registered_tools,
     get_tool_callables,
-    get_current_time,
-    roll_dice,
     tool,
 )
 

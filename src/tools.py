@@ -19,14 +19,15 @@ import asyncio
 import inspect
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-_TOOL_REGISTRY: Dict[str, "ToolEntry"] = {}
+_TOOL_REGISTRY: dict[str, "ToolEntry"] = {}
 
 
 @dataclass
@@ -55,12 +56,12 @@ def tool(func: Callable) -> Callable:
     return func
 
 
-def get_registered_tools() -> Dict[str, ToolEntry]:
+def get_registered_tools() -> dict[str, ToolEntry]:
     """Return a copy of the current tool registry."""
     return dict(_TOOL_REGISTRY)
 
 
-def get_tool_callables() -> List[Callable]:
+def get_tool_callables() -> list[Callable]:
     """Return the list of registered tool callables for the SDK.
 
     These can be passed directly in the `tools` list alongside
@@ -70,9 +71,7 @@ def get_tool_callables() -> List[Callable]:
     return [entry.func for entry in _TOOL_REGISTRY.values()]
 
 
-async def execute_tool_call(
-    name: str, args: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+async def execute_tool_call(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Execute a registered tool by name with the given arguments.
 
     Returns a dict suitable for FunctionResponse output:

@@ -6,7 +6,6 @@ from discord.ui import Select
 from util import (
     AVAILABLE_TOOLS,
     TOOL_GOOGLE_SEARCH,
-    TOOL_URL_CONTEXT,
 )
 
 
@@ -27,9 +26,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         self.conversation_id = 987654321
 
-        self.view = ButtonView(
-            self.host, self.conversation_starter, self.conversation_id
-        )
+        self.view = ButtonView(self.host, self.conversation_starter, self.conversation_id)
 
     async def test_init(self):
         """Test that ButtonView initializes correctly."""

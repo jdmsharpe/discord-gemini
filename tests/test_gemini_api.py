@@ -1,7 +1,8 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-from discord import Bot, Embed, Intents
+
+from discord import Bot, Intents
 
 
 class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
@@ -30,15 +31,15 @@ class TestGeminiAPI(unittest.IsolatedAsyncioTestCase):
 
         # Now import GeminiAPI after mocking
         from gemini_api import (
-            GeminiAPI,
             Conversation,
+            GeminiAPI,
+            _build_thinking_config,
+            _get_response_content_parts,
             append_pricing_embed,
             append_response_embeds,
             append_thinking_embeds,
             extract_thinking_text,
             extract_tool_info,
-            _get_response_content_parts,
-            _build_thinking_config,
         )
 
         self.GeminiAPI = GeminiAPI
@@ -529,14 +530,10 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
             uri="https://generativelanguage.googleapis.com/files/abc123",
             mime_type="application/pdf",
         )
-        self.cog.client.aio.files.upload = AsyncMock(
-            return_value=mock_uploaded_file
-        )
+        self.cog.client.aio.files.upload = AsyncMock(return_value=mock_uploaded_file)
 
         uploaded_names = []
-        result = await self.cog._prepare_attachment_part(
-            attachment, uploaded_names
-        )
+        result = await self.cog._prepare_attachment_part(attachment, uploaded_names)
 
         self.assertIsNotNone(result)
         self.assertIn("file_data", result)
@@ -562,9 +559,7 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
         mock_session.get = MagicMock(return_value=mock_context)
         self.cog._http_session = mock_session
 
-        self.cog.client.aio.files.upload = AsyncMock(
-            side_effect=Exception("Upload failed")
-        )
+        self.cog.client.aio.files.upload = AsyncMock(side_effect=Exception("Upload failed"))
 
         result = await self.cog._prepare_attachment_part(attachment)
 
@@ -618,9 +613,7 @@ class TestGeminiAPIHelpers(unittest.IsolatedAsyncioTestCase):
             uploaded_file_names=["files/abc", "files/def"],
         )
 
-        self.cog.client.aio.files.delete = AsyncMock(
-            side_effect=Exception("Not found")
-        )
+        self.cog.client.aio.files.delete = AsyncMock(side_effect=Exception("Not found"))
 
         # Should not raise
         await self.cog._cleanup_uploaded_files(params)
@@ -744,11 +737,7 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         max_length = 3800
 
         # Simulate the truncation logic
-        truncated = (
-            short_text[:max_length] + "..."
-            if len(short_text) > max_length
-            else short_text
-        )
+        truncated = short_text[:max_length] + "..." if len(short_text) > max_length else short_text
 
         self.assertEqual(truncated, short_text)
         self.assertNotIn("...", truncated)
@@ -759,11 +748,7 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         max_length = 3800
 
         # Simulate the truncation logic
-        truncated = (
-            long_text[:max_length] + "..."
-            if len(long_text) > max_length
-            else long_text
-        )
+        truncated = long_text[:max_length] + "..." if len(long_text) > max_length else long_text
 
         self.assertEqual(len(truncated), max_length + 3)  # 3800 + "..."
         self.assertTrue(truncated.endswith("..."))
@@ -794,7 +779,9 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         max_length = 2000
 
         # Simulate the truncation logic
-        truncated = short_prompt[:max_length] + "..." if len(short_prompt) > max_length else short_prompt
+        truncated = (
+            short_prompt[:max_length] + "..." if len(short_prompt) > max_length else short_prompt
+        )
 
         self.assertEqual(truncated, short_prompt)
         self.assertNotIn("...", truncated)
@@ -805,7 +792,9 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
         max_length = 2000
 
         # Simulate the truncation logic
-        truncated = long_prompt[:max_length] + "..." if len(long_prompt) > max_length else long_prompt
+        truncated = (
+            long_prompt[:max_length] + "..." if len(long_prompt) > max_length else long_prompt
+        )
 
         self.assertEqual(len(truncated), max_length + 3)  # 2000 + "..."
         self.assertTrue(truncated.endswith("..."))
@@ -898,7 +887,6 @@ class TestGeminiAPIImageGeneration(unittest.IsolatedAsyncioTestCase):
 
     async def test_generate_image_with_gemini_image_search(self):
         """Test that google_image_search adds tools with search_types."""
-        from google.genai import types
         from util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
@@ -1031,9 +1019,12 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         self.cog.client.aio.interactions.get.return_value = interaction_done
 
         with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
-            report_text, input_tokens, output_tokens, thinking_tokens = (
-                await self.cog._run_deep_research(params)
-            )
+            (
+                report_text,
+                input_tokens,
+                output_tokens,
+                thinking_tokens,
+            ) = await self.cog._run_deep_research(params)
 
         self.assertEqual(report_text, "# AI Safety Report\n\nDetailed findings...")
         self.assertEqual(input_tokens, 250_000)
@@ -1067,9 +1058,7 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
         self.assertIn("tools", call_kwargs.kwargs)
-        self.assertEqual(
-            call_kwargs.kwargs["tools"][0]["type"], "file_search"
-        )
+        self.assertEqual(call_kwargs.kwargs["tools"][0]["type"], "file_search")
         self.assertEqual(
             call_kwargs.kwargs["tools"][0]["file_search_store_names"],
             ["store-1", "store-2"],
@@ -1097,9 +1086,7 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
 
         params = ResearchParameters(prompt="test")
 
-        interaction_failed = SimpleNamespace(
-            id="interaction-3", status="failed", outputs=None
-        )
+        interaction_failed = SimpleNamespace(id="interaction-3", status="failed", outputs=None)
 
         self.cog.client.aio.interactions.create.return_value = interaction_failed
 
@@ -1115,7 +1102,9 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         params = ResearchParameters(prompt="test")
 
         interaction_done = SimpleNamespace(
-            id="interaction-4", status="completed", outputs=[],
+            id="interaction-4",
+            status="completed",
+            outputs=[],
             usage=SimpleNamespace(
                 total_input_tokens=100, total_output_tokens=0, total_thought_tokens=0
             ),
@@ -1124,9 +1113,12 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
         with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
-            report_text, input_tokens, output_tokens, thinking_tokens = (
-                await self.cog._run_deep_research(params)
-            )
+            (
+                report_text,
+                input_tokens,
+                output_tokens,
+                thinking_tokens,
+            ) = await self.cog._run_deep_research(params)
 
         self.assertIsNone(report_text)
         self.assertEqual(input_tokens, 100)
@@ -1149,9 +1141,7 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         """Test _create_research_response_embeds shows file search status."""
         from util import ResearchParameters
 
-        params = ResearchParameters(
-            prompt="Analyze docs", file_search=True
-        )
+        params = ResearchParameters(prompt="Analyze docs", file_search=True)
 
         embeds = self.cog._create_research_response_embeds(params)
 
@@ -1213,9 +1203,7 @@ class TestGeminiAPIDeepResearch(unittest.IsolatedAsyncioTestCase):
         """Test _create_research_response_embeds shows Google Maps status."""
         from util import ResearchParameters
 
-        params = ResearchParameters(
-            prompt="Find restaurants nearby", google_maps=True
-        )
+        params = ResearchParameters(prompt="Find restaurants nearby", google_maps=True)
 
         embeds = self.cog._create_research_response_embeds(params)
 
@@ -1292,8 +1280,10 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         """Test that append_pricing_embed creates a Gemini Blue embed with cost info."""
         embeds = []
         self.append_pricing_embed(
-            embeds, "gemini-2.0-flash",
-            input_tokens=500_000, output_tokens=200_000,
+            embeds,
+            "gemini-2.0-flash",
+            input_tokens=500_000,
+            output_tokens=200_000,
             daily_cost=1.25,
         )
         self.assertEqual(len(embeds), 1)
@@ -1307,8 +1297,10 @@ class TestGeminiAPIPricing(unittest.IsolatedAsyncioTestCase):
         """Test pricing embed with zero tokens."""
         embeds = []
         self.append_pricing_embed(
-            embeds, "gemini-2.5-pro",
-            input_tokens=0, output_tokens=0,
+            embeds,
+            "gemini-2.5-pro",
+            input_tokens=0,
+            output_tokens=0,
             daily_cost=0.0,
         )
         self.assertEqual(len(embeds), 1)
@@ -1363,9 +1355,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
             {"role": "user", "parts": [{"text": "hi"}]},
             {"role": "model", "parts": [{"text": "hello"}]},
         ]
-        response = SimpleNamespace(
-            usage_metadata=SimpleNamespace(prompt_token_count=500)
-        )
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=500))
 
         await self.cog._maybe_create_cache(params, history, response)
 
@@ -1377,16 +1367,12 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         """Test that _maybe_create_cache creates a cache when above threshold."""
         from util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(
-            model="gemini-3-flash-preview", conversation_id=100
-        )
+        params = ChatCompletionParameters(model="gemini-3-flash-preview", conversation_id=100)
         history = [
             {"role": "user", "parts": [{"text": "long prompt " * 200}]},
             {"role": "model", "parts": [{"text": "long response " * 200}]},
         ]
-        response = SimpleNamespace(
-            usage_metadata=SimpleNamespace(prompt_token_count=2000)
-        )
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=2000))
 
         mock_cache = SimpleNamespace(name="cachedContents/test-cache-id")
         self.cog.client.aio.caches.create.return_value = mock_cache
@@ -1453,10 +1439,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
             cache_name="cachedContents/old-cache",
             cached_history_length=4,
         )
-        history = [
-            {"role": "user", "parts": [{"text": f"msg {i}"}]}
-            for i in range(10)
-        ]
+        history = [{"role": "user", "parts": [{"text": f"msg {i}"}]} for i in range(10)]
         # uncached = 5000 - 2000 = 3000, threshold = 1024 → re-cache
         response = SimpleNamespace(
             usage_metadata=SimpleNamespace(
@@ -1474,9 +1457,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(params.cache_name, "cachedContents/new-cache")
         self.assertEqual(params.cached_history_length, 10)
         self.cog.client.aio.caches.create.assert_called_once()
-        self.cog.client.aio.caches.delete.assert_called_once_with(
-            name="cachedContents/old-cache"
-        )
+        self.cog.client.aio.caches.delete.assert_called_once_with(name="cachedContents/old-cache")
         # TTL should NOT have been refreshed (we re-cached instead)
         self.cog.client.aio.caches.update.assert_not_called()
 
@@ -1512,9 +1493,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         from util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-2.0-flash")
-        response = SimpleNamespace(
-            usage_metadata=SimpleNamespace(prompt_token_count=5000)
-        )
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=5000))
 
         await self.cog._maybe_create_cache(params, [], response)
 
@@ -1527,9 +1506,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
 
         for model in ("gemini-2.5-pro", "gemini-2.5-flash"):
             params = ChatCompletionParameters(model=model)
-            response = SimpleNamespace(
-                usage_metadata=SimpleNamespace(prompt_token_count=10000)
-            )
+            response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=10000))
 
             await self.cog._maybe_create_cache(params, [], response)
 
@@ -1552,16 +1529,12 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
         """Test that _maybe_create_cache logs warning on API error."""
         from util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(
-            model="gemini-3-flash-preview", conversation_id=100
-        )
+        params = ChatCompletionParameters(model="gemini-3-flash-preview", conversation_id=100)
         history = [
             {"role": "user", "parts": [{"text": "hi"}]},
             {"role": "model", "parts": [{"text": "hello"}]},
         ]
-        response = SimpleNamespace(
-            usage_metadata=SimpleNamespace(prompt_token_count=2000)
-        )
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=2000))
 
         self.cog.client.aio.caches.create.side_effect = Exception("API error")
 
@@ -1583,9 +1556,7 @@ class TestGeminiAPICaching(unittest.IsolatedAsyncioTestCase):
 
         await self.cog._delete_conversation_cache(params)
 
-        self.cog.client.aio.caches.delete.assert_called_once_with(
-            name="cachedContents/to-delete"
-        )
+        self.cog.client.aio.caches.delete.assert_called_once_with(name="cachedContents/to-delete")
         self.assertIsNone(params.cache_name)
         self.assertEqual(params.cached_history_length, 0)
 
@@ -1680,11 +1651,11 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
 
         from gemini_api import (
             GeminiAPI,
-            append_thinking_embeds,
-            append_pricing_embed,
-            extract_thinking_text,
-            _get_response_content_parts,
             _build_thinking_config,
+            _get_response_content_parts,
+            append_pricing_embed,
+            append_thinking_embeds,
+            extract_thinking_text,
         )
 
         self.append_thinking_embeds = append_thinking_embeds
@@ -1816,9 +1787,7 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         part1 = SimpleNamespace(text="Hello", thought=False)
         part2 = SimpleNamespace(text="Thinking...", thought=True)
         response = SimpleNamespace(
-            candidates=[
-                SimpleNamespace(content=SimpleNamespace(parts=[part1, part2]))
-            ]
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part1, part2]))]
         )
         result = self._get_response_content_parts(response)
         self.assertIsNotNone(result)
@@ -1834,17 +1803,13 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_response_content_parts_no_content(self):
         """Test that None is returned when content is None."""
-        response = SimpleNamespace(
-            candidates=[SimpleNamespace(content=None)]
-        )
+        response = SimpleNamespace(candidates=[SimpleNamespace(content=None)])
         result = self._get_response_content_parts(response)
         self.assertIsNone(result)
 
     async def test_get_response_content_parts_no_parts(self):
         """Test that None is returned when parts is empty."""
-        response = SimpleNamespace(
-            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))]
-        )
+        response = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))])
         result = self._get_response_content_parts(response)
         self.assertIsNone(result)
 
@@ -1859,6 +1824,7 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(embeds[0].description, "||My thought process||")
         # Check it uses light grey color
         from discord import Colour
+
         self.assertEqual(embeds[0].color, Colour.light_grey())
 
     async def test_append_thinking_embeds_empty_text(self):
@@ -1883,9 +1849,12 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         """Test pricing embed shows thinking token count."""
         embeds = []
         self.append_pricing_embed(
-            embeds, "gemini-3-flash-preview",
-            input_tokens=100_000, output_tokens=50_000,
-            daily_cost=0.50, thinking_tokens=200_000,
+            embeds,
+            "gemini-3-flash-preview",
+            input_tokens=100_000,
+            output_tokens=50_000,
+            daily_cost=0.50,
+            thinking_tokens=200_000,
         )
         self.assertEqual(len(embeds), 1)
         self.assertIn("200,000 thinking", embeds[0].description)
@@ -1896,9 +1865,12 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         """Test pricing embed omits thinking when zero."""
         embeds = []
         self.append_pricing_embed(
-            embeds, "gemini-2.5-flash",
-            input_tokens=100_000, output_tokens=50_000,
-            daily_cost=0.10, thinking_tokens=0,
+            embeds,
+            "gemini-2.5-flash",
+            input_tokens=100_000,
+            output_tokens=50_000,
+            daily_cost=0.10,
+            thinking_tokens=0,
         )
         self.assertEqual(len(embeds), 1)
         self.assertNotIn("thinking", embeds[0].description)
@@ -1907,6 +1879,7 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
     async def test_track_daily_cost_with_thinking_tokens(self):
         """Test that _track_daily_cost accumulates pre-calculated cost including thinking."""
         from util import calculate_cost
+
         # gemini-2.0-flash: $0.10/M in, $0.40/M out
         # thinking tokens billed at output rate
         cost = calculate_cost("gemini-2.0-flash", 1_000_000, 500_000, thinking_tokens=500_000)
@@ -1918,9 +1891,12 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         """Test pricing embed includes Maps grounding surcharge."""
         embeds = []
         self.append_pricing_embed(
-            embeds, "gemini-2.5-flash",
-            input_tokens=1000, output_tokens=500,
-            daily_cost=0.10, google_maps_grounded=True,
+            embeds,
+            "gemini-2.5-flash",
+            input_tokens=1000,
+            output_tokens=500,
+            daily_cost=0.10,
+            google_maps_grounded=True,
         )
         self.assertEqual(len(embeds), 1)
         self.assertIn("Maps grounded", embeds[0].description)
@@ -1929,9 +1905,12 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         """Test pricing embed omits Maps label when not grounded."""
         embeds = []
         self.append_pricing_embed(
-            embeds, "gemini-2.5-flash",
-            input_tokens=1000, output_tokens=500,
-            daily_cost=0.10, google_maps_grounded=False,
+            embeds,
+            "gemini-2.5-flash",
+            input_tokens=1000,
+            output_tokens=500,
+            daily_cost=0.10,
+            google_maps_grounded=False,
         )
         self.assertEqual(len(embeds), 1)
         self.assertNotIn("Maps", embeds[0].description)
@@ -1940,8 +1919,13 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         """Test that _log_cost calls logger.info with structured cost data."""
         self.cog.logger = MagicMock()
         self.cog._log_cost(
-            "chat", 12345, "gemini-2.0-flash", 0.50, 1.00,
-            input_tokens=1000, output_tokens=500,
+            "chat",
+            12345,
+            "gemini-2.0-flash",
+            0.50,
+            1.00,
+            input_tokens=1000,
+            output_tokens=500,
         )
         self.cog.logger.info.assert_called_once()
         call_args = self.cog.logger.info.call_args
@@ -1960,8 +1944,13 @@ class TestThinkingFeatures(unittest.IsolatedAsyncioTestCase):
         """Test _log_cost with image-specific details."""
         self.cog.logger = MagicMock()
         self.cog._log_cost(
-            "image", 42, "gemini-3.1-flash-image-preview", 0.134, 0.50,
-            images=2, input_tokens=500,
+            "image",
+            42,
+            "gemini-3.1-flash-image-preview",
+            0.134,
+            0.50,
+            images=2,
+            input_tokens=500,
         )
         self.cog.logger.info.assert_called_once()
         call_args = self.cog.logger.info.call_args
@@ -2005,9 +1994,7 @@ class TestVideoResponseEmbed(unittest.IsolatedAsyncioTestCase):
 
     async def test_mode_text_to_video(self):
         """Test embed shows Text-to-Video mode when no attachments."""
-        params = self.VideoGenerationParameters(
-            prompt="A sunset", model="veo-3.1-generate-preview"
-        )
+        params = self.VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
         embed, _ = await self.cog._create_video_response_embed(
             video_params=params, generated_videos=["test.mp4"], attachment=None
         )
@@ -2015,9 +2002,7 @@ class TestVideoResponseEmbed(unittest.IsolatedAsyncioTestCase):
 
     async def test_mode_image_to_video(self):
         """Test embed shows Image-to-Video mode when attachment provided."""
-        params = self.VideoGenerationParameters(
-            prompt="A sunset", model="veo-3.1-generate-preview"
-        )
+        params = self.VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
         mock_attachment = MagicMock()
         embed, _ = await self.cog._create_video_response_embed(
             video_params=params, generated_videos=["test.mp4"], attachment=mock_attachment
