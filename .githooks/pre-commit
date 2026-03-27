@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Pre-commit hook: auto-format + lint Python files with ruff
+# Only processes staged files in src/ and tests/
+
+set -euo pipefail
+
+# Collect staged Python files in src/ or tests/
+PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(src|tests)/.*\.py$' || true)
+
+if [ -z "$PYTHON_FILES" ]; then
+    exit 0
+fi
+
+# Check if ruff is available
+if ! command -v ruff &>/dev/null; then
+    echo "WARNING: ruff not found — skipping Python format/lint checks"
+    exit 0
+fi
+
+# Auto-format staged files and re-stage
+echo "Running ruff format..."
+echo "$PYTHON_FILES" | xargs ruff format
+echo "$PYTHON_FILES" | xargs git add
+
+# Lint check (strict — blocks commit on failure)
+echo "Running ruff check..."
+echo "$PYTHON_FILES" | xargs ruff check
