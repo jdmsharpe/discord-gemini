@@ -1,6 +1,6 @@
 import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Protocol, Union, cast
+from typing import Any, Protocol, cast
 
 from discord import (
     ButtonStyle,
@@ -33,21 +33,15 @@ class ConversationHost(Protocol):
         """Return the Conversation for *conversation_id*, or ``None``."""
         ...
 
-    def enrich_file_search_tools(
-        self, tools: List[Dict[str, Any]]
-    ) -> Optional[str]:
+    def enrich_file_search_tools(self, tools: list[dict[str, Any]]) -> str | None:
         """Inject file search store IDs.  Return an error string, or ``None``."""
         ...
 
-    async def handle_new_message_in_conversation(
-        self, message: Any, conversation: Any
-    ) -> None:
+    async def handle_new_message_in_conversation(self, message: Any, conversation: Any) -> None:
         """Re-run generation for the given message in *conversation*."""
         ...
 
-    async def end_conversation(
-        self, conversation_id: int, user: Union[Member, User]
-    ) -> None:
+    async def end_conversation(self, conversation_id: int, user: Member | User) -> None:
         """Fully tear down a conversation (cache, files, state)."""
         ...
 
@@ -56,9 +50,9 @@ class ButtonView(View):
     def __init__(
         self,
         host: ConversationHost,
-        conversation_starter: Union[Member, User],
+        conversation_starter: Member | User,
         conversation_id: int,
-        initial_tools: Optional[List[Dict[str, Any]]] = None,
+        initial_tools: list[dict[str, Any]] | None = None,
         custom_functions_enabled: bool = False,
     ):
         """
@@ -72,13 +66,11 @@ class ButtonView(View):
 
     def _add_tool_select(
         self,
-        initial_tools: List[Dict[str, Any]],
+        initial_tools: list[dict[str, Any]],
         custom_functions_enabled: bool = False,
     ) -> None:
         selected_tools = {
-            name
-            for tool in initial_tools
-            if (name := resolve_tool_name(tool)) is not None
+            name for tool in initial_tools if (name := resolve_tool_name(tool)) is not None
         }
         tool_select = Select(
             placeholder="Toggle conversation tools",
@@ -140,38 +132,27 @@ class ButtonView(View):
 
         conversation = self.host.get_conversation(self.conversation_id)
         if conversation is None:
-            await interaction.response.send_message(
-                "No active conversation found.", ephemeral=True
-            )
+            await interaction.response.send_message("No active conversation found.", ephemeral=True)
             return
 
-        selected_values: List[str] = []
+        selected_values: list[str] = []
         custom_functions_selected = False
         if isinstance(interaction.data, dict):
             raw_values = interaction.data.get("values", [])
             if isinstance(raw_values, list):
                 custom_functions_selected = "custom_functions" in raw_values
-                selected_values = [
-                    value for value in raw_values
-                    if value in AVAILABLE_TOOLS
-                ]
+                selected_values = [value for value in raw_values if value in AVAILABLE_TOOLS]
 
         exclusive_error = check_mutually_exclusive_tools(set(selected_values))
         if exclusive_error:
-            await interaction.response.send_message(
-                exclusive_error, ephemeral=True
-            )
+            await interaction.response.send_message(exclusive_error, ephemeral=True)
             return
 
-        requested_tools = [
-            deepcopy(AVAILABLE_TOOLS[tool_name]) for tool_name in selected_values
-        ]
+        requested_tools = [deepcopy(AVAILABLE_TOOLS[tool_name]) for tool_name in selected_values]
         supported_tools, unsupported_tools = filter_supported_tools_for_model(
             conversation.params.model, requested_tools
         )
-        supported_tools, incompatible_tools = filter_file_search_incompatible_tools(
-            supported_tools
-        )
+        supported_tools, incompatible_tools = filter_file_search_incompatible_tools(supported_tools)
 
         # Enrich file_search tools with store IDs via the host
         enrich_error = self.host.enrich_file_search_tools(supported_tools)
@@ -202,14 +183,10 @@ class ButtonView(View):
             message = "Tools disabled for this conversation."
         if unsupported_tools:
             unsupported_text = ", ".join(sorted(set(unsupported_tools)))
-            message += (
-                f" Skipped for model `{conversation.params.model}`: {unsupported_text}."
-            )
+            message += f" Skipped for model `{conversation.params.model}`: {unsupported_text}."
         if incompatible_tools:
             incompatible_text = ", ".join(sorted(set(incompatible_tools)))
-            message += (
-                f" Disabled (incompatible with file_search): {incompatible_text}."
-            )
+            message += f" Disabled (incompatible with file_search): {incompatible_text}."
 
         await interaction.response.send_message(message, ephemeral=True, delete_after=3)
 
@@ -261,11 +238,7 @@ class ButtonView(View):
             text_channel = cast(TextChannel, channel)
             messages = [message async for message in text_channel.history(limit=10)]
             user_message = next(
-                (
-                    message
-                    for message in messages
-                    if message.author == self.conversation_starter
-                ),
+                (message for message in messages if message.author == self.conversation_starter),
                 None,
             )
 
@@ -276,12 +249,8 @@ class ButtonView(View):
                 )
                 return
 
-            await self.host.handle_new_message_in_conversation(
-                user_message, conversation
-            )
-            await interaction.followup.send(
-                "Response regenerated.", ephemeral=True, delete_after=3
-            )
+            await self.host.handle_new_message_in_conversation(user_message, conversation)
+            await interaction.followup.send("Response regenerated.", ephemeral=True, delete_after=3)
         except Exception as error:
             logging.error(
                 f"Error in regenerate_button: {error}",
@@ -328,9 +297,7 @@ class ButtonView(View):
                 delete_after=3,
             )
         else:
-            await interaction.response.send_message(
-                "No active conversation found.", ephemeral=True
-            )
+            await interaction.response.send_message("No active conversation found.", ephemeral=True)
 
     @button(emoji="⏹️", style=ButtonStyle.blurple, row=0)
     async def stop_button(self, button: Button, interaction: Interaction):
@@ -350,13 +317,9 @@ class ButtonView(View):
         # End the conversation via the host
         conversation = self.host.get_conversation(self.conversation_id)
         if conversation is not None:
-            await self.host.end_conversation(
-                self.conversation_id, self.conversation_starter
-            )
+            await self.host.end_conversation(self.conversation_id, self.conversation_starter)
             await interaction.response.send_message(
                 "Conversation ended.", ephemeral=True, delete_after=3
             )
         else:
-            await interaction.response.send_message(
-                "No active conversation found.", ephemeral=True
-            )
+            await interaction.response.send_message("No active conversation found.", ephemeral=True)

@@ -1,4 +1,5 @@
 import unittest
+
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
@@ -11,30 +12,30 @@ from util import (
     MAPS_GROUNDING_COST_PER_REQUEST,
     MAX_AGENTIC_ITERATIONS,
     MODEL_PRICING,
-    TTS_PRICING,
-    VIDEO_PRICING,
+    MUTUALLY_EXCLUSIVE_TOOLS,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
     TOOL_GOOGLE_SEARCH,
     TOOL_URL_CONTEXT,
+    TTS_PRICING,
+    VIDEO_PRICING,
     AgenticResult,
     ChatCompletionParameters,
+    ImageGenerationParameters,
+    MusicGenerationParameters,
+    ResearchParameters,
+    SpeechGenerationParameters,
+    VideoGenerationParameters,
     calculate_cost,
     calculate_image_cost,
     calculate_tts_cost,
     calculate_video_cost,
     check_mutually_exclusive_tools,
+    chunk_text,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
-    MUTUALLY_EXCLUSIVE_TOOLS,
     resolve_tool_name,
-    ImageGenerationParameters,
-    VideoGenerationParameters,
-    SpeechGenerationParameters,
-    MusicGenerationParameters,
-    ResearchParameters,
-    chunk_text,
 )
 
 
@@ -136,9 +137,7 @@ class TestChatCompletionParameters(unittest.TestCase):
             TOOL_URL_CONTEXT,
         ]
         # gemini-2.0-flash-lite does not support google_maps or url_context
-        supported, unsupported = filter_supported_tools_for_model(
-            "gemini-2.0-flash-lite", tools
-        )
+        supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash-lite", tools)
         self.assertEqual(
             supported,
             [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION],
@@ -149,18 +148,14 @@ class TestChatCompletionParameters(unittest.TestCase):
     def test_filter_supported_tools_file_search_supported_model(self):
         """Test that file_search is supported on compatible models."""
         tools = [TOOL_FILE_SEARCH]
-        supported, unsupported = filter_supported_tools_for_model(
-            "gemini-2.5-pro", tools
-        )
+        supported, unsupported = filter_supported_tools_for_model("gemini-2.5-pro", tools)
         self.assertEqual(supported, [TOOL_FILE_SEARCH])
         self.assertEqual(unsupported, [])
 
     def test_filter_supported_tools_file_search_unsupported_model(self):
         """Test that file_search is filtered out for unsupported models."""
         tools = [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
-        supported, unsupported = filter_supported_tools_for_model(
-            "gemini-2.0-flash", tools
-        )
+        supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash", tools)
         self.assertEqual(supported, [TOOL_CODE_EXECUTION])
         self.assertEqual(unsupported, ["file_search"])
 
@@ -174,11 +169,7 @@ class TestResolveToolName(unittest.TestCase):
 
     def test_resolve_enriched_file_search(self):
         """Test resolving file_search config with injected store IDs."""
-        enriched = {
-            "file_search": {
-                "file_search_store_names": ["store1", "store2"]
-            }
-        }
+        enriched = {"file_search": {"file_search_store_names": ["store1", "store2"]}}
         self.assertEqual(resolve_tool_name(enriched), "file_search")
 
     def test_resolve_unknown_tool(self):
@@ -187,8 +178,10 @@ class TestResolveToolName(unittest.TestCase):
 
     def test_resolve_callable(self):
         """Test that a Python callable resolves to 'custom_functions'."""
+
         def my_func():
             pass
+
         self.assertEqual(resolve_tool_name(my_func), "custom_functions")
 
     def test_resolve_function_declarations_dict(self):
@@ -222,19 +215,21 @@ class TestAgenticResult(unittest.TestCase):
 class TestFilterSupportedToolsWithCallables(unittest.TestCase):
     def test_callables_pass_through(self):
         """Test that Python callables pass through model filtering unchanged."""
+
         def my_func():
             pass
+
         tools = [TOOL_GOOGLE_SEARCH, my_func]
-        supported, unsupported = filter_supported_tools_for_model(
-            "gemini-2.0-flash-lite", tools
-        )
+        supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash-lite", tools)
         self.assertIn(my_func, supported)
         self.assertEqual(unsupported, [])
 
     def test_callables_not_deepcopied(self):
         """Test that callables are the same object (not deepcopied)."""
+
         def my_func():
             pass
+
         tools = [my_func]
         supported, _ = filter_supported_tools_for_model("gemini-3-flash-preview", tools)
         self.assertIs(supported[0], my_func)
@@ -404,7 +399,10 @@ class TestImageGenerationParameters(unittest.TestCase):
     def test_new_fields_isolation(self):
         """Test that image_size and google_image_search are independent across instances."""
         params1 = ImageGenerationParameters(
-            prompt="A", model="gemini-3.1-flash-image-preview", image_size="1k", google_image_search=True
+            prompt="A",
+            model="gemini-3.1-flash-image-preview",
+            image_size="1k",
+            google_image_search=True,
         )
         params2 = ImageGenerationParameters(prompt="B", model="gemini-3.1-flash-image-preview")
         self.assertEqual(params1.image_size, "1k")
@@ -495,9 +493,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
 
     def test_has_last_frame_default(self):
         """Test that has_last_frame defaults to False."""
-        params = VideoGenerationParameters(
-            prompt="Test", model="veo-3.1-generate-preview"
-        )
+        params = VideoGenerationParameters(prompt="Test", model="veo-3.1-generate-preview")
         self.assertFalse(params.has_last_frame)
 
     def test_has_last_frame_set(self):
@@ -524,9 +520,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
         params1 = VideoGenerationParameters(
             prompt="A", model="veo-3.1-generate-preview", has_last_frame=True
         )
-        params2 = VideoGenerationParameters(
-            prompt="B", model="veo-3.1-generate-preview"
-        )
+        params2 = VideoGenerationParameters(prompt="B", model="veo-3.1-generate-preview")
         self.assertTrue(params1.has_last_frame)
         self.assertFalse(params2.has_last_frame)
 
@@ -551,9 +545,7 @@ class TestSpeechGenerationParameters(unittest.TestCase):
         self.assertIn("speech_config", result)
         self.assertIn("voice_config", result["speech_config"])
         self.assertEqual(
-            result["speech_config"]["voice_config"]["prebuilt_voice_config"][
-                "voice_name"
-            ],
+            result["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"],
             "Puck",
         )
 
@@ -577,9 +569,7 @@ class TestSpeechGenerationParameters(unittest.TestCase):
         self.assertEqual(len(speaker_voice_configs), 2)
         self.assertEqual(speaker_voice_configs[0]["speaker"], "Joe")
         self.assertEqual(
-            speaker_voice_configs[0]["voice_config"]["prebuilt_voice_config"][
-                "voice_name"
-            ],
+            speaker_voice_configs[0]["voice_config"]["prebuilt_voice_config"]["voice_name"],
             "Kore",
         )
 
@@ -925,8 +915,7 @@ class TestModelPricing(unittest.TestCase):
         """Test that output pricing is always >= input pricing."""
         for model, (input_price, output_price) in MODEL_PRICING.items():
             self.assertGreaterEqual(
-                output_price, input_price,
-                f"{model} output price should be >= input price"
+                output_price, input_price, f"{model} output price should be >= input price"
             )
 
     def test_calculate_cost_known_model(self):
@@ -988,7 +977,9 @@ class TestModelPricing(unittest.TestCase):
     def test_calculate_cost_maps_grounding_with_thinking(self):
         """Test that Maps surcharge stacks with thinking token cost."""
         base = calculate_cost("gemini-3-flash-preview", 1000, 500, thinking_tokens=2000)
-        with_maps = calculate_cost("gemini-3-flash-preview", 1000, 500, thinking_tokens=2000, google_maps_grounded=True)
+        with_maps = calculate_cost(
+            "gemini-3-flash-preview", 1000, 500, thinking_tokens=2000, google_maps_grounded=True
+        )
         self.assertAlmostEqual(with_maps - base, MAPS_GROUNDING_COST_PER_REQUEST)
 
 
@@ -1181,7 +1172,9 @@ class TestTtsPricing(unittest.TestCase):
     def test_calculate_tts_cost_small_token_count(self):
         """Test cost calculation with realistic small token counts."""
         # gemini-2.5-pro-preview-tts: $1.00/M input, $20.00/M output
-        cost = calculate_tts_cost("gemini-2.5-pro-preview-tts", input_tokens=500, output_tokens=10_000)
+        cost = calculate_tts_cost(
+            "gemini-2.5-pro-preview-tts", input_tokens=500, output_tokens=10_000
+        )
         expected = (500 / 1_000_000) * 1.00 + (10_000 / 1_000_000) * 20.00
         self.assertAlmostEqual(cost, expected)
 
@@ -1197,32 +1190,24 @@ class TestChatCompletionParametersThinking(unittest.TestCase):
 
     def test_thinking_level_set(self):
         """Test setting thinking_level."""
-        params = ChatCompletionParameters(
-            model="gemini-3-flash-preview", thinking_level="high"
-        )
+        params = ChatCompletionParameters(model="gemini-3-flash-preview", thinking_level="high")
         self.assertEqual(params.thinking_level, "high")
         self.assertIsNone(params.thinking_budget)
 
     def test_thinking_budget_set(self):
         """Test setting thinking_budget."""
-        params = ChatCompletionParameters(
-            model="gemini-2.5-flash", thinking_budget=1024
-        )
+        params = ChatCompletionParameters(model="gemini-2.5-flash", thinking_budget=1024)
         self.assertIsNone(params.thinking_level)
         self.assertEqual(params.thinking_budget, 1024)
 
     def test_thinking_budget_zero(self):
         """Test thinking_budget=0 (disable thinking)."""
-        params = ChatCompletionParameters(
-            model="gemini-2.5-flash", thinking_budget=0
-        )
+        params = ChatCompletionParameters(model="gemini-2.5-flash", thinking_budget=0)
         self.assertEqual(params.thinking_budget, 0)
 
     def test_thinking_budget_dynamic(self):
         """Test thinking_budget=-1 (dynamic)."""
-        params = ChatCompletionParameters(
-            model="gemini-2.5-flash", thinking_budget=-1
-        )
+        params = ChatCompletionParameters(model="gemini-2.5-flash", thinking_budget=-1)
         self.assertEqual(params.thinking_budget, -1)
 
     def test_both_thinking_params(self):

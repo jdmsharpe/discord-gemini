@@ -110,7 +110,7 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - google-genai ~1.68
 - py-cord ~2.7
 - Pillow ~12.1

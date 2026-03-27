@@ -1,5 +1,6 @@
 # Standard library imports
 import asyncio
+import contextlib
 import logging
 import mimetypes
 import re
@@ -10,11 +11,10 @@ from dataclasses import dataclass
 from datetime import date
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Tuple, TypedDict, Union, cast
+from typing import Any, Protocol, TypedDict, cast
 
 # Third-party imports
 import aiohttp
-from PIL import Image
 
 # Discord imports
 import discord
@@ -30,10 +30,10 @@ from discord.ext import commands
 # Google AI imports
 from google import genai
 from google.genai import types
+from PIL import Image
 
 # Local imports
 from button_view import ButtonView
-from exceptions import APICallError, MusicGenerationError, ValidationError
 from config.auth import (
     ENABLE_CUSTOM_TOOLS,
     GEMINI_API_KEY,
@@ -41,6 +41,7 @@ from config.auth import (
     GUILD_IDS,
     SHOW_COST_EMBEDS,
 )
+from exceptions import APICallError, MusicGenerationError, ValidationError
 from tools import execute_tool_call, get_tool_callables
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
@@ -48,14 +49,14 @@ from util import (
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
     MAX_AGENTIC_ITERATIONS,
-    TYPING_INDICATOR_INTERVAL,
-    VIDEO_GENERATION_TIMEOUT,
-    WS_DRAIN_INTERVAL,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
     TOOL_GOOGLE_MAPS,
     TOOL_GOOGLE_SEARCH,
     TOOL_URL_CONTEXT,
+    TYPING_INDICATOR_INTERVAL,
+    VIDEO_GENERATION_TIMEOUT,
+    WS_DRAIN_INTERVAL,
     AgenticResult,
     ChatCompletionParameters,
     ImageGenerationParameters,
@@ -63,11 +64,11 @@ from util import (
     ResearchParameters,
     SpeechGenerationParameters,
     VideoGenerationParameters,
-    check_mutually_exclusive_tools,
     calculate_cost,
     calculate_image_cost,
     calculate_tts_cost,
     calculate_video_cost,
+    check_mutually_exclusive_tools,
     chunk_text,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
@@ -84,7 +85,7 @@ class Conversation:
     """A dataclass to store conversation state."""
 
     params: ChatCompletionParameters
-    history: List[Dict[str, Any]]
+    history: list[dict[str, Any]]
 
 
 class CitationInfo(TypedDict):
@@ -98,20 +99,18 @@ class UrlContextInfo(TypedDict):
 
 
 class ToolInfo(TypedDict):
-    tools_used: List[str]
-    citations: List[CitationInfo]
-    search_queries: List[str]
-    url_context_sources: List[UrlContextInfo]
-    maps_widget_token: Optional[str]
+    tools_used: list[str]
+    citations: list[CitationInfo]
+    search_queries: list[str]
+    url_context_sources: list[UrlContextInfo]
+    maps_widget_token: str | None
 
 
 class PermissionAwareChannel(Protocol):
     def permissions_for(self, member: Any) -> Any: ...
 
 
-_YOUTUBE_URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?(?:youtube\.com/|youtu\.be/)", re.IGNORECASE
-)
+_YOUTUBE_URL_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:youtube\.com/|youtu\.be/)", re.IGNORECASE)
 
 
 def _guess_url_mime_type(url: str) -> str:
@@ -173,7 +172,7 @@ def extract_thinking_text(response) -> str:
     return "\n\n".join(thinking_parts)
 
 
-def _get_response_content_parts(response) -> Optional[list]:
+def _get_response_content_parts(response) -> list | None:
     """Get the raw content parts from a Gemini response for history storage.
 
     Preserves all parts including thought signatures for multi-turn context.
@@ -190,13 +189,11 @@ def _get_response_content_parts(response) -> Optional[list]:
     return list(parts)
 
 
-def _build_thinking_config(
-    thinking_level: Optional[str], thinking_budget: Optional[int]
-):
+def _build_thinking_config(thinking_level: str | None, thinking_budget: int | None):
     """Build a ThinkingConfig from user parameters, or return None."""
     if thinking_level is None and thinking_budget is None:
         return None
-    kwargs: Dict[str, Any] = {"include_thoughts": True}
+    kwargs: dict[str, Any] = {"include_thoughts": True}
     if thinking_level is not None:
         kwargs["thinking_level"] = thinking_level
     if thinking_budget is not None:
@@ -228,14 +225,12 @@ def extract_tool_info(response) -> ToolInfo:
         web_search_queries = getattr(grounding_metadata, "web_search_queries", None)
         if web_search_queries:
             tool_info["search_queries"] = [
-                query
-                for query in web_search_queries
-                if isinstance(query, str) and query
+                query for query in web_search_queries if isinstance(query, str) and query
             ]
 
         grounding_chunks = getattr(grounding_metadata, "grounding_chunks", None) or []
         seen_uris = set()
-        citations: List[CitationInfo] = []
+        citations: list[CitationInfo] = []
         for chunk in grounding_chunks:
             web_chunk = getattr(chunk, "web", None)
             maps_chunk = getattr(chunk, "maps", None)
@@ -262,9 +257,7 @@ def extract_tool_info(response) -> ToolInfo:
         if getattr(grounding_metadata, "search_entry_point", None) is not None:
             search_used = True
 
-        maps_widget_token = getattr(
-            grounding_metadata, "google_maps_widget_context_token", None
-        )
+        maps_widget_token = getattr(grounding_metadata, "google_maps_widget_context_token", None)
         if maps_widget_token:
             tool_info["maps_widget_token"] = str(maps_widget_token)
             maps_used = True
@@ -281,8 +274,7 @@ def extract_tool_info(response) -> ToolInfo:
     parts = getattr(content, "parts", None) if content is not None else None
     if parts:
         code_execution_used = any(
-            getattr(part, "executable_code", None)
-            or getattr(part, "code_execution_result", None)
+            getattr(part, "executable_code", None) or getattr(part, "code_execution_result", None)
             for part in parts
         )
         if code_execution_used:
@@ -291,7 +283,7 @@ def extract_tool_info(response) -> ToolInfo:
     url_context_metadata = getattr(candidate, "url_context_metadata", None)
     if url_context_metadata is not None:
         url_metadata_entries = getattr(url_context_metadata, "url_metadata", None) or []
-        parsed_sources: List[UrlContextInfo] = []
+        parsed_sources: list[UrlContextInfo] = []
         for entry in url_metadata_entries:
             retrieved_url = getattr(entry, "retrieved_url", None)
             if not retrieved_url:
@@ -321,7 +313,7 @@ def extract_tool_info(response) -> ToolInfo:
     return tool_info
 
 
-def append_sources_embed(embeds: List[Embed], tool_info: ToolInfo) -> None:
+def append_sources_embed(embeds: list[Embed], tool_info: ToolInfo) -> None:
     """
     Add a compact sources embed for grounded web responses.
     """
@@ -330,7 +322,7 @@ def append_sources_embed(embeds: List[Embed], tool_info: ToolInfo) -> None:
     if (not citations and not url_context_sources) or len(embeds) >= 10:
         return
 
-    source_lines: List[str] = []
+    source_lines: list[str] = []
     for index, citation in enumerate(citations[:8], start=1):
         safe_title = truncate_text(citation["title"], 120)
         source_lines.append(f"{index}. [{safe_title}]({citation['uri']})")
@@ -349,15 +341,13 @@ def append_sources_embed(embeds: List[Embed], tool_info: ToolInfo) -> None:
         query_preview = truncate_text(", ".join(queries[:3]), 500)
         description += f"\n\n**Queries:** {query_preview}"
     if tool_info["maps_widget_token"]:
-        description += (
-            "\n\n**Maps Widget:** `google_maps_widget_context_token` returned."
-        )
+        description += "\n\n**Maps Widget:** `google_maps_widget_context_token` returned."
 
     embeds.append(Embed(title="Sources", description=description, color=GEMINI_BLUE))
 
 
 def append_pricing_embed(
-    embeds: List[Embed],
+    embeds: list[Embed],
     model: str,
     input_tokens: int,
     output_tokens: int,
@@ -399,27 +389,25 @@ class GeminiAPI(commands.Cog):
         self.logger = logging.getLogger(__name__)
 
         # Dictionary to store conversation state for each chat interaction
-        self.conversations: Dict[int, Conversation] = {}
+        self.conversations: dict[int, Conversation] = {}
         # Dictionary to map any message ID to the main conversation ID for tracking
-        self.message_to_conversation_id: Dict[int, int] = {}
+        self.message_to_conversation_id: dict[int, int] = {}
         # Dictionary to store UI views keyed by the conversation-starting user
-        self.views: Dict[Union[Member, User], ButtonView] = {}
+        self.views: dict[Member | User, ButtonView] = {}
         # Track the last message carrying the view per user for cleanup
-        self.last_view_messages: Dict[Union[Member, User], discord.Message] = {}
+        self.last_view_messages: dict[Member | User, discord.Message] = {}
         # Daily cost tracking: (user_id, date_iso) -> cumulative cost
-        self.daily_costs: Dict[Tuple[int, str], float] = {}
-        self._http_session: Optional[aiohttp.ClientSession] = None
+        self.daily_costs: dict[tuple[int, str], float] = {}
+        self._http_session: aiohttp.ClientSession | None = None
         self._session_lock = asyncio.Lock()
 
     # -- ConversationHost protocol methods (used by ButtonView) --
 
-    def get_conversation(self, conversation_id: int) -> Optional[Conversation]:
+    def get_conversation(self, conversation_id: int) -> Conversation | None:
         """Return the Conversation for *conversation_id*, or ``None``."""
         return self.conversations.get(conversation_id)
 
-    async def end_conversation(
-        self, conversation_id: int, user: Union[Member, User]
-    ) -> None:
+    async def end_conversation(self, conversation_id: int, user: Member | User) -> None:
         """Fully tear down a conversation: delete cache, files, and state."""
         conversation = self.conversations.get(conversation_id)
         if conversation is not None:
@@ -472,9 +460,7 @@ class GeminiAPI(commands.Cog):
     ) -> None:
         """Log an error and send a red error embed as a followup message."""
         description = str(error)
-        self.logger.error(
-            "Error in %s: %s", command_name, description, exc_info=True
-        )
+        self.logger.error("Error in %s: %s", command_name, description, exc_info=True)
         if len(description) > 4000:
             description = description[:4000] + "\n\n... (error message truncated)"
         try:
@@ -494,15 +480,11 @@ class GeminiAPI(commands.Cog):
         async with self._session_lock:
             if self._http_session is None or self._http_session.closed:
                 timeout = aiohttp.ClientTimeout(total=300, connect=15)
-                connector = aiohttp.TCPConnector(
-                    limit=20, limit_per_host=10, ttl_dns_cache=300
-                )
-                self._http_session = aiohttp.ClientSession(
-                    timeout=timeout, connector=connector
-                )
+                connector = aiohttp.TCPConnector(limit=20, limit_per_host=10, ttl_dns_cache=300)
+                self._http_session = aiohttp.ClientSession(timeout=timeout, connector=connector)
             return self._http_session
 
-    async def _fetch_attachment_bytes(self, attachment: Attachment) -> Optional[bytes]:
+    async def _fetch_attachment_bytes(self, attachment: Attachment) -> bytes | None:
         session = await self._get_http_session()
         try:
             async with session.get(attachment.url) as response:
@@ -514,12 +496,10 @@ class GeminiAPI(commands.Cog):
                     response.status,
                 )
         except aiohttp.ClientError as error:
-            self.logger.warning(
-                "Error fetching attachment %s: %s", attachment.url, error
-            )
+            self.logger.warning("Error fetching attachment %s: %s", attachment.url, error)
         return None
 
-    def _validate_attachment_size(self, attachment: Attachment) -> Optional[str]:
+    def _validate_attachment_size(self, attachment: Attachment) -> str | None:
         """Validate an attachment's size against Gemini API limits.
 
         Returns an error message string if the attachment is too large,
@@ -527,17 +507,14 @@ class GeminiAPI(commands.Cog):
         """
         if attachment.size > ATTACHMENT_FILE_API_MAX_SIZE:
             size_mb = attachment.size / (1024 * 1024)
-            return (
-                f"Attachment is too large ({size_mb:.1f} MB). "
-                f"Maximum file size is 2 GB."
-            )
+            return f"Attachment is too large ({size_mb:.1f} MB). Maximum file size is 2 GB."
         return None
 
     async def _prepare_attachment_part(
         self,
         attachment: Attachment,
-        uploaded_file_names: Optional[List[str]] = None,
-    ) -> Optional[Dict]:
+        uploaded_file_names: list[str] | None = None,
+    ) -> dict | None:
         """Prepare a Discord attachment as a Gemini API content part.
 
         Uses inline data for small files and the File API for files
@@ -567,9 +544,7 @@ class GeminiAPI(commands.Cog):
                     }
                 }
             # Fall back to inline data if upload fails
-            self.logger.warning(
-                "File API upload failed, falling back to inline data"
-            )
+            self.logger.warning("File API upload failed, falling back to inline data")
 
         return {
             "inline_data": {
@@ -580,7 +555,7 @@ class GeminiAPI(commands.Cog):
 
     async def _upload_attachment_to_file_api(
         self, data: bytes, filename: str, mime_type: str
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Upload attachment bytes to the Gemini File API.
 
         Saves to a temporary file, uploads, then cleans up the temp file.
@@ -601,30 +576,22 @@ class GeminiAPI(commands.Cog):
             )
             return uploaded_file
         except Exception as e:
-            self.logger.warning(
-                "Failed to upload %s to File API: %s", filename, e
-            )
+            self.logger.warning("Failed to upload %s to File API: %s", filename, e)
             return None
         finally:
             temp_path.unlink(missing_ok=True)
 
-    async def _cleanup_uploaded_files(
-        self, params: ChatCompletionParameters
-    ) -> None:
+    async def _cleanup_uploaded_files(self, params: ChatCompletionParameters) -> None:
         """Delete files uploaded to the File API for a conversation."""
         for file_name in params.uploaded_file_names:
             try:
                 await self.client.aio.files.delete(name=file_name)
                 self.logger.info("Deleted uploaded file %s", file_name)
             except Exception as e:
-                self.logger.warning(
-                    "Failed to delete uploaded file %s: %s", file_name, e
-                )
+                self.logger.warning("Failed to delete uploaded file %s: %s", file_name, e)
         params.uploaded_file_names.clear()
 
-    def enrich_file_search_tools(
-        self, tools: List[Dict[str, Any]]
-    ) -> Optional[str]:
+    def enrich_file_search_tools(self, tools: list[dict[str, Any]]) -> str | None:
         """Inject file search store IDs into file_search tool configs.
 
         Mutates the list in-place.  Returns an error message string if
@@ -638,14 +605,12 @@ class GeminiAPI(commands.Cog):
                         "to be set in your .env file."
                     )
                 tools[i] = {
-                    "file_search": {
-                        "file_search_store_names": GEMINI_FILE_SEARCH_STORE_IDS.copy()
-                    }
+                    "file_search": {"file_search_store_names": GEMINI_FILE_SEARCH_STORE_IDS.copy()}
                 }
         return None
 
     async def _maybe_create_cache(
-        self, params: ChatCompletionParameters, history: List[Dict[str, Any]], response
+        self, params: ChatCompletionParameters, history: list[dict[str, Any]], response
     ) -> None:
         """Create, refresh, or re-create an explicit cache based on conversation size."""
         threshold = CACHE_MIN_TOKEN_COUNT.get(params.model)
@@ -675,10 +640,7 @@ class GeminiAPI(commands.Cog):
             return
 
         try:
-            contents = [
-                {"role": entry["role"], "parts": entry["parts"]}
-                for entry in history
-            ]
+            contents = [{"role": entry["role"], "parts": entry["parts"]} for entry in history]
             cache = await self.client.aio.caches.create(
                 model=params.model,
                 config=types.CreateCachedContentConfig(
@@ -702,17 +664,14 @@ class GeminiAPI(commands.Cog):
     async def _recache(
         self,
         params: ChatCompletionParameters,
-        history: List[Dict[str, Any]],
+        history: list[dict[str, Any]],
         prompt_tokens: int,
         uncached_tokens: int,
     ) -> None:
         """Delete the old cache and create a new one covering the full history."""
         old_cache_name = params.cache_name
         try:
-            contents = [
-                {"role": entry["role"], "parts": entry["parts"]}
-                for entry in history
-            ]
+            contents = [{"role": entry["role"], "parts": entry["parts"]} for entry in history]
             cache = await self.client.aio.caches.create(
                 model=params.model,
                 config=types.CreateCachedContentConfig(
@@ -753,13 +712,9 @@ class GeminiAPI(commands.Cog):
                 config=types.UpdateCachedContentConfig(ttl=CACHE_TTL),
             )
         except Exception as e:
-            self.logger.warning(
-                "Failed to refresh cache TTL for %s: %s", params.cache_name, e
-            )
+            self.logger.warning("Failed to refresh cache TTL for %s: %s", params.cache_name, e)
 
-    async def _delete_conversation_cache(
-        self, params: ChatCompletionParameters
-    ) -> None:
+    async def _delete_conversation_cache(self, params: ChatCompletionParameters) -> None:
         """Delete the explicit cache for a conversation, if one exists."""
         if not params.cache_name:
             return
@@ -775,7 +730,7 @@ class GeminiAPI(commands.Cog):
         self,
         model: str,
         contents: list,
-        config: Optional[types.GenerateContentConfig],
+        config: types.GenerateContentConfig | None,
     ) -> AgenticResult:
         """Run generate_content in a loop, executing custom function calls.
 
@@ -790,7 +745,9 @@ class GeminiAPI(commands.Cog):
 
         for iteration in range(MAX_AGENTIC_ITERATIONS):
             response = await self.client.aio.models.generate_content(
-                model=model, contents=contents, config=config,
+                model=model,
+                contents=contents,
+                config=config,
             )
             result.response = response
             result.iterations = iteration + 1
@@ -818,20 +775,24 @@ class GeminiAPI(commands.Cog):
                     continue
                 self.logger.info(
                     "Agentic loop iter %d: calling %s(%s)",
-                    iteration + 1, name, fc.args,
+                    iteration + 1,
+                    name,
+                    fc.args,
                 )
                 result.tool_calls_made.append(name)
                 call_result = await execute_tool_call(name, fc.args)
                 func_response_parts.append(
                     types.Part.from_function_response(
-                        name=name, response=call_result,
+                        name=name,
+                        response=call_result,
                     )
                 )
 
             contents.append({"role": "user", "parts": func_response_parts})
         else:
             self.logger.warning(
-                "Agentic loop hit max iterations (%d)", MAX_AGENTIC_ITERATIONS,
+                "Agentic loop hit max iterations (%d)",
+                MAX_AGENTIC_ITERATIONS,
             )
 
         return result
@@ -859,9 +820,7 @@ class GeminiAPI(commands.Cog):
                 loop.create_task(self.client.aio.caches.delete(name=cache_name))
             for file_name in conversation.params.uploaded_file_names:
                 if loop and loop.is_running():
-                    loop.create_task(
-                        self.client.aio.files.delete(name=file_name)
-                    )
+                    loop.create_task(self.client.aio.files.delete(name=file_name))
 
         self.last_view_messages.clear()
 
@@ -890,9 +849,7 @@ class GeminiAPI(commands.Cog):
         await self._strip_previous_view(user)
         self.views.pop(user, None)
 
-    async def handle_new_message_in_conversation(
-        self, message, conversation_wrapper: Conversation
-    ):
+    async def handle_new_message_in_conversation(self, message, conversation_wrapper: Conversation):
         """
         Handles a new message in an ongoing conversation.
 
@@ -903,9 +860,7 @@ class GeminiAPI(commands.Cog):
         params = conversation_wrapper.params
         history = conversation_wrapper.history
 
-        self.logger.info(
-            f"Handling new message in conversation {params.conversation_id}."
-        )
+        self.logger.info(f"Handling new message in conversation {params.conversation_id}.")
         typing_task = None
         embeds = []
 
@@ -920,7 +875,7 @@ class GeminiAPI(commands.Cog):
             typing_task = asyncio.create_task(self.keep_typing(message.channel))
 
             # Build parts with media first, text last (recommended by Gemini docs)
-            user_parts: List[Union[str, Dict]] = []
+            user_parts: list[str | dict] = []
             if message.attachments:
                 for attachment in message.attachments:
                     validation_error = self._validate_attachment_size(attachment)
@@ -958,9 +913,7 @@ class GeminiAPI(commands.Cog):
                 config_args["top_p"] = params.top_p
             if params.media_resolution is not None:
                 config_args["media_resolution"] = params.media_resolution
-            thinking_config = _build_thinking_config(
-                params.thinking_level, params.thinking_budget
-            )
+            thinking_config = _build_thinking_config(params.thinking_level, params.thinking_budget)
             if thinking_config is not None:
                 config_args["thinking_config"] = thinking_config
             if params.tools:
@@ -994,21 +947,19 @@ class GeminiAPI(commands.Cog):
 
             self.logger.debug(f"Sending contents to Gemini: {contents}")
 
-            generation_config = (
-                types.GenerateContentConfig(**config_args) if config_args else None
-            )
+            generation_config = types.GenerateContentConfig(**config_args) if config_args else None
             pre_loop_len = len(contents)
             try:
                 result = await self._run_agentic_loop(
-                    params.model, contents, generation_config,
+                    params.model,
+                    contents,
+                    generation_config,
                 )
             except Exception as cache_err:
                 if not params.cache_name:
                     raise
                 # Cache may have expired; retry with full history
-                self.logger.warning(
-                    "Cached request failed, retrying without cache: %s", cache_err
-                )
+                self.logger.warning("Cached request failed, retrying without cache: %s", cache_err)
                 params.cache_name = None
                 params.cached_history_length = 0
                 config_args.pop("cached_content", None)
@@ -1019,12 +970,12 @@ class GeminiAPI(commands.Cog):
                     contents.append({"role": entry["role"], "parts": entry["parts"]})
                 pre_loop_len = len(contents)
                 generation_config = (
-                    types.GenerateContentConfig(**config_args)
-                    if config_args
-                    else None
+                    types.GenerateContentConfig(**config_args) if config_args else None
                 )
                 result = await self._run_agentic_loop(
-                    params.model, contents, generation_config,
+                    params.model,
+                    contents,
+                    generation_config,
                 )
             response = result.response
 
@@ -1055,9 +1006,7 @@ class GeminiAPI(commands.Cog):
 
             # Store full response parts to preserve thought signatures for multi-turn context
             response_parts = _get_response_content_parts(response)
-            history.append(
-                {"role": "model", "parts": response_parts or [{"text": response_text}]}
-            )
+            history.append({"role": "model", "parts": response_parts or [{"text": response_text}]})
 
             # Create an explicit cache if the conversation is large enough
             await self._maybe_create_cache(params, history, response)
@@ -1073,17 +1022,30 @@ class GeminiAPI(commands.Cog):
             output_tokens = result.total_output_tokens
             thinking_tokens = result.total_thinking_tokens
             maps_grounded = "google_maps" in tool_info.get("tools_used", [])
-            cost = calculate_cost(params.model, input_tokens, output_tokens, thinking_tokens, maps_grounded)
+            cost = calculate_cost(
+                params.model, input_tokens, output_tokens, thinking_tokens, maps_grounded
+            )
             daily_cost = self._track_daily_cost(message.author.id, cost)
             self._log_cost(
-                "chat", message.author.id, params.model, cost, daily_cost,
-                input_tokens=input_tokens, output_tokens=output_tokens,
-                thinking_tokens=thinking_tokens, google_maps_grounded=maps_grounded,
+                "chat",
+                message.author.id,
+                params.model,
+                cost,
+                daily_cost,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                thinking_tokens=thinking_tokens,
+                google_maps_grounded=maps_grounded,
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
-                    embeds, params.model, input_tokens, output_tokens, daily_cost,
-                    thinking_tokens, maps_grounded,
+                    embeds,
+                    params.model,
+                    input_tokens,
+                    output_tokens,
+                    daily_cost,
+                    thinking_tokens,
+                    maps_grounded,
                 )
 
             view = self.views.get(message.author)
@@ -1101,9 +1063,7 @@ class GeminiAPI(commands.Cog):
                 # Send response embeds with view
                 try:
                     reply_message = await message.reply(embeds=embeds, view=view)
-                    self.message_to_conversation_id[reply_message.id] = (
-                        main_conversation_id
-                    )
+                    self.message_to_conversation_id[reply_message.id] = main_conversation_id
                     self.last_view_messages[message.author] = reply_message
                 except Exception as embed_error:
                     # If embed fails due to size, try sending as plain text
@@ -1113,9 +1073,7 @@ class GeminiAPI(commands.Cog):
                         content=f"**Response:**\n{safe_response_text[:1900]}{'...' if len(safe_response_text) > 1900 else ''}",
                         view=view,
                     )
-                    self.message_to_conversation_id[reply_message.id] = (
-                        main_conversation_id
-                    )
+                    self.message_to_conversation_id[reply_message.id] = main_conversation_id
                     self.last_view_messages[message.author] = reply_message
 
                 self.logger.debug("Replied with generated response.")
@@ -1182,9 +1140,7 @@ class GeminiAPI(commands.Cog):
             await self.bot.sync_commands()
             self.logger.info("Commands synchronized successfully.")
         except Exception as e:
-            self.logger.error(
-                f"Error during command synchronization: {e}", exc_info=True
-            )
+            self.logger.error(f"Error during command synchronization: {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -1263,9 +1219,7 @@ class GeminiAPI(commands.Cog):
         can_read_history = bool(getattr(permissions, "read_message_history", False))
 
         if can_read and can_read_history:
-            await ctx.respond(
-                "Bot has permission to read messages and message history."
-            )
+            await ctx.respond("Bot has permission to read messages and message history.")
         else:
             await ctx.respond("Bot is missing necessary permissions in this channel.")
 
@@ -1410,17 +1364,17 @@ class GeminiAPI(commands.Cog):
         ctx: ApplicationContext,
         prompt: str,
         model: str = "gemini-3.1-pro-preview",
-        system_instruction: Optional[str] = None,
-        frequency_penalty: Optional[float] = None,
-        presence_penalty: Optional[float] = None,
-        seed: Optional[int] = None,
-        attachment: Optional[Attachment] = None,
-        url: Optional[str] = None,
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        media_resolution: Optional[str] = None,
-        thinking_level: Optional[str] = None,
-        thinking_budget: Optional[int] = None,
+        system_instruction: str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
+        seed: int | None = None,
+        attachment: Attachment | None = None,
+        url: str | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        media_resolution: str | None = None,
+        thinking_level: str | None = None,
+        thinking_budget: int | None = None,
         google_search: bool = False,
         code_execution: bool = False,
         google_maps: bool = False,
@@ -1495,8 +1449,8 @@ class GeminiAPI(commands.Cog):
             typing_task = asyncio.create_task(self.keep_typing(channel))
 
             # Build parts with media first, text last (recommended by Gemini docs)
-            parts: List[Dict] = []
-            uploaded_file_names: List[str] = []
+            parts: list[dict] = []
+            uploaded_file_names: list[str] = []
             if attachment:
                 validation_error = self._validate_attachment_size(attachment)
                 if validation_error:
@@ -1538,9 +1492,7 @@ class GeminiAPI(commands.Cog):
                 "file_search": (file_search, TOOL_FILE_SEARCH),
             }
 
-            enabled_names = {
-                name for name, (enabled, _) in selected_tool_names.items() if enabled
-            }
+            enabled_names = {name for name, (enabled, _) in selected_tool_names.items() if enabled}
             exclusive_error = check_mutually_exclusive_tools(enabled_names)
             if exclusive_error:
                 await ctx.send_followup(
@@ -1559,9 +1511,7 @@ class GeminiAPI(commands.Cog):
                 for enabled, tool_config in selected_tool_names.values()
                 if enabled
             ]
-            tools, unsupported_tools = filter_supported_tools_for_model(
-                model, requested_tools
-            )
+            tools, unsupported_tools = filter_supported_tools_for_model(model, requested_tools)
             tools, incompatible_tools = filter_file_search_incompatible_tools(tools)
 
             # Enrich file_search tools with configured store IDs
@@ -1608,9 +1558,7 @@ class GeminiAPI(commands.Cog):
                     tool_list.extend(callables)
                     config_args["tools"] = tool_list
 
-            generation_config = (
-                types.GenerateContentConfig(**config_args) if config_args else None
-            )
+            generation_config = types.GenerateContentConfig(**config_args) if config_args else None
 
             # Convert parts to the format expected by Gemini API
             formatted_parts = []
@@ -1619,9 +1567,7 @@ class GeminiAPI(commands.Cog):
                     if "text" in part:
                         formatted_parts.append(types.Part(text=part["text"]))
                     elif "inline_data" in part:
-                        formatted_parts.append(
-                            types.Part(inline_data=part["inline_data"])
-                        )
+                        formatted_parts.append(types.Part(inline_data=part["inline_data"]))
                     elif "file_data" in part:
                         formatted_parts.append(
                             types.Part.from_uri(
@@ -1635,7 +1581,9 @@ class GeminiAPI(commands.Cog):
 
             initial_contents = [{"role": "user", "parts": formatted_parts}]
             result = await self._run_agentic_loop(
-                model, initial_contents, generation_config,
+                model,
+                initial_contents,
+                generation_config,
             )
             response = result.response
             response_text = response.text
@@ -1653,41 +1601,27 @@ class GeminiAPI(commands.Cog):
             description = f"**Prompt:** {truncated_prompt}\n"
             description += f"**Model:** {model}\n"
             description += (
-                f"**System Instruction:** {system_instruction}\n"
-                if system_instruction
-                else ""
+                f"**System Instruction:** {system_instruction}\n" if system_instruction else ""
             )
             description += (
-                f"**Frequency Penalty:** {frequency_penalty}\n"
-                if frequency_penalty
-                else ""
+                f"**Frequency Penalty:** {frequency_penalty}\n" if frequency_penalty else ""
             )
-            description += (
-                f"**Presence Penalty:** {presence_penalty}\n"
-                if presence_penalty
-                else ""
-            )
+            description += f"**Presence Penalty:** {presence_penalty}\n" if presence_penalty else ""
             description += f"**Seed:** {seed}\n" if seed else ""
             if temperature is not None:
                 description += f"**Temperature:** {temperature}"
                 if model.startswith("gemini-3") and temperature != 1.0:
-                    description += " (warning: Gemini 3 recommends 1.0; lower values may cause looping)"
+                    description += (
+                        " (warning: Gemini 3 recommends 1.0; lower values may cause looping)"
+                    )
                 description += "\n"
             description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
+            description += f"**Media Resolution:** {media_resolution}\n" if media_resolution else ""
             description += (
-                f"**Media Resolution:** {media_resolution}\n"
-                if media_resolution
-                else ""
+                f"**Thinking Level:** {thinking_level.capitalize()}\n" if thinking_level else ""
             )
             description += (
-                f"**Thinking Level:** {thinking_level.capitalize()}\n"
-                if thinking_level
-                else ""
-            )
-            description += (
-                f"**Thinking Budget:** {thinking_budget}\n"
-                if thinking_budget is not None
-                else ""
+                f"**Thinking Budget:** {thinking_budget}\n" if thinking_budget is not None else ""
             )
             if tools:
                 active_tool_labels = [
@@ -1720,17 +1654,30 @@ class GeminiAPI(commands.Cog):
             output_tokens = result.total_output_tokens
             thinking_tokens = result.total_thinking_tokens
             maps_grounded = "google_maps" in tool_info.get("tools_used", [])
-            cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens, maps_grounded)
+            cost = calculate_cost(
+                model, input_tokens, output_tokens, thinking_tokens, maps_grounded
+            )
             daily_cost = self._track_daily_cost(ctx.author.id, cost)
             self._log_cost(
-                "chat", ctx.author.id, model, cost, daily_cost,
-                input_tokens=input_tokens, output_tokens=output_tokens,
-                thinking_tokens=thinking_tokens, google_maps_grounded=maps_grounded,
+                "chat",
+                ctx.author.id,
+                model,
+                cost,
+                daily_cost,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                thinking_tokens=thinking_tokens,
+                google_maps_grounded=maps_grounded,
             )
             if SHOW_COST_EMBEDS:
                 append_pricing_embed(
-                    embeds, model, input_tokens, output_tokens, daily_cost,
-                    thinking_tokens, maps_grounded,
+                    embeds,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    daily_cost,
+                    thinking_tokens,
+                    maps_grounded,
                 )
 
             if not has_response:
@@ -1789,9 +1736,7 @@ class GeminiAPI(commands.Cog):
             # Add intermediate agentic turns (function call/response pairs)
             for entry in initial_contents[1:]:
                 history.append(entry)
-            history.append(
-                {"role": "model", "parts": response_parts or [{"text": response_text}]}
-            )
+            history.append({"role": "model", "parts": response_parts or [{"text": response_text}]})
             conversation_wrapper = Conversation(params=params, history=history)
             self.conversations[main_conversation_id] = conversation_wrapper
 
@@ -1813,12 +1758,8 @@ class GeminiAPI(commands.Cog):
         description="Choose between Gemini or Imagen models. (default: Gemini 3.1 Flash Image)",
         required=False,
         choices=[
-            OptionChoice(
-                name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"
-            ),
-            OptionChoice(
-                name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"
-            ),
+            OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"),
+            OptionChoice(name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"),
             OptionChoice(name="Gemini 2.5 Flash Image", value="gemini-2.5-flash-image"),
             OptionChoice(name="Imagen 4", value="imagen-4.0-generate-001"),
             OptionChoice(name="Imagen 4 Ultra", value="imagen-4.0-ultra-generate-001"),
@@ -1908,12 +1849,12 @@ class GeminiAPI(commands.Cog):
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         person_generation: str = "allow_adult",
-        attachment: Optional[Attachment] = None,
-        negative_prompt: Optional[str] = None,
-        seed: Optional[int] = None,
-        guidance_scale: Optional[float] = None,
-        image_size: Optional[str] = None,
-        google_image_search: Optional[bool] = None,
+        attachment: Attachment | None = None,
+        negative_prompt: str | None = None,
+        seed: int | None = None,
+        guidance_scale: float | None = None,
+        image_size: str | None = None,
+        google_image_search: bool | None = None,
     ):
         """
         Generates images from a prompt using either Gemini or Imagen models.
@@ -1991,11 +1932,11 @@ class GeminiAPI(commands.Cog):
 
             if is_gemini_model:
                 # Handle Gemini models using generate_content
-                text_response, generated_images, input_tokens = (
-                    await self._generate_image_with_gemini(
-                        image_params, attachment
-                    )
-                )
+                (
+                    text_response,
+                    generated_images,
+                    input_tokens,
+                ) = await self._generate_image_with_gemini(image_params, attachment)
             else:
                 # Handle Imagen models using generate_images
                 if attachment:
@@ -2015,8 +1956,13 @@ class GeminiAPI(commands.Cog):
             cost = calculate_image_cost(model, num_images, input_tokens, image_size)
             daily_cost = self._track_daily_cost(ctx.author.id, cost)
             self._log_cost(
-                "image", ctx.author.id, model, cost, daily_cost,
-                images=num_images, input_tokens=input_tokens,
+                "image",
+                ctx.author.id,
+                model,
+                cost,
+                daily_cost,
+                images=num_images,
+                input_tokens=input_tokens,
             )
 
             # Send response
@@ -2048,9 +1994,11 @@ class GeminiAPI(commands.Cog):
                     truncated_text = truncate_text(text_response, 3800)
                     embed_description += f"Text response: {truncated_text}\n"
                 elif is_gemini_model:
-                    embed_description += f"Try asking explicitly for image generation (e.g., 'a red car').\n"
+                    embed_description += (
+                        "Try asking explicitly for image generation (e.g., 'a red car').\n"
+                    )
                 else:
-                    embed_description += f"Imagen models should generate images. Check your prompt or try different parameters.\n"
+                    embed_description += "Imagen models should generate images. Check your prompt or try different parameters.\n"
 
                 # Show unsupported parameters info based on model type
                 if is_gemini_model:
@@ -2087,18 +2035,14 @@ class GeminiAPI(commands.Cog):
         name="video",
         description="Generates a video based on a prompt using Veo.",
     )
-    @option(
-        "prompt", description="Prompt for video generation", required=True, type=str
-    )
+    @option("prompt", description="Prompt for video generation", required=True, type=str)
     @option(
         "model",
         description="Choose Veo model for video generation. (default: Veo 3.1 Preview)",
         required=False,
         choices=[
             OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
-            OptionChoice(
-                name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"
-            ),
+            OptionChoice(name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"),
             OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
             OptionChoice(name="Veo 3 Fast", value="veo-3.0-fast-generate-001"),
             OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
@@ -2173,12 +2117,12 @@ class GeminiAPI(commands.Cog):
         model: str = "veo-3.1-generate-preview",
         aspect_ratio: str = "16:9",
         person_generation: str = "allow_adult",
-        attachment: Optional[Attachment] = None,
-        last_frame: Optional[Attachment] = None,
+        attachment: Attachment | None = None,
+        last_frame: Attachment | None = None,
         number_of_videos: int = 1,
-        duration_seconds: Optional[int] = None,
-        negative_prompt: Optional[str] = None,
-        enhance_prompt: Optional[bool] = None,
+        duration_seconds: int | None = None,
+        negative_prompt: str | None = None,
+        enhance_prompt: bool | None = None,
     ):
         """
         Generates videos from a prompt using Veo models (2.0, 3.0, or 3.1).
@@ -2269,8 +2213,13 @@ class GeminiAPI(commands.Cog):
                 cost = calculate_video_cost(model, est_duration, num_videos)
                 daily_cost = self._track_daily_cost(ctx.author.id, cost)
                 self._log_cost(
-                    "video", ctx.author.id, model, cost, daily_cost,
-                    videos=num_videos, duration_seconds=est_duration,
+                    "video",
+                    ctx.author.id,
+                    model,
+                    cost,
+                    daily_cost,
+                    videos=num_videos,
+                    duration_seconds=est_duration,
                 )
 
                 embed, files = await self._create_video_response_embed(
@@ -2319,9 +2268,7 @@ class GeminiAPI(commands.Cog):
                 name="Gemini 2.5 Flash Preview TTS",
                 value="gemini-2.5-flash-preview-tts",
             ),
-            OptionChoice(
-                name="Gemini 2.5 Pro Preview TTS", value="gemini-2.5-pro-preview-tts"
-            ),
+            OptionChoice(name="Gemini 2.5 Pro Preview TTS", value="gemini-2.5-pro-preview-tts"),
         ],
         type=str,
     )
@@ -2370,7 +2317,7 @@ class GeminiAPI(commands.Cog):
         input_text: str,
         model: str = "gemini-2.5-flash-preview-tts",
         voice_name: str = "Kore",
-        style_prompt: Optional[str] = None,
+        style_prompt: str | None = None,
     ):
         """
         Generates audio from input text using Gemini's native text-to-speech capabilities.
@@ -2413,14 +2360,21 @@ class GeminiAPI(commands.Cog):
             )
 
             # Generate audio using Gemini TTS
-            audio_data, input_tokens, output_tokens = await self._generate_speech_with_gemini(tts_params)
+            audio_data, input_tokens, output_tokens = await self._generate_speech_with_gemini(
+                tts_params
+            )
 
             # Track and log cost
             cost = calculate_tts_cost(model, input_tokens, output_tokens)
             daily_cost = self._track_daily_cost(ctx.author.id, cost)
             self._log_cost(
-                "tts", ctx.author.id, model, cost, daily_cost,
-                input_tokens=input_tokens, output_tokens=output_tokens,
+                "tts",
+                ctx.author.id,
+                model,
+                cost,
+                daily_cost,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             )
 
             if audio_data:
@@ -2435,12 +2389,14 @@ class GeminiAPI(commands.Cog):
                     wf.writeframes(audio_data)
 
                 # Create response embed
-                description = f"**Text:** {input_text[:500]}{'...' if len(input_text) > 500 else ''}\n"
+                description = (
+                    f"**Text:** {input_text[:500]}{'...' if len(input_text) > 500 else ''}\n"
+                )
                 description += f"**Model:** {model}\n"
                 description += f"**Voice:** {voice_name}\n"
                 if style_prompt:
                     description += f"**Style Instructions:** {style_prompt}\n"
-                description += f"**Format:** WAV (24kHz, 16-bit, Mono)\n"
+                description += "**Format:** WAV (24kHz, 16-bit, Mono)\n"
 
                 embed = Embed(
                     title="Text-to-Speech Generation",
@@ -2450,9 +2406,7 @@ class GeminiAPI(commands.Cog):
 
                 embeds = [embed]
                 if SHOW_COST_EMBEDS:
-                    pricing_desc = (
-                        f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out (audio) · daily ${daily_cost:.2f}"
-                    )
+                    pricing_desc = f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out (audio) · daily ${daily_cost:.2f}"
                     embeds.append(Embed(description=pricing_desc, color=GEMINI_BLUE))
 
                 # Send the audio file
@@ -2547,10 +2501,10 @@ class GeminiAPI(commands.Cog):
         ctx: ApplicationContext,
         prompt: str,
         duration: int = 30,
-        bpm: Optional[int] = None,
-        scale: Optional[str] = None,
-        density: Optional[float] = None,
-        brightness: Optional[float] = None,
+        bpm: int | None = None,
+        scale: str | None = None,
+        density: float | None = None,
+        brightness: float | None = None,
         guidance: float = 4.0,
     ):
         """
@@ -2600,7 +2554,11 @@ class GeminiAPI(commands.Cog):
             # Log music generation (no published pricing for Lyria — experimental)
             daily_cost = self._track_daily_cost(ctx.author.id, 0.0)
             self._log_cost(
-                "music", ctx.author.id, "lyria-realtime-exp", 0.0, daily_cost,
+                "music",
+                ctx.author.id,
+                "lyria-realtime-exp",
+                0.0,
+                daily_cost,
                 duration_seconds=duration,
             )
 
@@ -2619,7 +2577,7 @@ class GeminiAPI(commands.Cog):
                 # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
                 truncated_prompt = truncate_text(prompt, 2000)
                 description = f"**Prompt:** {truncated_prompt}\n"
-                description += f"**Model:** Lyria RealTime\n"
+                description += "**Model:** Lyria RealTime\n"
                 description += f"**Duration:** {duration} seconds\n"
                 if bpm is not None:
                     description += f"**BPM:** {bpm}\n"
@@ -2630,7 +2588,7 @@ class GeminiAPI(commands.Cog):
                 if brightness is not None:
                     description += f"**Brightness:** {brightness}\n"
                 description += f"**Guidance:** {guidance}\n"
-                description += f"**Format:** WAV (48kHz, 16-bit, Stereo)\n"
+                description += "**Format:** WAV (48kHz, 16-bit, Stereo)\n"
 
                 embed = Embed(
                     title="Music Generation",
@@ -2718,18 +2676,27 @@ class GeminiAPI(commands.Cog):
                 google_maps=google_maps,
             )
 
-            report_text, input_tokens, output_tokens, thinking_tokens = (
-                await self._run_deep_research(research_params)
-            )
+            (
+                report_text,
+                input_tokens,
+                output_tokens,
+                thinking_tokens,
+            ) = await self._run_deep_research(research_params)
 
             # Deep Research is billed at Gemini 3.1 Pro rates
             research_model = "gemini-3.1-pro-preview"
             cost = calculate_cost(research_model, input_tokens, output_tokens, thinking_tokens)
             daily_cost = self._track_daily_cost(ctx.author.id, cost)
             self._log_cost(
-                "research", ctx.author.id, research_params.agent, cost, daily_cost,
-                input_tokens=input_tokens, output_tokens=output_tokens,
-                thinking_tokens=thinking_tokens, file_search=file_search,
+                "research",
+                ctx.author.id,
+                research_params.agent,
+                cost,
+                daily_cost,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                thinking_tokens=thinking_tokens,
+                file_search=file_search,
                 google_maps=google_maps,
             )
 
@@ -2743,9 +2710,7 @@ class GeminiAPI(commands.Cog):
                             f"{thinking_tokens:,} thinking · daily ${daily_cost:.2f}"
                         )
                     else:
-                        pricing_desc = (
-                            f"${cost:.2f} · {input_tokens:,} in / {output_tokens:,} out · daily ${daily_cost:.2f}"
-                        )
+                        pricing_desc = f"${cost:.2f} · {input_tokens:,} in / {output_tokens:,} out · daily ${daily_cost:.2f}"
                     embeds.append(Embed(description=pricing_desc, color=GEMINI_BLUE))
 
                 # Always attach the full report as a downloadable file
@@ -2770,8 +2735,8 @@ class GeminiAPI(commands.Cog):
     async def _generate_image_with_gemini(
         self,
         image_params: ImageGenerationParameters,
-        attachment: Optional[Attachment],
-    ) -> tuple[Optional[str], List[Image.Image], int]:
+        attachment: Attachment | None,
+    ) -> tuple[str | None, list[Image.Image], int]:
         """
         Generate images using Gemini models with generate_content API.
 
@@ -2797,14 +2762,12 @@ class GeminiAPI(commands.Cog):
                 try:
                     image = Image.open(BytesIO(image_data))
                 except Exception as error:
-                    self.logger.warning(
-                        "Failed to open attachment for image generation: %s", error
-                    )
+                    self.logger.warning("Failed to open attachment for image generation: %s", error)
                 else:
                     contents = [prompt, image]
 
         # Build configuration for image generation
-        config_kwargs: Dict[str, Any] = {
+        config_kwargs: dict[str, Any] = {
             "response_modalities": ["TEXT", "IMAGE"],
         }
 
@@ -2858,16 +2821,19 @@ class GeminiAPI(commands.Cog):
                 for part in candidate.content.parts:
                     if hasattr(part, "text") and part.text is not None:
                         text_response = part.text
-                    elif hasattr(part, "inline_data") and part.inline_data is not None:
-                        if part.inline_data.data:
-                            image = Image.open(BytesIO(part.inline_data.data))
-                            generated_images.append(image)
+                    elif (
+                        hasattr(part, "inline_data")
+                        and part.inline_data is not None
+                        and part.inline_data.data
+                    ):
+                        image = Image.open(BytesIO(part.inline_data.data))
+                        generated_images.append(image)
 
         return text_response, generated_images, input_tokens
 
     async def _generate_image_with_imagen(
         self, image_params: ImageGenerationParameters
-    ) -> List[Image.Image]:
+    ) -> list[Image.Image]:
         """
         Generate images using Imagen models with generate_images API.
 
@@ -2882,10 +2848,7 @@ class GeminiAPI(commands.Cog):
 
         # Process Imagen response from generate_images
         generated_images = []
-        if (
-            hasattr(imagen_response, "generated_images")
-            and imagen_response.generated_images
-        ):
+        if hasattr(imagen_response, "generated_images") and imagen_response.generated_images:
             for generated_image in imagen_response.generated_images:
                 if hasattr(generated_image, "image") and generated_image.image:
                     img = generated_image.image
@@ -2896,9 +2859,7 @@ class GeminiAPI(commands.Cog):
                             pil_image = Image.open(BytesIO(img.image_bytes))
                             generated_images.append(pil_image)
                         except Exception as e:
-                            self.logger.error(
-                                f"Failed to convert image_bytes to PIL Image: {e}"
-                            )
+                            self.logger.error(f"Failed to convert image_bytes to PIL Image: {e}")
                             continue
                     else:
                         self.logger.error(
@@ -2911,10 +2872,10 @@ class GeminiAPI(commands.Cog):
     async def _create_image_response_embed(
         self,
         image_params: ImageGenerationParameters,
-        generated_images: List[Image.Image],
-        attachment: Optional[Attachment],
-        text_response: Optional[str] = None,
-    ) -> tuple[Embed, List[File]]:
+        generated_images: list[Image.Image],
+        attachment: Attachment | None,
+        text_response: str | None = None,
+    ) -> tuple[Embed, list[File]]:
         """
         Create Discord embed and file attachments for image generation response.
 
@@ -2931,9 +2892,9 @@ class GeminiAPI(commands.Cog):
                 # All generated_images should be PIL Image objects at this point
                 image.save(image_bytes, format="PNG")
                 image_bytes.seek(0)
-                files.append(File(image_bytes, filename=f"generated_image_{i+1}.png"))
+                files.append(File(image_bytes, filename=f"generated_image_{i + 1}.png"))
             except Exception as e:
-                self.logger.error(f"Failed to save image {i+1}: {e}")
+                self.logger.error(f"Failed to save image {i + 1}: {e}")
                 continue
 
         # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
@@ -2941,9 +2902,9 @@ class GeminiAPI(commands.Cog):
         description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {image_params.model}\n"
         if attachment:
-            description += f"**Mode:** Image Editing\n"
+            description += "**Mode:** Image Editing\n"
         else:
-            description += f"**Mode:** Image Generation\n"
+            description += "**Mode:** Image Generation\n"
         description += f"**Number of Images:** {len(generated_images)}"
 
         # Show which parameters are currently supported
@@ -2958,22 +2919,16 @@ class GeminiAPI(commands.Cog):
             if image_params.image_size:
                 description += f"\n**Image Size:** {image_params.image_size}"
             if image_params.google_image_search:
-                description += f"\n**Google Image Search:** Enabled"
+                description += "\n**Google Image Search:** Enabled"
 
             # Note about unsupported parameters for Gemini
             unsupported_params = []
             if image_params.negative_prompt:
-                unsupported_params.append(
-                    f"negative_prompt: {image_params.negative_prompt}"
-                )
+                unsupported_params.append(f"negative_prompt: {image_params.negative_prompt}")
             if image_params.guidance_scale:
-                unsupported_params.append(
-                    f"guidance_scale: {image_params.guidance_scale}"
-                )
+                unsupported_params.append(f"guidance_scale: {image_params.guidance_scale}")
             if image_params.person_generation != "allow_adult":
-                unsupported_params.append(
-                    f"person_generation: {image_params.person_generation}"
-                )
+                unsupported_params.append(f"person_generation: {image_params.person_generation}")
 
             if unsupported_params:
                 description += f"\n\n*Note: Advanced parameters not yet implemented for Gemini: {', '.join(unsupported_params)}*"
@@ -2988,9 +2943,7 @@ class GeminiAPI(commands.Cog):
             if image_params.aspect_ratio != "1:1":
                 description += f"\n**Aspect Ratio:** {image_params.aspect_ratio}"
             if image_params.person_generation != "allow_adult":
-                description += (
-                    f"\n**Person Generation:** {image_params.person_generation}"
-                )
+                description += f"\n**Person Generation:** {image_params.person_generation}"
 
         if text_response:
             # Truncate long text responses for the embed
@@ -3011,9 +2964,9 @@ class GeminiAPI(commands.Cog):
     async def _generate_video_with_veo(
         self,
         video_params: VideoGenerationParameters,
-        attachment: Optional[Attachment] = None,
-        last_frame_attachment: Optional[Attachment] = None,
-    ) -> List[str]:
+        attachment: Attachment | None = None,
+        last_frame_attachment: Attachment | None = None,
+    ) -> list[str]:
         """
         Generate videos using Veo models with generate_videos API.
 
@@ -3031,9 +2984,7 @@ class GeminiAPI(commands.Cog):
                 try:
                     config_dict["last_frame"] = Image.open(BytesIO(last_frame_data))
                 except Exception as error:
-                    self.logger.warning(
-                        "Failed to open last_frame attachment: %s", error
-                    )
+                    self.logger.warning("Failed to open last_frame attachment: %s", error)
 
         # Prepare the generation call
         kwargs = {
@@ -3049,9 +3000,7 @@ class GeminiAPI(commands.Cog):
                 try:
                     image = Image.open(BytesIO(image_data))
                 except Exception as error:
-                    self.logger.warning(
-                        "Failed to open attachment for video generation: %s", error
-                    )
+                    self.logger.warning("Failed to open attachment for video generation: %s", error)
                 else:
                     kwargs["image"] = image
 
@@ -3074,42 +3023,41 @@ class GeminiAPI(commands.Cog):
 
         # Process completed operation
         generated_videos = []
-        if hasattr(operation, "response") and operation.response:
-            if (
-                hasattr(operation.response, "generated_videos")
-                and operation.response.generated_videos
-            ):
-                for i, generated_video in enumerate(
-                    operation.response.generated_videos
-                ):
-                    if hasattr(generated_video, "video") and generated_video.video:
-                        try:
-                            # Download the video file
-                            # Note: async files.download doesn't support Video objects,
-                            # so we use the sync version via to_thread
-                            await asyncio.to_thread(
-                                self.client.files.download,
-                                file=generated_video.video,
-                            )
+        if (
+            hasattr(operation, "response")
+            and operation.response
+            and hasattr(operation.response, "generated_videos")
+            and operation.response.generated_videos
+        ):
+            for i, generated_video in enumerate(operation.response.generated_videos):
+                if hasattr(generated_video, "video") and generated_video.video:
+                    try:
+                        # Download the video file
+                        # Note: async files.download doesn't support Video objects,
+                        # so we use the sync version via to_thread
+                        await asyncio.to_thread(
+                            self.client.files.download,
+                            file=generated_video.video,
+                        )
 
-                            # Save to a temporary file path
-                            video_path = f"temp_video_{i}.mp4"
-                            generated_video.video.save(video_path)
-                            generated_videos.append(video_path)
+                        # Save to a temporary file path
+                        video_path = f"temp_video_{i}.mp4"
+                        generated_video.video.save(video_path)
+                        generated_videos.append(video_path)
 
-                            self.logger.info(f"Downloaded video {i+1}: {video_path}")
-                        except Exception as e:
-                            self.logger.error(f"Failed to download video {i+1}: {e}")
-                            continue
+                        self.logger.info(f"Downloaded video {i + 1}: {video_path}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to download video {i + 1}: {e}")
+                        continue
 
         return generated_videos
 
     async def _create_video_response_embed(
         self,
         video_params: VideoGenerationParameters,
-        generated_videos: List[str],
-        attachment: Optional[Attachment],
-    ) -> tuple[Embed, List[File]]:
+        generated_videos: list[str],
+        attachment: Attachment | None,
+    ) -> tuple[Embed, list[File]]:
         """
         Create Discord embed and file attachments for video generation response.
 
@@ -3120,9 +3068,9 @@ class GeminiAPI(commands.Cog):
         files = []
         for i, video_path in enumerate(generated_videos):
             try:
-                files.append(File(video_path, filename=f"generated_video_{i+1}.mp4"))
+                files.append(File(video_path, filename=f"generated_video_{i + 1}.mp4"))
             except Exception as e:
-                self.logger.error(f"Failed to create file for video {i+1}: {e}")
+                self.logger.error(f"Failed to create file for video {i + 1}: {e}")
                 continue
 
         # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
@@ -3130,26 +3078,21 @@ class GeminiAPI(commands.Cog):
         description = f"**Prompt:** {truncated_prompt}\n"
         description += f"**Model:** {video_params.model}\n"
         if attachment and video_params.has_last_frame:
-            description += f"**Mode:** Interpolation (First + Last Frame)\n"
+            description += "**Mode:** Interpolation (First + Last Frame)\n"
         elif attachment:
-            description += f"**Mode:** Image-to-Video\n"
+            description += "**Mode:** Image-to-Video\n"
         elif video_params.has_last_frame:
-            description += f"**Mode:** Last Frame Constrained\n"
+            description += "**Mode:** Last Frame Constrained\n"
         else:
-            description += f"**Mode:** Text-to-Video\n"
+            description += "**Mode:** Text-to-Video\n"
         description += f"**Number of Videos:** {len(generated_videos)}"
-        if video_params.number_of_videos and video_params.number_of_videos > len(
-            generated_videos
-        ):
+        if video_params.number_of_videos and video_params.number_of_videos > len(generated_videos):
             description += f" (requested: {video_params.number_of_videos})"
 
         # Show generation parameters
         if video_params.aspect_ratio:
             description += f"\n**Aspect Ratio:** {video_params.aspect_ratio}"
-        if (
-            video_params.person_generation
-            and video_params.person_generation != "allow_adult"
-        ):
+        if video_params.person_generation and video_params.person_generation != "allow_adult":
             description += f"\n**Person Generation:** {video_params.person_generation}"
         if video_params.duration_seconds:
             description += f"\n**Duration:** {video_params.duration_seconds} seconds"
@@ -3168,7 +3111,7 @@ class GeminiAPI(commands.Cog):
 
     async def _generate_music_with_lyria(
         self, music_params: MusicGenerationParameters
-    ) -> Optional[bytes]:
+    ) -> bytes | None:
         """
         Generate music using Gemini's Lyria RealTime model.
 
@@ -3195,9 +3138,7 @@ class GeminiAPI(commands.Cog):
                     # Iterate through the async generator to receive messages with timeout
                     async for message in session.receive():
                         if stop_receiving:
-                            self.logger.info(
-                                "Stop signal received, breaking from audio receiver"
-                            )
+                            self.logger.info("Stop signal received, breaking from audio receiver")
                             break
 
                         if hasattr(message, "server_content") and hasattr(
@@ -3275,16 +3216,12 @@ class GeminiAPI(commands.Cog):
                             receiver_task.cancel()
 
                         # Give the task a moment to finish cancellation
-                        try:
+                        with contextlib.suppress(asyncio.CancelledError):
                             await asyncio.sleep(WS_DRAIN_INTERVAL)
-                        except asyncio.CancelledError:
-                            pass
 
                 # Combine all audio chunks
                 if audio_chunks:
-                    self.logger.info(
-                        f"Successfully collected {len(audio_chunks)} audio chunks"
-                    )
+                    self.logger.info(f"Successfully collected {len(audio_chunks)} audio chunks")
                     return b"".join(audio_chunks)
                 else:
                     self.logger.warning("No audio chunks received from Lyria RealTime")
@@ -3300,27 +3237,27 @@ class GeminiAPI(commands.Cog):
                         "2. Your account doesn't have access to the music generation API\n"
                         "3. The service is temporarily unavailable\n\n"
                         "Please check Google AI Studio or contact support for more information."
-                    )
+                    ) from websocket_error
                 elif "401" in str(websocket_error) or "403" in str(websocket_error):
-                    self.logger.error(
-                        "Authentication/authorization error for Lyria RealTime"
-                    )
+                    self.logger.error("Authentication/authorization error for Lyria RealTime")
                     raise MusicGenerationError(
                         "Authentication error: Please check your API key permissions for music generation."
-                    )
+                    ) from websocket_error
                 else:
                     self.logger.error(f"WebSocket connection error: {websocket_error}")
-                    raise MusicGenerationError(f"Connection error: {websocket_error}")
+                    raise MusicGenerationError(
+                        f"Connection error: {websocket_error}"
+                    ) from websocket_error
 
         except MusicGenerationError:
             raise
         except Exception as e:
             self.logger.error(f"Error generating music with Lyria RealTime: {e}")
-            raise MusicGenerationError(f"Music generation failed: {e}")
+            raise MusicGenerationError(f"Music generation failed: {e}") from e
 
     async def _generate_speech_with_gemini(
         self, tts_params: SpeechGenerationParameters
-    ) -> tuple[Optional[bytes], int, int]:
+    ) -> tuple[bytes | None, int, int]:
         """
         Generate speech using Gemini TTS models.
 
@@ -3351,9 +3288,8 @@ class GeminiAPI(commands.Cog):
                 and response.candidates[0].content.parts
             ):
                 for part in response.candidates[0].content.parts:
-                    if hasattr(part, "inline_data") and part.inline_data:
-                        if part.inline_data.data:
-                            return part.inline_data.data, input_tokens, output_tokens
+                    if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
+                        return part.inline_data.data, input_tokens, output_tokens
 
             self.logger.warning("No audio data found in Gemini TTS response")
             return None, input_tokens, output_tokens
@@ -3364,7 +3300,7 @@ class GeminiAPI(commands.Cog):
 
     async def _run_deep_research(
         self, research_params: ResearchParameters
-    ) -> tuple[Optional[str], int, int, int]:
+    ) -> tuple[str | None, int, int, int]:
         """
         Run a deep research task using the Interactions API.
 
@@ -3374,19 +3310,18 @@ class GeminiAPI(commands.Cog):
         Returns:
             tuple: (report_text, input_tokens, output_tokens, thinking_tokens)
         """
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "input": research_params.prompt,
             "agent": research_params.agent,
             "background": True,
         }
 
-        tools: List[Dict[str, Any]] = []
+        tools: list[dict[str, Any]] = []
 
         if research_params.file_search:
             if not GEMINI_FILE_SEARCH_STORE_IDS:
                 raise ValidationError(
-                    "File Search requires GEMINI_FILE_SEARCH_STORE_IDS "
-                    "to be set in your .env file."
+                    "File Search requires GEMINI_FILE_SEARCH_STORE_IDS to be set in your .env file."
                 )
             tools.append(
                 {
@@ -3414,9 +3349,7 @@ class GeminiAPI(commands.Cog):
 
             await asyncio.sleep(poll_interval)
             interaction = await self.client.aio.interactions.get(interaction.id)
-            self.logger.debug(
-                f"Research {interaction.id} status: {interaction.status}"
-            )
+            self.logger.debug(f"Research {interaction.id} status: {interaction.status}")
 
         if interaction.status == "failed":
             raise APICallError(f"Research failed: {interaction.status}")
@@ -3442,14 +3375,14 @@ class GeminiAPI(commands.Cog):
     def _create_research_response_embeds(
         self,
         research_params: ResearchParameters,
-    ) -> List[Embed]:
+    ) -> list[Embed]:
         """
         Create Discord embeds for a deep research report header.
 
         Returns:
             List of embeds containing the prompt info (report sent as file).
         """
-        embeds: List[Embed] = []
+        embeds: list[Embed] = []
 
         # Header embed with parameters
         truncated_prompt = truncate_text(research_params.prompt, 2000)
