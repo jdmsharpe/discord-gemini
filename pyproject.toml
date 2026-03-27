@@ -12,6 +12,6 @@ ignore = [
 quote-style = "double"
 
 [tool.pyright]
-include = ["src", "tests"]
-exclude = [".venv"]
+include = ["src"]
+exclude = [".venv", "**/node_modules", "**/__pycache__", "**/.*"]
 extraPaths = ["src"]
