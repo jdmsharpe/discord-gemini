@@ -115,7 +115,7 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 
 - **ruff** handles both linting and formatting, configured in `pyproject.toml`
 - Rules: `E`, `W`, `F`, `I`, `UP`, `B`, `SIM` (E501 ignored — formatter handles line length)
-- Line length: 100, target: Python 3.12
+- Line length: 100, target: Python 3.13
 - Pre-commit hook in `.githooks/pre-commit`: auto-formats staged files, blocks commit on lint failure
 - After cloning, run `git config core.hooksPath .githooks` to enable the hook
 
