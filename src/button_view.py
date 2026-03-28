@@ -1,6 +1,6 @@
 import logging
-from copy import deepcopy
-from typing import Any, Protocol, cast
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from discord import (
     ButtonStyle,
@@ -14,54 +14,43 @@ from discord.ui import Button, Select, View, button
 
 from util import (
     AVAILABLE_TOOLS,
-    check_mutually_exclusive_tools,
-    filter_file_search_incompatible_tools,
-    filter_supported_tools_for_model,
     resolve_tool_name,
 )
 
 
-class ConversationHost(Protocol):
-    """Protocol defining the interface ButtonView needs from its host (the cog).
-
-    This decouples ButtonView from the concrete GeminiAPI class, following
-    the Dependency Inversion Principle.  Any object satisfying this protocol
-    can serve as the host.
-    """
-
-    def get_conversation(self, conversation_id: int) -> Any:
-        """Return the Conversation for *conversation_id*, or ``None``."""
-        ...
-
-    def enrich_file_search_tools(self, tools: list[dict[str, Any]]) -> str | None:
-        """Inject file search store IDs.  Return an error string, or ``None``."""
-        ...
-
-    async def handle_new_message_in_conversation(self, message: Any, conversation: Any) -> None:
-        """Re-run generation for the given message in *conversation*."""
-        ...
-
-    async def end_conversation(self, conversation_id: int, user: Member | User) -> None:
-        """Fully tear down a conversation (cache, files, state)."""
-        ...
+async def _send_interaction_error(interaction: Interaction, context: str, error: Exception) -> None:
+    """Log an error and send the user a safe ephemeral message."""
+    logging.error(f"Error in {context}: {error}", exc_info=True)
+    msg = f"An error occurred while {context}."
+    if interaction.response.is_done():
+        await interaction.followup.send(msg, ephemeral=True)
+    else:
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 class ButtonView(View):
     def __init__(
         self,
-        host: ConversationHost,
+        *,
         conversation_starter: Member | User,
         conversation_id: int,
         initial_tools: list[dict[str, Any]] | None = None,
         custom_functions_enabled: bool = False,
+        get_conversation: Callable[[int], Any | None],
+        on_regenerate: Callable[[Any, Any], Awaitable[None]],
+        on_stop: Callable[[int, Member | User], Awaitable[None]],
+        on_tools_changed: Callable[[list[str], bool, Any], tuple[set[str], str | None]],
     ):
         """
         Initialize the ButtonView class.
         """
         super().__init__(timeout=None)
-        self.host = host
         self.conversation_starter = conversation_starter
         self.conversation_id = conversation_id
+        self._get_conversation = get_conversation
+        self._on_regenerate = on_regenerate
+        self._on_stop = on_stop
+        self._on_tools_changed = on_tools_changed
         self._add_tool_select(initial_tools or [], custom_functions_enabled)
 
     def _add_tool_select(
@@ -116,79 +105,57 @@ class ButtonView(View):
                 ),
             ],
         )
-        tool_select.callback = self.tool_select_callback
+
+        async def _tool_callback(interaction: Interaction) -> None:
+            await self.tool_select_callback(interaction, tool_select)
+
+        tool_select.callback = _tool_callback
         self.add_item(tool_select)
 
-    async def tool_select_callback(self, interaction: Interaction):
-        """
-        Toggle tool availability for this conversation.
-        """
-        if interaction.user != self.conversation_starter:
-            await interaction.response.send_message(
-                "You are not allowed to change tools for this conversation.",
-                ephemeral=True,
+    async def tool_select_callback(self, interaction: Interaction, tool_select: Select) -> None:
+        """Toggle tool availability for this conversation."""
+        try:
+            if interaction.user != self.conversation_starter:
+                await interaction.response.send_message(
+                    "You are not allowed to change tools for this conversation.",
+                    ephemeral=True,
+                )
+                return
+
+            conversation = self._get_conversation(self.conversation_id)
+            if conversation is None:
+                await interaction.response.send_message(
+                    "No active conversation found.", ephemeral=True
+                )
+                return
+
+            selected_values = [value for value in tool_select.values if value in AVAILABLE_TOOLS]
+            custom_functions_selected = "custom_functions" in tool_select.values
+
+            active_names, result_message = self._on_tools_changed(
+                selected_values, custom_functions_selected, conversation
             )
-            return
 
-        conversation = self.host.get_conversation(self.conversation_id)
-        if conversation is None:
-            await interaction.response.send_message("No active conversation found.", ephemeral=True)
-            return
+            # Error case: no tools activated and message is an error (not a status)
+            if not active_names and result_message and "cannot be combined" in result_message:
+                await interaction.response.send_message(result_message, ephemeral=True)
+                return
 
-        selected_values: list[str] = []
-        custom_functions_selected = False
-        if isinstance(interaction.data, dict):
-            raw_values = interaction.data.get("values", [])
-            if isinstance(raw_values, list):
-                custom_functions_selected = "custom_functions" in raw_values
-                selected_values = [value for value in raw_values if value in AVAILABLE_TOOLS]
+            # Update Select dropdown defaults
+            for child in self.children:
+                if isinstance(child, Select):
+                    for option in child.options:
+                        option.default = option.value in active_names
+                    break
 
-        exclusive_error = check_mutually_exclusive_tools(set(selected_values))
-        if exclusive_error:
-            await interaction.response.send_message(exclusive_error, ephemeral=True)
-            return
-
-        requested_tools = [deepcopy(AVAILABLE_TOOLS[tool_name]) for tool_name in selected_values]
-        supported_tools, unsupported_tools = filter_supported_tools_for_model(
-            conversation.params.model, requested_tools
-        )
-        supported_tools, incompatible_tools = filter_file_search_incompatible_tools(supported_tools)
-
-        # Enrich file_search tools with store IDs via the host
-        enrich_error = self.host.enrich_file_search_tools(supported_tools)
-        if enrich_error:
-            await interaction.response.send_message(enrich_error, ephemeral=True)
-            return
-
-        conversation.params.tools = supported_tools
-        conversation.params.custom_functions_enabled = custom_functions_selected
-        selected_tool_names = {
-            tool_name
-            for tool_config in supported_tools
-            if (tool_name := resolve_tool_name(tool_config)) is not None
-        }
-        if custom_functions_selected:
-            selected_tool_names.add("custom_functions")
-
-        for child in self.children:
-            if isinstance(child, Select):
-                for option in child.options:
-                    option.default = option.value in selected_tool_names
-                break
-
-        if selected_tool_names:
-            tool_names = ", ".join(sorted(selected_tool_names))
-            message = f"Tools updated: {tool_names}."
-        else:
-            message = "Tools disabled for this conversation."
-        if unsupported_tools:
-            unsupported_text = ", ".join(sorted(set(unsupported_tools)))
-            message += f" Skipped for model `{conversation.params.model}`: {unsupported_text}."
-        if incompatible_tools:
-            incompatible_text = ", ".join(sorted(set(incompatible_tools)))
-            message += f" Disabled (incompatible with file_search): {incompatible_text}."
-
-        await interaction.response.send_message(message, ephemeral=True, delete_after=3)
+            message = result_message or (
+                "Tools disabled for this conversation."
+                if not active_names
+                else f"Tools updated: {', '.join(sorted(active_names))}."
+            )
+            await interaction.response.send_message(message, ephemeral=True, delete_after=3)
+        except Exception as e:
+            await _send_interaction_error(interaction, "updating tools", e)
 
     @button(emoji="🔄", style=ButtonStyle.green, row=0)
     async def regenerate_button(self, _: Button, interaction: Interaction):
@@ -199,7 +166,7 @@ class ButtonView(View):
             interaction (Interaction): The interaction object.
         """
         logging.info("Regenerate button clicked.")
-        removed_entries = []
+        removed_entries: list[Any] = []
 
         try:
             if interaction.user != self.conversation_starter:
@@ -208,7 +175,7 @@ class ButtonView(View):
                 )
                 return
 
-            conversation = self.host.get_conversation(self.conversation_id)
+            conversation = self._get_conversation(self.conversation_id)
             if conversation is None:
                 await interaction.response.send_message(
                     "No active conversation found.", ephemeral=True
@@ -249,7 +216,7 @@ class ButtonView(View):
                 )
                 return
 
-            await self.host.handle_new_message_in_conversation(user_message, conversation)
+            await self._on_regenerate(user_message, conversation)
             await interaction.followup.send("Response regenerated.", ephemeral=True, delete_after=3)
         except Exception as error:
             logging.error(
@@ -258,17 +225,19 @@ class ButtonView(View):
             )
 
             if removed_entries:
-                conversation = self.host.get_conversation(self.conversation_id)
+                conversation = self._get_conversation(self.conversation_id)
                 if conversation is not None:
                     conversation.history.extend(removed_entries)
 
             if interaction.response.is_done():
                 await interaction.followup.send(
-                    "An error occurred while regenerating the response.", ephemeral=True
+                    "An error occurred while regenerating the response.",
+                    ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(
-                    "An error occurred while regenerating the response.", ephemeral=True
+                    "An error occurred while regenerating the response.",
+                    ephemeral=True,
                 )
 
     @button(emoji="⏯️", style=ButtonStyle.gray, row=0)
@@ -279,25 +248,28 @@ class ButtonView(View):
         Args:
             interaction (Interaction): The interaction object.
         """
-        # Check if the interaction user is the one who started the conversation
-        if interaction.user != self.conversation_starter:
-            await interaction.response.send_message(
-                "You are not allowed to pause the conversation.", ephemeral=True
-            )
-            return
+        try:
+            if interaction.user != self.conversation_starter:
+                await interaction.response.send_message(
+                    "You are not allowed to pause the conversation.", ephemeral=True
+                )
+                return
 
-        # Toggle the paused state
-        conversation = self.host.get_conversation(self.conversation_id)
-        if conversation is not None:
-            conversation.params.paused = not conversation.params.paused
-            status = "paused" if conversation.params.paused else "resumed"
-            await interaction.response.send_message(
-                f"Conversation {status}. Press again to toggle.",
-                ephemeral=True,
-                delete_after=3,
-            )
-        else:
-            await interaction.response.send_message("No active conversation found.", ephemeral=True)
+            conversation = self._get_conversation(self.conversation_id)
+            if conversation is not None:
+                conversation.params.paused = not conversation.params.paused
+                status = "paused" if conversation.params.paused else "resumed"
+                await interaction.response.send_message(
+                    f"Conversation {status}. Press again to toggle.",
+                    ephemeral=True,
+                    delete_after=3,
+                )
+            else:
+                await interaction.response.send_message(
+                    "No active conversation found.", ephemeral=True
+                )
+        except Exception as e:
+            await _send_interaction_error(interaction, "toggling pause", e)
 
     @button(emoji="⏹️", style=ButtonStyle.blurple, row=0)
     async def stop_button(self, button: Button, interaction: Interaction):
@@ -307,19 +279,22 @@ class ButtonView(View):
         Args:
             interaction (Interaction): The interaction object.
         """
-        # Check if the interaction user is the one who started the conversation
-        if interaction.user != self.conversation_starter:
-            await interaction.response.send_message(
-                "You are not allowed to end this conversation.", ephemeral=True
-            )
-            return
+        try:
+            if interaction.user != self.conversation_starter:
+                await interaction.response.send_message(
+                    "You are not allowed to end this conversation.", ephemeral=True
+                )
+                return
 
-        # End the conversation via the host
-        conversation = self.host.get_conversation(self.conversation_id)
-        if conversation is not None:
-            await self.host.end_conversation(self.conversation_id, self.conversation_starter)
-            await interaction.response.send_message(
-                "Conversation ended.", ephemeral=True, delete_after=3
-            )
-        else:
-            await interaction.response.send_message("No active conversation found.", ephemeral=True)
+            conversation = self._get_conversation(self.conversation_id)
+            if conversation is not None:
+                await self._on_stop(self.conversation_id, self.conversation_starter)
+                await interaction.response.send_message(
+                    "Conversation ended.", ephemeral=True, delete_after=3
+                )
+            else:
+                await interaction.response.send_message(
+                    "No active conversation found.", ephemeral=True
+                )
+        except Exception as e:
+            await _send_interaction_error(interaction, "ending the conversation", e)
