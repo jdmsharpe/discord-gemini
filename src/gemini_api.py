@@ -46,6 +46,7 @@ from tools import execute_tool_call, get_tool_callables
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
+    AVAILABLE_TOOLS,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
     MAX_AGENTIC_ITERATIONS,
@@ -423,6 +424,52 @@ class GeminiAPI(commands.Cog):
         for key in stale_keys:
             del self.message_to_conversation_id[key]
         await self._cleanup_conversation(user)
+
+    def _resolve_tools_for_view(
+        self,
+        selected_values: list[str],
+        custom_functions_selected: bool,
+        conversation,
+    ) -> tuple[set[str], str | None]:
+        """Resolve tool selection from ButtonView. Returns (active_names, message)."""
+        from copy import deepcopy
+
+        exclusive_error = check_mutually_exclusive_tools(set(selected_values))
+        if exclusive_error:
+            return set(), exclusive_error
+
+        requested_tools = [deepcopy(AVAILABLE_TOOLS[name]) for name in selected_values]
+        supported_tools, unsupported_tools = filter_supported_tools_for_model(
+            conversation.params.model, requested_tools
+        )
+        supported_tools, incompatible_tools = filter_file_search_incompatible_tools(supported_tools)
+
+        enrich_error = self.enrich_file_search_tools(supported_tools)
+        if enrich_error:
+            return set(), enrich_error
+
+        conversation.params.tools = supported_tools
+        conversation.params.custom_functions_enabled = custom_functions_selected
+
+        active_names: set[str] = {
+            name for tool in supported_tools if (name := resolve_tool_name(tool)) is not None
+        }
+        if custom_functions_selected:
+            active_names.add("custom_functions")
+
+        parts: list[str] = []
+        if active_names:
+            parts.append(f"Tools updated: {', '.join(sorted(active_names))}.")
+        else:
+            parts.append("Tools disabled for this conversation.")
+        if unsupported_tools:
+            unsupported_text = ", ".join(sorted(set(unsupported_tools)))
+            parts.append(f"Skipped for model `{conversation.params.model}`: {unsupported_text}.")
+        if incompatible_tools:
+            incompatible_text = ", ".join(sorted(set(incompatible_tools)))
+            parts.append(f"Disabled (incompatible with file_search): {incompatible_text}.")
+
+        return active_names, " ".join(parts)
 
     def _track_daily_cost(self, user_id: int, cost: float) -> float:
         """Add a pre-calculated cost to the user's daily total and return the new daily total."""
@@ -1698,11 +1745,14 @@ class GeminiAPI(commands.Cog):
 
             main_conversation_id = interaction.id
             view = ButtonView(
-                host=self,
                 conversation_starter=ctx.author,
                 conversation_id=main_conversation_id,
                 initial_tools=tools,
                 custom_functions_enabled=custom_functions_enabled,
+                get_conversation=lambda cid: self.conversations.get(cid),
+                on_regenerate=self.handle_new_message_in_conversation,
+                on_stop=self.end_conversation,
+                on_tools_changed=self._resolve_tools_for_view,
             )
             self.views[ctx.author] = view
 
