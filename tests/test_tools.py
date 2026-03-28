@@ -1,4 +1,4 @@
-import unittest
+import pytest
 
 from tools import (
     ToolEntry,
@@ -10,13 +10,13 @@ from tools import (
 )
 
 
-class TestToolDecorator(unittest.TestCase):
-    def setUp(self):
+class TestToolDecorator:
+    @pytest.fixture(autouse=True)
+    def setup(self):
         # Save original registry, then clear for isolated tests
         self._original = dict(get_registered_tools())
         clear_registry()
-
-    def tearDown(self):
+        yield
         # Restore original registry (starter tools)
         clear_registry()
         from tools import _TOOL_REGISTRY
@@ -30,12 +30,12 @@ class TestToolDecorator(unittest.TestCase):
             return str(x)
 
         registry = get_registered_tools()
-        self.assertIn("my_sync_tool", registry)
+        assert "my_sync_tool" in registry
         entry = registry["my_sync_tool"]
-        self.assertIsInstance(entry, ToolEntry)
-        self.assertEqual(entry.name, "my_sync_tool")
-        self.assertEqual(entry.description, "A sync tool.")
-        self.assertFalse(entry.is_async)
+        assert isinstance(entry, ToolEntry)
+        assert entry.name == "my_sync_tool"
+        assert entry.description == "A sync tool."
+        assert entry.is_async is False
 
     def test_registers_async_function(self):
         @tool
@@ -44,8 +44,8 @@ class TestToolDecorator(unittest.TestCase):
             return f"hello {name}"
 
         registry = get_registered_tools()
-        self.assertIn("my_async_tool", registry)
-        self.assertTrue(registry["my_async_tool"].is_async)
+        assert "my_async_tool" in registry
+        assert registry["my_async_tool"].is_async is True
 
     def test_decorator_returns_original_function(self):
         @tool
@@ -53,7 +53,7 @@ class TestToolDecorator(unittest.TestCase):
             """Identity."""
             return x
 
-        self.assertEqual(passthrough(42), 42)
+        assert passthrough(42) == 42
 
     def test_get_tool_callables(self):
         @tool
@@ -67,9 +67,9 @@ class TestToolDecorator(unittest.TestCase):
             return "b"
 
         callables = get_tool_callables()
-        self.assertEqual(len(callables), 2)
-        self.assertIn(tool_a, callables)
-        self.assertIn(tool_b, callables)
+        assert len(callables) == 2
+        assert tool_a in callables
+        assert tool_b in callables
 
     def test_clear_registry(self):
         @tool
@@ -77,17 +77,17 @@ class TestToolDecorator(unittest.TestCase):
             """Temp."""
             return ""
 
-        self.assertIn("temp_tool", get_registered_tools())
+        assert "temp_tool" in get_registered_tools()
         clear_registry()
-        self.assertEqual(get_registered_tools(), {})
+        assert get_registered_tools() == {}
 
 
-class TestExecuteToolCall(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
+class TestExecuteToolCall:
+    @pytest.fixture(autouse=True)
+    def setup(self):
         self._original = dict(get_registered_tools())
         clear_registry()
-
-    def tearDown(self):
+        yield
         clear_registry()
         from tools import _TOOL_REGISTRY
 
@@ -100,7 +100,7 @@ class TestExecuteToolCall(unittest.IsolatedAsyncioTestCase):
             return a + b
 
         result = await execute_tool_call("add", {"a": 3, "b": 4})
-        self.assertEqual(result, {"result": 7})
+        assert result == {"result": 7}
 
     async def test_execute_async_tool(self):
         @tool
@@ -109,12 +109,12 @@ class TestExecuteToolCall(unittest.IsolatedAsyncioTestCase):
             return f"Hello, {name}!"
 
         result = await execute_tool_call("greet", {"name": "World"})
-        self.assertEqual(result, {"result": "Hello, World!"})
+        assert result == {"result": "Hello, World!"}
 
     async def test_execute_unknown_tool(self):
         result = await execute_tool_call("nonexistent", {})
-        self.assertIn("error", result)
-        self.assertIn("Unknown tool", result["error"])
+        assert "error" in result
+        assert "Unknown tool" in result["error"]
 
     async def test_execute_tool_with_exception(self):
         @tool
@@ -123,8 +123,8 @@ class TestExecuteToolCall(unittest.IsolatedAsyncioTestCase):
             raise ValueError("intentional error")
 
         result = await execute_tool_call("failing_tool", {})
-        self.assertIn("error", result)
-        self.assertIn("ValueError", result["error"])
+        assert "error" in result
+        assert "ValueError" in result["error"]
 
     async def test_execute_with_no_args(self):
         @tool
@@ -133,7 +133,7 @@ class TestExecuteToolCall(unittest.IsolatedAsyncioTestCase):
             return "done"
 
         result = await execute_tool_call("no_args_tool", None)
-        self.assertEqual(result, {"result": "done"})
+        assert result == {"result": "done"}
 
     async def test_non_serializable_result_converted_to_string(self):
         @tool
@@ -142,32 +142,28 @@ class TestExecuteToolCall(unittest.IsolatedAsyncioTestCase):
             return {1, 2, 3}
 
         result = await execute_tool_call("returns_set", {})
-        self.assertIn("result", result)
-        self.assertIsInstance(result["result"], str)
+        assert "result" in result
+        assert isinstance(result["result"], str)
 
 
-class TestStarterTools(unittest.IsolatedAsyncioTestCase):
+class TestStarterTools:
     async def test_get_current_time_default(self):
         result = await execute_tool_call("get_current_time", {})
-        self.assertIn("result", result)
-        self.assertIn("UTC", result["result"])
+        assert "result" in result
+        assert "UTC" in result["result"]
 
     async def test_get_current_time_invalid_timezone(self):
         result = await execute_tool_call("get_current_time", {"timezone": "Invalid/Zone"})
-        self.assertIn("result", result)
-        self.assertIn("Unknown timezone", result["result"])
+        assert "result" in result
+        assert "Unknown timezone" in result["result"]
 
     async def test_roll_dice_default(self):
         result = await execute_tool_call("roll_dice", {})
-        self.assertIn("result", result)
-        self.assertIn("d6", result["result"])
+        assert "result" in result
+        assert "d6" in result["result"]
 
     async def test_roll_dice_multiple(self):
         result = await execute_tool_call("roll_dice", {"sides": 20, "count": 3})
-        self.assertIn("result", result)
-        self.assertIn("3d20", result["result"])
-        self.assertIn("total", result["result"])
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "result" in result
+        assert "3d20" in result["result"]
+        assert "total" in result["result"]

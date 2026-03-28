@@ -1,4 +1,4 @@
-import unittest
+import pytest
 
 from util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
@@ -39,29 +39,29 @@ from util import (
 )
 
 
-class TestChatCompletionParameters(unittest.TestCase):
+class TestChatCompletionParameters:
     def test_default_values(self):
         params = ChatCompletionParameters(model="gemini-3-flash-preview")
-        self.assertEqual(params.model, "gemini-3-flash-preview")
-        self.assertIsNone(params.system_instruction)
-        self.assertIsNone(params.frequency_penalty)
-        self.assertIsNone(params.presence_penalty)
-        self.assertIsNone(params.seed)
-        self.assertIsNone(params.temperature)
-        self.assertIsNone(params.top_p)
-        self.assertIsNone(params.conversation_starter)
-        self.assertIsNone(params.conversation_id)
-        self.assertIsNone(params.channel_id)
-        self.assertFalse(params.paused)
-        self.assertEqual(params.history, [])
-        self.assertEqual(params.tools, [])
-        self.assertIsNone(params.media_resolution)
-        self.assertIsNone(params.thinking_level)
-        self.assertIsNone(params.thinking_budget)
-        self.assertIsNone(params.cache_name)
-        self.assertEqual(params.cached_history_length, 0)
-        self.assertEqual(params.uploaded_file_names, [])
-        self.assertFalse(params.custom_functions_enabled)
+        assert params.model == "gemini-3-flash-preview"
+        assert params.system_instruction is None
+        assert params.frequency_penalty is None
+        assert params.presence_penalty is None
+        assert params.seed is None
+        assert params.temperature is None
+        assert params.top_p is None
+        assert params.conversation_starter is None
+        assert params.conversation_id is None
+        assert params.channel_id is None
+        assert params.paused is False
+        assert params.history == []
+        assert params.tools == []
+        assert params.media_resolution is None
+        assert params.thinking_level is None
+        assert params.thinking_budget is None
+        assert params.cache_name is None
+        assert params.cached_history_length == 0
+        assert params.uploaded_file_names == []
+        assert params.custom_functions_enabled is False
 
     def test_all_parameters(self):
         params = ChatCompletionParameters(
@@ -83,50 +83,47 @@ class TestChatCompletionParameters(unittest.TestCase):
                 TOOL_URL_CONTEXT,
             ],
         )
-        self.assertEqual(params.model, "gemini-2.5-flash")
-        self.assertEqual(params.system_instruction, "You are a helpful assistant.")
-        self.assertEqual(params.frequency_penalty, 0.5)
-        self.assertEqual(params.presence_penalty, 0.3)
-        self.assertEqual(params.seed, 42)
-        self.assertEqual(params.temperature, 0.8)
-        self.assertEqual(params.top_p, 0.9)
-        self.assertEqual(params.media_resolution, "MEDIA_RESOLUTION_HIGH")
-        self.assertEqual(params.conversation_id, 123456)
-        self.assertEqual(params.channel_id, 789012)
-        self.assertTrue(params.paused)
-        self.assertEqual(
-            params.tools,
-            [
-                TOOL_GOOGLE_SEARCH,
-                TOOL_CODE_EXECUTION,
-                TOOL_GOOGLE_MAPS,
-                TOOL_URL_CONTEXT,
-            ],
-        )
+        assert params.model == "gemini-2.5-flash"
+        assert params.system_instruction == "You are a helpful assistant."
+        assert params.frequency_penalty == 0.5
+        assert params.presence_penalty == 0.3
+        assert params.seed == 42
+        assert params.temperature == 0.8
+        assert params.top_p == 0.9
+        assert params.media_resolution == "MEDIA_RESOLUTION_HIGH"
+        assert params.conversation_id == 123456
+        assert params.channel_id == 789012
+        assert params.paused is True
+        assert params.tools == [
+            TOOL_GOOGLE_SEARCH,
+            TOOL_CODE_EXECUTION,
+            TOOL_GOOGLE_MAPS,
+            TOOL_URL_CONTEXT,
+        ]
 
     def test_uploaded_file_names_default_isolated(self):
         """Test that uploaded_file_names list is isolated between instances."""
         params_one = ChatCompletionParameters(model="gemini-3-flash-preview")
         params_one.uploaded_file_names.append("files/abc123")
         params_two = ChatCompletionParameters(model="gemini-3-flash-preview")
-        self.assertEqual(params_two.uploaded_file_names, [])
-        self.assertIsNot(params_one.uploaded_file_names, params_two.uploaded_file_names)
+        assert params_two.uploaded_file_names == []
+        assert params_one.uploaded_file_names is not params_two.uploaded_file_names
 
     def test_history_default_isolated(self):
         """Test that history list is isolated between instances."""
         params_one = ChatCompletionParameters(model="gemini-3-flash-preview")
         params_one.history.append({"role": "user", "parts": [{"text": "hello"}]})
         params_two = ChatCompletionParameters(model="gemini-3-flash-preview")
-        self.assertEqual(params_two.history, [])
-        self.assertIsNot(params_one.history, params_two.history)
+        assert params_two.history == []
+        assert params_one.history is not params_two.history
 
     def test_tools_default_isolated(self):
         """Test that tools list is isolated between instances."""
         params_one = ChatCompletionParameters(model="gemini-3-flash-preview")
         params_one.tools.append(TOOL_GOOGLE_SEARCH)
         params_two = ChatCompletionParameters(model="gemini-3-flash-preview")
-        self.assertEqual(params_two.tools, [])
-        self.assertIsNot(params_one.tools, params_two.tools)
+        assert params_two.tools == []
+        assert params_one.tools is not params_two.tools
 
     def test_filter_supported_tools_for_model(self):
         """Test model-based filtering for tool compatibility."""
@@ -138,43 +135,40 @@ class TestChatCompletionParameters(unittest.TestCase):
         ]
         # gemini-2.0-flash-lite does not support google_maps or url_context
         supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash-lite", tools)
-        self.assertEqual(
-            supported,
-            [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION],
-        )
-        self.assertIn("google_maps", unsupported)
-        self.assertIn("url_context", unsupported)
+        assert supported == [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION]
+        assert "google_maps" in unsupported
+        assert "url_context" in unsupported
 
     def test_filter_supported_tools_file_search_supported_model(self):
         """Test that file_search is supported on compatible models."""
         tools = [TOOL_FILE_SEARCH]
         supported, unsupported = filter_supported_tools_for_model("gemini-2.5-pro", tools)
-        self.assertEqual(supported, [TOOL_FILE_SEARCH])
-        self.assertEqual(unsupported, [])
+        assert supported == [TOOL_FILE_SEARCH]
+        assert unsupported == []
 
     def test_filter_supported_tools_file_search_unsupported_model(self):
         """Test that file_search is filtered out for unsupported models."""
         tools = [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
         supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash", tools)
-        self.assertEqual(supported, [TOOL_CODE_EXECUTION])
-        self.assertEqual(unsupported, ["file_search"])
+        assert supported == [TOOL_CODE_EXECUTION]
+        assert unsupported == ["file_search"]
 
 
-class TestResolveToolName(unittest.TestCase):
+class TestResolveToolName:
     def test_resolve_standard_tools(self):
         """Test resolving standard tool configs to names."""
-        self.assertEqual(resolve_tool_name(TOOL_GOOGLE_SEARCH), "google_search")
-        self.assertEqual(resolve_tool_name(TOOL_CODE_EXECUTION), "code_execution")
-        self.assertEqual(resolve_tool_name(TOOL_FILE_SEARCH), "file_search")
+        assert resolve_tool_name(TOOL_GOOGLE_SEARCH) == "google_search"
+        assert resolve_tool_name(TOOL_CODE_EXECUTION) == "code_execution"
+        assert resolve_tool_name(TOOL_FILE_SEARCH) == "file_search"
 
     def test_resolve_enriched_file_search(self):
         """Test resolving file_search config with injected store IDs."""
         enriched = {"file_search": {"file_search_store_names": ["store1", "store2"]}}
-        self.assertEqual(resolve_tool_name(enriched), "file_search")
+        assert resolve_tool_name(enriched) == "file_search"
 
     def test_resolve_unknown_tool(self):
         """Test that unknown tool configs return None."""
-        self.assertIsNone(resolve_tool_name({"unknown_tool": {}}))
+        assert resolve_tool_name({"unknown_tool": {}}) is None
 
     def test_resolve_callable(self):
         """Test that a Python callable resolves to 'custom_functions'."""
@@ -182,37 +176,37 @@ class TestResolveToolName(unittest.TestCase):
         def my_func():
             pass
 
-        self.assertEqual(resolve_tool_name(my_func), "custom_functions")
+        assert resolve_tool_name(my_func) == "custom_functions"
 
     def test_resolve_function_declarations_dict(self):
         """Test that a function_declarations dict resolves to 'custom_functions'."""
         tool = {"function_declarations": [{"name": "test", "description": "test"}]}
-        self.assertEqual(resolve_tool_name(tool), "custom_functions")
+        assert resolve_tool_name(tool) == "custom_functions"
 
 
-class TestAgenticResult(unittest.TestCase):
+class TestAgenticResult:
     def test_default_values(self):
         result = AgenticResult(response=None, contents=[])
-        self.assertIsNone(result.response)
-        self.assertEqual(result.contents, [])
-        self.assertEqual(result.total_input_tokens, 0)
-        self.assertEqual(result.total_output_tokens, 0)
-        self.assertEqual(result.total_thinking_tokens, 0)
-        self.assertEqual(result.iterations, 0)
-        self.assertEqual(result.tool_calls_made, [])
+        assert result.response is None
+        assert result.contents == []
+        assert result.total_input_tokens == 0
+        assert result.total_output_tokens == 0
+        assert result.total_thinking_tokens == 0
+        assert result.iterations == 0
+        assert result.tool_calls_made == []
 
     def test_tool_calls_made_isolation(self):
         """Test that tool_calls_made list is isolated between instances."""
         r1 = AgenticResult(response=None, contents=[])
         r1.tool_calls_made.append("get_time")
         r2 = AgenticResult(response=None, contents=[])
-        self.assertEqual(r2.tool_calls_made, [])
+        assert r2.tool_calls_made == []
 
     def test_max_agentic_iterations_constant(self):
-        self.assertEqual(MAX_AGENTIC_ITERATIONS, 10)
+        assert MAX_AGENTIC_ITERATIONS == 10
 
 
-class TestFilterSupportedToolsWithCallables(unittest.TestCase):
+class TestFilterSupportedToolsWithCallables:
     def test_callables_pass_through(self):
         """Test that Python callables pass through model filtering unchanged."""
 
@@ -221,8 +215,8 @@ class TestFilterSupportedToolsWithCallables(unittest.TestCase):
 
         tools = [TOOL_GOOGLE_SEARCH, my_func]
         supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash-lite", tools)
-        self.assertIn(my_func, supported)
-        self.assertEqual(unsupported, [])
+        assert my_func in supported
+        assert unsupported == []
 
     def test_callables_not_deepcopied(self):
         """Test that callables are the same object (not deepcopied)."""
@@ -232,16 +226,16 @@ class TestFilterSupportedToolsWithCallables(unittest.TestCase):
 
         tools = [my_func]
         supported, _ = filter_supported_tools_for_model("gemini-3-flash-preview", tools)
-        self.assertIs(supported[0], my_func)
+        assert supported[0] is my_func
 
 
-class TestFilterFileSearchIncompatibleTools(unittest.TestCase):
+class TestFilterFileSearchIncompatibleTools:
     def test_no_file_search_returns_unchanged(self):
         """Test that tools are unchanged when file_search is not present."""
         tools = [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION]
         filtered, removed = filter_file_search_incompatible_tools(tools)
-        self.assertEqual(filtered, tools)
-        self.assertEqual(removed, [])
+        assert filtered == tools
+        assert removed == []
 
     def test_file_search_removes_incompatible_tools(self):
         """Test that incompatible tools are removed when file_search is present."""
@@ -252,53 +246,53 @@ class TestFilterFileSearchIncompatibleTools(unittest.TestCase):
             TOOL_URL_CONTEXT,
         ]
         filtered, removed = filter_file_search_incompatible_tools(tools)
-        self.assertEqual(filtered, [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION])
-        self.assertIn("google_search", removed)
-        self.assertIn("url_context", removed)
+        assert filtered == [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
+        assert "google_search" in removed
+        assert "url_context" in removed
 
     def test_file_search_alone_no_removals(self):
         """Test file_search with only compatible tools."""
         tools = [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
         filtered, removed = filter_file_search_incompatible_tools(tools)
-        self.assertEqual(filtered, [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION])
-        self.assertEqual(removed, [])
+        assert filtered == [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
+        assert removed == []
 
     def test_file_search_incompatible_tools_constant(self):
         """Test that the incompatible tools set contains expected tools."""
-        self.assertIn("google_search", FILE_SEARCH_INCOMPATIBLE_TOOLS)
-        self.assertIn("google_maps", FILE_SEARCH_INCOMPATIBLE_TOOLS)
-        self.assertIn("url_context", FILE_SEARCH_INCOMPATIBLE_TOOLS)
-        self.assertNotIn("code_execution", FILE_SEARCH_INCOMPATIBLE_TOOLS)
-        self.assertNotIn("file_search", FILE_SEARCH_INCOMPATIBLE_TOOLS)
+        assert "google_search" in FILE_SEARCH_INCOMPATIBLE_TOOLS
+        assert "google_maps" in FILE_SEARCH_INCOMPATIBLE_TOOLS
+        assert "url_context" in FILE_SEARCH_INCOMPATIBLE_TOOLS
+        assert "code_execution" not in FILE_SEARCH_INCOMPATIBLE_TOOLS
+        assert "file_search" not in FILE_SEARCH_INCOMPATIBLE_TOOLS
 
 
-class TestMutuallyExclusiveTools(unittest.TestCase):
+class TestMutuallyExclusiveTools:
     def test_no_conflict_returns_none(self):
         """No error when non-conflicting tools are selected."""
-        self.assertIsNone(check_mutually_exclusive_tools({"google_search", "code_execution"}))
+        assert check_mutually_exclusive_tools({"google_search", "code_execution"}) is None
 
     def test_google_search_and_maps_conflict(self):
         """Error returned when google_search and google_maps are both selected."""
         result = check_mutually_exclusive_tools({"google_search", "google_maps"})
-        self.assertIsNotNone(result)
-        self.assertIn("google_search", result)
-        self.assertIn("google_maps", result)
+        assert result is not None
+        assert "google_search" in result
+        assert "google_maps" in result
 
     def test_single_tool_no_conflict(self):
         """No error when only one tool from a conflicting pair is selected."""
-        self.assertIsNone(check_mutually_exclusive_tools({"google_search"}))
-        self.assertIsNone(check_mutually_exclusive_tools({"google_maps"}))
+        assert check_mutually_exclusive_tools({"google_search"}) is None
+        assert check_mutually_exclusive_tools({"google_maps"}) is None
 
     def test_empty_set_no_conflict(self):
         """No error when no tools are selected."""
-        self.assertIsNone(check_mutually_exclusive_tools(set()))
+        assert check_mutually_exclusive_tools(set()) is None
 
     def test_constant_contains_search_maps_pair(self):
         """The MUTUALLY_EXCLUSIVE_TOOLS constant includes the search/maps pair."""
-        self.assertIn(("google_search", "google_maps"), MUTUALLY_EXCLUSIVE_TOOLS)
+        assert ("google_search", "google_maps") in MUTUALLY_EXCLUSIVE_TOOLS
 
 
-class TestImageGenerationParameters(unittest.TestCase):
+class TestImageGenerationParameters:
     def test_to_dict_basic(self):
         params = ImageGenerationParameters(
             prompt="A house in the woods",
@@ -307,8 +301,8 @@ class TestImageGenerationParameters(unittest.TestCase):
             aspect_ratio="16:9",
         )
         result = params.to_dict()
-        self.assertEqual(result["number_of_images"], 2)
-        self.assertEqual(result["aspect_ratio"], "16:9")
+        assert result["number_of_images"] == 2
+        assert result["aspect_ratio"] == "16:9"
 
     def test_to_dict_with_negative_prompt(self):
         params = ImageGenerationParameters(
@@ -317,7 +311,7 @@ class TestImageGenerationParameters(unittest.TestCase):
             negative_prompt="blurry, low quality",
         )
         result = params.to_dict()
-        self.assertEqual(result["negative_prompt"], "blurry, low quality")
+        assert result["negative_prompt"] == "blurry, low quality"
 
     def test_to_dict_with_seed_and_guidance(self):
         params = ImageGenerationParameters(
@@ -327,8 +321,8 @@ class TestImageGenerationParameters(unittest.TestCase):
             guidance_scale=7.5,
         )
         result = params.to_dict()
-        self.assertEqual(result["seed"], 42)
-        self.assertEqual(result["guidance_scale"], 7.5)
+        assert result["seed"] == 42
+        assert result["guidance_scale"] == 7.5
 
     def test_person_generation_mapping(self):
         """Test that person_generation values are properly mapped."""
@@ -339,7 +333,7 @@ class TestImageGenerationParameters(unittest.TestCase):
             person_generation="dont_allow",
         )
         result = params.to_dict()
-        self.assertEqual(result["person_generation"], "DONT_ALLOW")
+        assert result["person_generation"] == "DONT_ALLOW"
 
         # Test allow_all
         params = ImageGenerationParameters(
@@ -348,7 +342,7 @@ class TestImageGenerationParameters(unittest.TestCase):
             person_generation="allow_all",
         )
         result = params.to_dict()
-        self.assertEqual(result["person_generation"], "ALLOW_ALL")
+        assert result["person_generation"] == "ALLOW_ALL"
 
     def test_person_generation_allow_adult_excluded(self):
         """Test that allow_adult (default) is not included in output."""
@@ -358,7 +352,7 @@ class TestImageGenerationParameters(unittest.TestCase):
             person_generation="allow_adult",
         )
         result = params.to_dict()
-        self.assertNotIn("person_generation", result)
+        assert "person_generation" not in result
 
     def test_none_values_excluded(self):
         """Test that None values are not included in to_dict output."""
@@ -367,34 +361,34 @@ class TestImageGenerationParameters(unittest.TestCase):
             model="gemini-3-pro-image-preview",
         )
         result = params.to_dict()
-        self.assertNotIn("aspect_ratio", result)
-        self.assertNotIn("negative_prompt", result)
-        self.assertNotIn("seed", result)
-        self.assertNotIn("guidance_scale", result)
+        assert "aspect_ratio" not in result
+        assert "negative_prompt" not in result
+        assert "seed" not in result
+        assert "guidance_scale" not in result
 
     def test_image_size_default_none(self):
         """Test that image_size defaults to None."""
         params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image-preview")
-        self.assertIsNone(params.image_size)
+        assert params.image_size is None
 
     def test_image_size_set(self):
         """Test that image_size can be set to a valid value."""
         params = ImageGenerationParameters(
             prompt="Test", model="gemini-3.1-flash-image-preview", image_size="2k"
         )
-        self.assertEqual(params.image_size, "2k")
+        assert params.image_size == "2k"
 
     def test_google_image_search_default_false(self):
         """Test that google_image_search defaults to False."""
         params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image-preview")
-        self.assertFalse(params.google_image_search)
+        assert params.google_image_search is False
 
     def test_google_image_search_enabled(self):
         """Test that google_image_search can be enabled."""
         params = ImageGenerationParameters(
             prompt="Test", model="gemini-3.1-flash-image-preview", google_image_search=True
         )
-        self.assertTrue(params.google_image_search)
+        assert params.google_image_search is True
 
     def test_new_fields_isolation(self):
         """Test that image_size and google_image_search are independent across instances."""
@@ -405,13 +399,13 @@ class TestImageGenerationParameters(unittest.TestCase):
             google_image_search=True,
         )
         params2 = ImageGenerationParameters(prompt="B", model="gemini-3.1-flash-image-preview")
-        self.assertEqual(params1.image_size, "1k")
-        self.assertTrue(params1.google_image_search)
-        self.assertIsNone(params2.image_size)
-        self.assertFalse(params2.google_image_search)
+        assert params1.image_size == "1k"
+        assert params1.google_image_search is True
+        assert params2.image_size is None
+        assert params2.google_image_search is False
 
 
-class TestVideoGenerationParameters(unittest.TestCase):
+class TestVideoGenerationParameters:
     def test_to_dict_basic(self):
         params = VideoGenerationParameters(
             prompt="A cat playing piano",
@@ -420,8 +414,8 @@ class TestVideoGenerationParameters(unittest.TestCase):
             number_of_videos=2,
         )
         result = params.to_dict()
-        self.assertEqual(result["aspect_ratio"], "16:9")
-        self.assertEqual(result["number_of_videos"], 2)
+        assert result["aspect_ratio"] == "16:9"
+        assert result["number_of_videos"] == 2
 
     def test_to_dict_with_duration(self):
         params = VideoGenerationParameters(
@@ -430,7 +424,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             duration_seconds=8,
         )
         result = params.to_dict()
-        self.assertEqual(result["duration_seconds"], 8)
+        assert result["duration_seconds"] == 8
 
     def test_to_dict_with_negative_prompt(self):
         params = VideoGenerationParameters(
@@ -439,7 +433,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             negative_prompt="blurry, distorted",
         )
         result = params.to_dict()
-        self.assertEqual(result["negative_prompt"], "blurry, distorted")
+        assert result["negative_prompt"] == "blurry, distorted"
 
     def test_enhance_prompt(self):
         params = VideoGenerationParameters(
@@ -448,7 +442,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             enhance_prompt=True,
         )
         result = params.to_dict()
-        self.assertTrue(result["enhance_prompt"])
+        assert result["enhance_prompt"] is True
 
         params_disabled = VideoGenerationParameters(
             prompt="Test video",
@@ -456,7 +450,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             enhance_prompt=False,
         )
         result_disabled = params_disabled.to_dict()
-        self.assertFalse(result_disabled["enhance_prompt"])
+        assert result_disabled["enhance_prompt"] is False
 
     def test_person_generation_mapping(self):
         """Test that person_generation values are properly mapped for Veo."""
@@ -466,7 +460,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             person_generation="dont_allow",
         )
         result = params.to_dict()
-        self.assertEqual(result["person_generation"], "dont_allow")
+        assert result["person_generation"] == "dont_allow"
 
     def test_person_generation_allow_adult_excluded(self):
         """Test that allow_adult (default) is not included in output."""
@@ -476,7 +470,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             person_generation="allow_adult",
         )
         result = params.to_dict()
-        self.assertNotIn("person_generation", result)
+        assert "person_generation" not in result
 
     def test_none_values_excluded(self):
         """Test that None values are not included in to_dict output."""
@@ -485,16 +479,16 @@ class TestVideoGenerationParameters(unittest.TestCase):
             model="veo-2.0-generate-001",
         )
         result = params.to_dict()
-        self.assertNotIn("aspect_ratio", result)
-        self.assertNotIn("negative_prompt", result)
-        self.assertNotIn("number_of_videos", result)
-        self.assertNotIn("duration_seconds", result)
-        self.assertNotIn("enhance_prompt", result)
+        assert "aspect_ratio" not in result
+        assert "negative_prompt" not in result
+        assert "number_of_videos" not in result
+        assert "duration_seconds" not in result
+        assert "enhance_prompt" not in result
 
     def test_has_last_frame_default(self):
         """Test that has_last_frame defaults to False."""
         params = VideoGenerationParameters(prompt="Test", model="veo-3.1-generate-preview")
-        self.assertFalse(params.has_last_frame)
+        assert params.has_last_frame is False
 
     def test_has_last_frame_set(self):
         """Test that has_last_frame can be set to True."""
@@ -503,7 +497,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             model="veo-3.1-generate-preview",
             has_last_frame=True,
         )
-        self.assertTrue(params.has_last_frame)
+        assert params.has_last_frame is True
 
     def test_has_last_frame_not_in_to_dict(self):
         """Test that has_last_frame is not included in to_dict output (display-only field)."""
@@ -513,7 +507,7 @@ class TestVideoGenerationParameters(unittest.TestCase):
             has_last_frame=True,
         )
         result = params.to_dict()
-        self.assertNotIn("has_last_frame", result)
+        assert "has_last_frame" not in result
 
     def test_has_last_frame_isolation(self):
         """Test that has_last_frame is independent between instances."""
@@ -521,19 +515,19 @@ class TestVideoGenerationParameters(unittest.TestCase):
             prompt="A", model="veo-3.1-generate-preview", has_last_frame=True
         )
         params2 = VideoGenerationParameters(prompt="B", model="veo-3.1-generate-preview")
-        self.assertTrue(params1.has_last_frame)
-        self.assertFalse(params2.has_last_frame)
+        assert params1.has_last_frame is True
+        assert params2.has_last_frame is False
 
 
-class TestSpeechGenerationParameters(unittest.TestCase):
+class TestSpeechGenerationParameters:
     def test_defaults(self):
         params = SpeechGenerationParameters(input_text="Hello world")
-        self.assertEqual(params.input_text, "Hello world")
-        self.assertEqual(params.model, "gemini-2.5-flash-preview-tts")
-        self.assertEqual(params.voice_name, "Kore")
-        self.assertFalse(params.multi_speaker)
-        self.assertIsNone(params.speaker_configs)
-        self.assertIsNone(params.style_prompt)
+        assert params.input_text == "Hello world"
+        assert params.model == "gemini-2.5-flash-preview-tts"
+        assert params.voice_name == "Kore"
+        assert params.multi_speaker is False
+        assert params.speaker_configs is None
+        assert params.style_prompt is None
 
     def test_to_dict_single_speaker(self):
         params = SpeechGenerationParameters(
@@ -541,12 +535,11 @@ class TestSpeechGenerationParameters(unittest.TestCase):
             voice_name="Puck",
         )
         result = params.to_dict()
-        self.assertEqual(result["response_modalities"], ["AUDIO"])
-        self.assertIn("speech_config", result)
-        self.assertIn("voice_config", result["speech_config"])
-        self.assertEqual(
-            result["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"],
-            "Puck",
+        assert result["response_modalities"] == ["AUDIO"]
+        assert "speech_config" in result
+        assert "voice_config" in result["speech_config"]
+        assert (
+            result["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"] == "Puck"
         )
 
     def test_to_dict_multi_speaker(self):
@@ -560,44 +553,44 @@ class TestSpeechGenerationParameters(unittest.TestCase):
             speaker_configs=speaker_configs,
         )
         result = params.to_dict()
-        self.assertEqual(result["response_modalities"], ["AUDIO"])
-        self.assertIn("speech_config", result)
-        self.assertIn("multi_speaker_voice_config", result["speech_config"])
+        assert result["response_modalities"] == ["AUDIO"]
+        assert "speech_config" in result
+        assert "multi_speaker_voice_config" in result["speech_config"]
         speaker_voice_configs = result["speech_config"]["multi_speaker_voice_config"][
             "speaker_voice_configs"
         ]
-        self.assertEqual(len(speaker_voice_configs), 2)
-        self.assertEqual(speaker_voice_configs[0]["speaker"], "Joe")
-        self.assertEqual(
-            speaker_voice_configs[0]["voice_config"]["prebuilt_voice_config"]["voice_name"],
-            "Kore",
+        assert len(speaker_voice_configs) == 2
+        assert speaker_voice_configs[0]["speaker"] == "Joe"
+        assert (
+            speaker_voice_configs[0]["voice_config"]["prebuilt_voice_config"]["voice_name"]
+            == "Kore"
         )
 
 
-class TestMusicGenerationParameters(unittest.TestCase):
+class TestMusicGenerationParameters:
     def test_defaults(self):
         params = MusicGenerationParameters(prompts=["upbeat jazz"])
-        self.assertEqual(params.prompts, ["upbeat jazz"])
-        self.assertIsNone(params.prompt_weights)
-        self.assertEqual(params.duration, 30)
-        self.assertIsNone(params.bpm)
-        self.assertIsNone(params.scale)
-        self.assertEqual(params.guidance, 4.0)
-        self.assertIsNone(params.density)
-        self.assertIsNone(params.brightness)
-        self.assertEqual(params.temperature, 1.1)
-        self.assertEqual(params.top_k, 40)
-        self.assertIsNone(params.seed)
-        self.assertFalse(params.mute_bass)
-        self.assertFalse(params.mute_drums)
-        self.assertFalse(params.only_bass_and_drums)
+        assert params.prompts == ["upbeat jazz"]
+        assert params.prompt_weights is None
+        assert params.duration == 30
+        assert params.bpm is None
+        assert params.scale is None
+        assert params.guidance == 4.0
+        assert params.density is None
+        assert params.brightness is None
+        assert params.temperature == 1.1
+        assert params.top_k == 40
+        assert params.seed is None
+        assert params.mute_bass is False
+        assert params.mute_drums is False
+        assert params.only_bass_and_drums is False
 
     def test_to_weighted_prompts_without_weights(self):
         params = MusicGenerationParameters(prompts=["jazz", "piano"])
         result = params.to_weighted_prompts()
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0], {"text": "jazz", "weight": 1.0})
-        self.assertEqual(result[1], {"text": "piano", "weight": 1.0})
+        assert len(result) == 2
+        assert result[0] == {"text": "jazz", "weight": 1.0}
+        assert result[1] == {"text": "piano", "weight": 1.0}
 
     def test_to_weighted_prompts_with_weights(self):
         params = MusicGenerationParameters(
@@ -605,9 +598,9 @@ class TestMusicGenerationParameters(unittest.TestCase):
             prompt_weights=[0.7, 0.3],
         )
         result = params.to_weighted_prompts()
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0], {"text": "jazz", "weight": 0.7})
-        self.assertEqual(result[1], {"text": "piano", "weight": 0.3})
+        assert len(result) == 2
+        assert result[0] == {"text": "jazz", "weight": 0.7}
+        assert result[1] == {"text": "piano", "weight": 0.3}
 
     def test_to_weighted_prompts_mismatched_weights(self):
         """Test that mismatched weights fall back to default 1.0."""
@@ -617,19 +610,19 @@ class TestMusicGenerationParameters(unittest.TestCase):
         )
         result = params.to_weighted_prompts()
         # Should fall back to default weights
-        self.assertEqual(result[0]["weight"], 1.0)
-        self.assertEqual(result[1]["weight"], 1.0)
-        self.assertEqual(result[2]["weight"], 1.0)
+        assert result[0]["weight"] == 1.0
+        assert result[1]["weight"] == 1.0
+        assert result[2]["weight"] == 1.0
 
     def test_to_music_config_basic(self):
         params = MusicGenerationParameters(prompts=["test"])
         result = params.to_music_config()
-        self.assertEqual(result["guidance"], 4.0)
-        self.assertEqual(result["temperature"], 1.1)
-        self.assertEqual(result["top_k"], 40)
-        self.assertFalse(result["mute_bass"])
-        self.assertFalse(result["mute_drums"])
-        self.assertFalse(result["only_bass_and_drums"])
+        assert result["guidance"] == 4.0
+        assert result["temperature"] == 1.1
+        assert result["top_k"] == 40
+        assert result["mute_bass"] is False
+        assert result["mute_drums"] is False
+        assert result["only_bass_and_drums"] is False
 
     def test_to_music_config_with_optional_params(self):
         params = MusicGenerationParameters(
@@ -641,11 +634,11 @@ class TestMusicGenerationParameters(unittest.TestCase):
             seed=42,
         )
         result = params.to_music_config()
-        self.assertEqual(result["bpm"], 120)
-        self.assertEqual(result["scale"], "C_MAJOR_A_MINOR")
-        self.assertEqual(result["density"], 0.5)
-        self.assertEqual(result["brightness"], 0.7)
-        self.assertEqual(result["seed"], 42)
+        assert result["bpm"] == 120
+        assert result["scale"] == "C_MAJOR_A_MINOR"
+        assert result["density"] == 0.5
+        assert result["brightness"] == 0.7
+        assert result["seed"] == 42
 
     def test_to_music_config_mute_options(self):
         params = MusicGenerationParameters(
@@ -654,8 +647,8 @@ class TestMusicGenerationParameters(unittest.TestCase):
             mute_drums=True,
         )
         result = params.to_music_config()
-        self.assertTrue(result["mute_bass"])
-        self.assertTrue(result["mute_drums"])
+        assert result["mute_bass"] is True
+        assert result["mute_drums"] is True
 
     def test_to_music_config_only_bass_and_drums(self):
         params = MusicGenerationParameters(
@@ -663,16 +656,16 @@ class TestMusicGenerationParameters(unittest.TestCase):
             only_bass_and_drums=True,
         )
         result = params.to_music_config()
-        self.assertTrue(result["only_bass_and_drums"])
+        assert result["only_bass_and_drums"] is True
 
 
-class TestResearchParameters(unittest.TestCase):
+class TestResearchParameters:
     def test_defaults(self):
         params = ResearchParameters(prompt="Research quantum computing")
-        self.assertEqual(params.prompt, "Research quantum computing")
-        self.assertEqual(params.agent, "deep-research-pro-preview-12-2025")
-        self.assertFalse(params.file_search)
-        self.assertFalse(params.google_maps)
+        assert params.prompt == "Research quantum computing"
+        assert params.agent == "deep-research-pro-preview-12-2025"
+        assert params.file_search is False
+        assert params.google_maps is False
 
     def test_all_parameters(self):
         params = ResearchParameters(
@@ -681,55 +674,52 @@ class TestResearchParameters(unittest.TestCase):
             file_search=True,
             google_maps=True,
         )
-        self.assertEqual(params.prompt, "Compare EV batteries")
-        self.assertEqual(params.agent, "deep-research-pro-preview-12-2025")
-        self.assertTrue(params.file_search)
-        self.assertTrue(params.google_maps)
+        assert params.prompt == "Compare EV batteries"
+        assert params.agent == "deep-research-pro-preview-12-2025"
+        assert params.file_search is True
+        assert params.google_maps is True
 
 
-class TestChunkText(unittest.TestCase):
+class TestChunkText:
     def test_chunk_text_small(self):
         text = "This is a test."
         size = 4
         result = chunk_text(text, size)
-        self.assertEqual(
-            result,
-            ["This", " is ", "a te", "st."],
-        )
+        assert result == ["This", " is ", "a te", "st."]
 
     def test_chunk_text_exact_size(self):
         text = "abcd"
         size = 4
         result = chunk_text(text, size)
-        self.assertEqual(result, ["abcd"])
+        assert result == ["abcd"]
 
     def test_chunk_text_larger_than_text(self):
         text = "Hello"
         size = 100
         result = chunk_text(text, size)
-        self.assertEqual(result, ["Hello"])
+        assert result == ["Hello"]
 
     def test_chunk_text_empty(self):
         text = ""
         size = 4
         result = chunk_text(text, size)
-        self.assertEqual(result, [])
+        assert result == []
 
     def test_chunk_text_default_size(self):
         text = "a" * 8192
         result = chunk_text(text)  # Default size is 4096
-        self.assertEqual(len(result), 2)
-        self.assertEqual(len(result[0]), 4096)
-        self.assertEqual(len(result[1]), 4096)
+        assert len(result) == 2
+        assert len(result[0]) == 4096
+        assert len(result[1]) == 4096
 
     def test_chunk_text_long(self):
         text = "This is a test. " * 64  # len(text) * 64 = 1024
         size = 1024
         result = chunk_text(text, size)
-        self.assertEqual(len(result[0]), size)
+        assert len(result[0]) == size
 
 
-class TestTruncateText(unittest.TestCase):
+class TestTruncateText:
     """Tests for the truncate_text utility function."""
 
     def test_truncate_text_under_limit(self):
@@ -738,8 +728,8 @@ class TestTruncateText(unittest.TestCase):
 
         text = "Short text"
         result = truncate_text(text, 100)
-        self.assertEqual(result, text)
-        self.assertNotIn("...", result)
+        assert result == text
+        assert "..." not in result
 
     def test_truncate_text_over_limit(self):
         """Test that long text is truncated with suffix."""
@@ -747,9 +737,9 @@ class TestTruncateText(unittest.TestCase):
 
         text = "A" * 100
         result = truncate_text(text, 50)
-        self.assertEqual(len(result), 53)  # 50 + "..."
-        self.assertTrue(result.endswith("..."))
-        self.assertEqual(result, "A" * 50 + "...")
+        assert len(result) == 53  # 50 + "..."
+        assert result.endswith("...")
+        assert result == "A" * 50 + "..."
 
     def test_truncate_text_at_limit(self):
         """Test that text exactly at limit is not truncated."""
@@ -757,8 +747,8 @@ class TestTruncateText(unittest.TestCase):
 
         text = "B" * 100
         result = truncate_text(text, 100)
-        self.assertEqual(result, text)
-        self.assertNotIn("...", result)
+        assert result == text
+        assert "..." not in result
 
     def test_truncate_text_custom_suffix(self):
         """Test truncation with custom suffix."""
@@ -766,21 +756,21 @@ class TestTruncateText(unittest.TestCase):
 
         text = "Hello, world!"
         result = truncate_text(text, 5, suffix="[...]")
-        self.assertEqual(result, "Hello[...]")
+        assert result == "Hello[...]"
 
     def test_truncate_text_none(self):
         """Test that None input returns None."""
         from util import truncate_text
 
         result = truncate_text(None, 100)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_truncate_text_empty_string(self):
         """Test that empty string is handled correctly."""
         from util import truncate_text
 
         result = truncate_text("", 100)
-        self.assertEqual(result, "")
+        assert result == ""
 
     def test_truncate_text_empty_suffix(self):
         """Test truncation with empty suffix."""
@@ -788,8 +778,8 @@ class TestTruncateText(unittest.TestCase):
 
         text = "Hello, world!"
         result = truncate_text(text, 5, suffix="")
-        self.assertEqual(result, "Hello")
-        self.assertEqual(len(result), 5)
+        assert result == "Hello"
+        assert len(result) == 5
 
     def test_truncate_text_prompt_limit(self):
         """Test standard 2000 char prompt truncation."""
@@ -797,8 +787,8 @@ class TestTruncateText(unittest.TestCase):
 
         long_prompt = "A" * 3000
         result = truncate_text(long_prompt, 2000)
-        self.assertEqual(len(result), 2003)  # 2000 + "..."
-        self.assertTrue(result.endswith("..."))
+        assert len(result) == 2003  # 2000 + "..."
+        assert result.endswith("...")
 
     def test_truncate_text_response_limit(self):
         """Test standard 3500 char response truncation."""
@@ -806,36 +796,36 @@ class TestTruncateText(unittest.TestCase):
 
         long_response = "B" * 5000
         result = truncate_text(long_response, 3500)
-        self.assertEqual(len(result), 3503)  # 3500 + "..."
-        self.assertTrue(result.endswith("..."))
+        assert len(result) == 3503  # 3500 + "..."
+        assert result.endswith("...")
 
 
-class TestCacheConstants(unittest.TestCase):
+class TestCacheConstants:
     """Tests for explicit caching constants."""
 
     def test_cache_min_token_count_contains_expected_models(self):
         """Test that CACHE_MIN_TOKEN_COUNT includes only Gemini 3.x models."""
-        self.assertIn("gemini-3.1-pro-preview", CACHE_MIN_TOKEN_COUNT)
-        self.assertIn("gemini-3-flash-preview", CACHE_MIN_TOKEN_COUNT)
+        assert "gemini-3.1-pro-preview" in CACHE_MIN_TOKEN_COUNT
+        assert "gemini-3-flash-preview" in CACHE_MIN_TOKEN_COUNT
 
     def test_cache_min_token_count_values(self):
         """Test that token thresholds are correct per model tier."""
-        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-3.1-pro-preview"], 4096)
-        self.assertEqual(CACHE_MIN_TOKEN_COUNT["gemini-3-flash-preview"], 1024)
+        assert CACHE_MIN_TOKEN_COUNT["gemini-3.1-pro-preview"] == 4096
+        assert CACHE_MIN_TOKEN_COUNT["gemini-3-flash-preview"] == 1024
 
     def test_cache_min_token_count_excludes_implicit_only_models(self):
         """Test that 2.5 and below models rely on implicit caching."""
-        self.assertNotIn("gemini-2.5-pro", CACHE_MIN_TOKEN_COUNT)
-        self.assertNotIn("gemini-2.5-flash", CACHE_MIN_TOKEN_COUNT)
-        self.assertNotIn("gemini-2.0-flash", CACHE_MIN_TOKEN_COUNT)
-        self.assertNotIn("gemini-2.0-flash-lite", CACHE_MIN_TOKEN_COUNT)
+        assert "gemini-2.5-pro" not in CACHE_MIN_TOKEN_COUNT
+        assert "gemini-2.5-flash" not in CACHE_MIN_TOKEN_COUNT
+        assert "gemini-2.0-flash" not in CACHE_MIN_TOKEN_COUNT
+        assert "gemini-2.0-flash-lite" not in CACHE_MIN_TOKEN_COUNT
 
     def test_cache_ttl_is_valid(self):
         """Test that CACHE_TTL is a valid duration string."""
-        self.assertEqual(CACHE_TTL, "3600s")
+        assert CACHE_TTL == "3600s"
 
 
-class TestChatCompletionParametersCaching(unittest.TestCase):
+class TestChatCompletionParametersCaching:
     """Tests for cache-related fields on ChatCompletionParameters."""
 
     def test_cache_fields_with_values(self):
@@ -845,8 +835,8 @@ class TestChatCompletionParametersCaching(unittest.TestCase):
             cache_name="cachedContents/abc123",
             cached_history_length=4,
         )
-        self.assertEqual(params.cache_name, "cachedContents/abc123")
-        self.assertEqual(params.cached_history_length, 4)
+        assert params.cache_name == "cachedContents/abc123"
+        assert params.cached_history_length == 4
 
     def test_cache_fields_reset(self):
         """Test that cache fields can be cleared."""
@@ -857,37 +847,37 @@ class TestChatCompletionParametersCaching(unittest.TestCase):
         )
         params.cache_name = None
         params.cached_history_length = 0
-        self.assertIsNone(params.cache_name)
-        self.assertEqual(params.cached_history_length, 0)
+        assert params.cache_name is None
+        assert params.cached_history_length == 0
 
 
-class TestAttachmentSizeConstants(unittest.TestCase):
+class TestAttachmentSizeConstants:
     """Tests for attachment size limit constants."""
 
     def test_inline_max_size(self):
         """Test that inline data max is 100 MB."""
-        self.assertEqual(ATTACHMENT_MAX_INLINE_SIZE, 100 * 1024 * 1024)
+        assert ATTACHMENT_MAX_INLINE_SIZE == 100 * 1024 * 1024
 
     def test_pdf_inline_max_size(self):
         """Test that PDF inline max is 50 MB."""
-        self.assertEqual(ATTACHMENT_PDF_MAX_INLINE_SIZE, 50 * 1024 * 1024)
+        assert ATTACHMENT_PDF_MAX_INLINE_SIZE == 50 * 1024 * 1024
 
     def test_file_api_threshold(self):
         """Test that File API threshold is 20 MB."""
-        self.assertEqual(ATTACHMENT_FILE_API_THRESHOLD, 20 * 1024 * 1024)
+        assert ATTACHMENT_FILE_API_THRESHOLD == 20 * 1024 * 1024
 
     def test_file_api_max_size(self):
         """Test that File API max is 2 GB."""
-        self.assertEqual(ATTACHMENT_FILE_API_MAX_SIZE, 2 * 1024 * 1024 * 1024)
+        assert ATTACHMENT_FILE_API_MAX_SIZE == 2 * 1024 * 1024 * 1024
 
     def test_threshold_ordering(self):
         """Test that size limits are in correct ascending order."""
-        self.assertLess(ATTACHMENT_FILE_API_THRESHOLD, ATTACHMENT_PDF_MAX_INLINE_SIZE)
-        self.assertLess(ATTACHMENT_PDF_MAX_INLINE_SIZE, ATTACHMENT_MAX_INLINE_SIZE)
-        self.assertLess(ATTACHMENT_MAX_INLINE_SIZE, ATTACHMENT_FILE_API_MAX_SIZE)
+        assert ATTACHMENT_FILE_API_THRESHOLD < ATTACHMENT_PDF_MAX_INLINE_SIZE
+        assert ATTACHMENT_PDF_MAX_INLINE_SIZE < ATTACHMENT_MAX_INLINE_SIZE
+        assert ATTACHMENT_MAX_INLINE_SIZE < ATTACHMENT_FILE_API_MAX_SIZE
 
 
-class TestModelPricing(unittest.TestCase):
+class TestModelPricing:
     """Tests for MODEL_PRICING and calculate_cost."""
 
     def test_pricing_contains_all_chat_models(self):
@@ -903,76 +893,74 @@ class TestModelPricing(unittest.TestCase):
             "gemini-2.0-flash-lite",
         ]
         for model in expected_models:
-            self.assertIn(model, MODEL_PRICING, f"{model} missing from MODEL_PRICING")
+            assert model in MODEL_PRICING, f"{model} missing from MODEL_PRICING"
 
     def test_pricing_values_are_positive(self):
         """Test that all pricing values are positive."""
         for model, (input_price, output_price) in MODEL_PRICING.items():
-            self.assertGreater(input_price, 0, f"{model} input price should be positive")
-            self.assertGreater(output_price, 0, f"{model} output price should be positive")
+            assert input_price > 0, f"{model} input price should be positive"
+            assert output_price > 0, f"{model} output price should be positive"
 
     def test_pricing_output_greater_than_input(self):
         """Test that output pricing is always >= input pricing."""
         for model, (input_price, output_price) in MODEL_PRICING.items():
-            self.assertGreaterEqual(
-                output_price, input_price, f"{model} output price should be >= input price"
-            )
+            assert output_price >= input_price, f"{model} output price should be >= input price"
 
     def test_calculate_cost_known_model(self):
         """Test cost calculation for a known model."""
         # gemini-2.0-flash: $0.10/M input, $0.40/M output
         cost = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000)
-        self.assertAlmostEqual(cost, 0.50)  # $0.10 + $0.40
+        assert cost == pytest.approx(0.50)
 
     def test_calculate_cost_zero_tokens(self):
         """Test cost calculation with zero tokens."""
         cost = calculate_cost("gemini-2.5-pro", 0, 0)
-        self.assertAlmostEqual(cost, 0.0)
+        assert cost == pytest.approx(0.0)
 
     def test_calculate_cost_unknown_model_uses_default(self):
         """Test that unknown models fall back to default pricing."""
         cost = calculate_cost("unknown-model", 1_000_000, 1_000_000)
         # Default is (2.0, 12.0)
-        self.assertAlmostEqual(cost, 14.0)
+        assert cost == pytest.approx(14.0)
 
     def test_calculate_cost_small_token_count(self):
         """Test cost calculation with realistic small token counts."""
         # gemini-3.1-pro-preview: $2.00/M input, $12.00/M output
         cost = calculate_cost("gemini-3.1-pro-preview", 500, 200)
         expected = (500 / 1_000_000) * 2.0 + (200 / 1_000_000) * 12.0
-        self.assertAlmostEqual(cost, expected)
+        assert cost == pytest.approx(expected)
 
     def test_calculate_cost_with_thinking_tokens(self):
         """Test that thinking tokens are billed at the output token rate."""
         # gemini-2.5-flash: $0.30/M input, $2.50/M output
         cost = calculate_cost("gemini-2.5-flash", 1_000_000, 500_000, thinking_tokens=500_000)
         # 1M * $0.30 + (500K + 500K) * $2.50 = $0.30 + $2.50 = $2.80
-        self.assertAlmostEqual(cost, 2.80)
+        assert cost == pytest.approx(2.80)
 
     def test_calculate_cost_with_zero_thinking_tokens(self):
         """Test that zero thinking tokens doesn't affect cost."""
         cost_without = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000)
         cost_with = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000, thinking_tokens=0)
-        self.assertAlmostEqual(cost_without, cost_with)
+        assert cost_without == pytest.approx(cost_with)
 
     def test_calculate_cost_thinking_only(self):
         """Test cost when output is mostly thinking tokens."""
         # gemini-3-flash-preview: $0.50/M input, $3.00/M output
         cost = calculate_cost("gemini-3-flash-preview", 100_000, 50_000, thinking_tokens=1_000_000)
         expected = (100_000 / 1_000_000) * 0.50 + ((50_000 + 1_000_000) / 1_000_000) * 3.0
-        self.assertAlmostEqual(cost, expected)
+        assert cost == pytest.approx(expected)
 
     def test_calculate_cost_with_maps_grounding(self):
         """Test that Maps grounding adds the per-request surcharge."""
         base_cost = calculate_cost("gemini-2.5-flash", 1000, 500)
         maps_cost = calculate_cost("gemini-2.5-flash", 1000, 500, google_maps_grounded=True)
-        self.assertAlmostEqual(maps_cost - base_cost, MAPS_GROUNDING_COST_PER_REQUEST)
+        assert maps_cost - base_cost == pytest.approx(MAPS_GROUNDING_COST_PER_REQUEST)
 
     def test_calculate_cost_without_maps_grounding(self):
         """Test that Maps surcharge is not applied when grounding is False."""
         cost_default = calculate_cost("gemini-2.5-flash", 1000, 500)
         cost_explicit = calculate_cost("gemini-2.5-flash", 1000, 500, google_maps_grounded=False)
-        self.assertAlmostEqual(cost_default, cost_explicit)
+        assert cost_default == pytest.approx(cost_explicit)
 
     def test_calculate_cost_maps_grounding_with_thinking(self):
         """Test that Maps surcharge stacks with thinking token cost."""
@@ -980,10 +968,10 @@ class TestModelPricing(unittest.TestCase):
         with_maps = calculate_cost(
             "gemini-3-flash-preview", 1000, 500, thinking_tokens=2000, google_maps_grounded=True
         )
-        self.assertAlmostEqual(with_maps - base, MAPS_GROUNDING_COST_PER_REQUEST)
+        assert with_maps - base == pytest.approx(MAPS_GROUNDING_COST_PER_REQUEST)
 
 
-class TestImagePricing(unittest.TestCase):
+class TestImagePricing:
     """Tests for IMAGE_PRICING and calculate_image_cost."""
 
     def test_pricing_contains_all_image_models(self):
@@ -997,14 +985,14 @@ class TestImagePricing(unittest.TestCase):
             "imagen-4.0-fast-generate-001",
         ]
         for model in expected_models:
-            self.assertIn(model, IMAGE_PRICING, f"{model} missing from IMAGE_PRICING")
+            assert model in IMAGE_PRICING, f"{model} missing from IMAGE_PRICING"
 
     def test_pricing_values_are_non_negative(self):
         """Test that all pricing values are non-negative."""
         for model, (input_rate, size_prices) in IMAGE_PRICING.items():
-            self.assertGreaterEqual(input_rate, 0, f"{model} input rate should be >= 0")
+            assert input_rate >= 0, f"{model} input rate should be >= 0"
             for size, price in size_prices.items():
-                self.assertGreater(price, 0, f"{model} size={size} cost should be > 0")
+                assert price > 0, f"{model} size={size} cost should be > 0"
 
     def test_imagen_models_have_zero_input_cost(self):
         """Test that Imagen models have zero input token cost (flat per-image pricing)."""
@@ -1015,7 +1003,7 @@ class TestImagePricing(unittest.TestCase):
         ]
         for model in imagen_models:
             input_rate, _ = IMAGE_PRICING[model]
-            self.assertEqual(input_rate, 0.0, f"{model} should have zero input rate")
+            assert input_rate == 0.0, f"{model} should have zero input rate"
 
     def test_calculate_image_cost_gemini_model(self):
         """Test cost calculation for a Gemini image model with input tokens."""
@@ -1024,7 +1012,7 @@ class TestImagePricing(unittest.TestCase):
             "gemini-3.1-flash-image-preview", num_images=2, input_tokens=1_000_000
         )
         expected = 0.50 + 2 * 0.067  # input cost + 2 images
-        self.assertAlmostEqual(cost, expected)
+        assert cost == pytest.approx(expected)
 
     def test_calculate_image_cost_2k_resolution(self):
         """Test that 2K resolution uses higher per-image cost."""
@@ -1034,9 +1022,9 @@ class TestImagePricing(unittest.TestCase):
         cost_2k = calculate_image_cost(
             "gemini-3.1-flash-image-preview", num_images=1, image_size="2k"
         )
-        self.assertAlmostEqual(cost_1k, 0.067)
-        self.assertAlmostEqual(cost_2k, 0.101)
-        self.assertGreater(cost_2k, cost_1k)
+        assert cost_1k == pytest.approx(0.067)
+        assert cost_2k == pytest.approx(0.101)
+        assert cost_2k > cost_1k
 
     def test_calculate_image_cost_case_insensitive(self):
         """Test that image_size lookup is case-insensitive."""
@@ -1046,33 +1034,33 @@ class TestImagePricing(unittest.TestCase):
         cost_upper = calculate_image_cost(
             "gemini-3.1-flash-image-preview", num_images=1, image_size="2K"
         )
-        self.assertAlmostEqual(cost_lower, cost_upper)
+        assert cost_lower == pytest.approx(cost_upper)
 
     def test_calculate_image_cost_imagen_model(self):
         """Test cost calculation for an Imagen model (no input tokens)."""
         cost = calculate_image_cost("imagen-4.0-generate-001", num_images=4)
-        self.assertAlmostEqual(cost, 4 * 0.04)
+        assert cost == pytest.approx(4 * 0.04)
 
     def test_calculate_image_cost_zero_images(self):
         """Test cost calculation when no images are generated."""
         cost = calculate_image_cost("gemini-3.1-flash-image-preview", num_images=0)
-        self.assertAlmostEqual(cost, 0.0)
+        assert cost == pytest.approx(0.0)
 
     def test_calculate_image_cost_unknown_model(self):
         """Test that unknown models use default pricing."""
         cost = calculate_image_cost("unknown-image-model", num_images=1, input_tokens=0)
-        # Default: (0.50, {None: 0.067}) → $0.067
-        self.assertAlmostEqual(cost, 0.067)
+        # Default: (0.50, {None: 0.067}) -> $0.067
+        assert cost == pytest.approx(0.067)
 
     def test_calculate_image_cost_with_input_tokens_only(self):
         """Test cost when images=0 but input tokens are charged."""
         cost = calculate_image_cost(
             "gemini-3.1-flash-image-preview", num_images=0, input_tokens=1_000_000
         )
-        self.assertAlmostEqual(cost, 0.50)  # input cost only
+        assert cost == pytest.approx(0.50)  # input cost only
 
 
-class TestVideoPricing(unittest.TestCase):
+class TestVideoPricing:
     """Tests for VIDEO_PRICING and calculate_video_cost."""
 
     def test_pricing_contains_all_video_models(self):
@@ -1085,47 +1073,44 @@ class TestVideoPricing(unittest.TestCase):
             "veo-2.0-generate-001",
         ]
         for model in expected_models:
-            self.assertIn(model, VIDEO_PRICING, f"{model} missing from VIDEO_PRICING")
+            assert model in VIDEO_PRICING, f"{model} missing from VIDEO_PRICING"
 
     def test_pricing_values_are_positive(self):
         """Test that all per-second rates are positive."""
         for model, rate in VIDEO_PRICING.items():
-            self.assertGreater(rate, 0, f"{model} rate should be positive")
+            assert rate > 0, f"{model} rate should be positive"
 
     def test_fast_models_cheaper_than_standard(self):
         """Test that fast variants are cheaper than standard."""
-        self.assertLess(
-            VIDEO_PRICING["veo-3.1-fast-generate-preview"],
-            VIDEO_PRICING["veo-3.1-generate-preview"],
+        assert (
+            VIDEO_PRICING["veo-3.1-fast-generate-preview"]
+            < VIDEO_PRICING["veo-3.1-generate-preview"]
         )
-        self.assertLess(
-            VIDEO_PRICING["veo-3.0-fast-generate-001"],
-            VIDEO_PRICING["veo-3.0-generate-001"],
-        )
+        assert VIDEO_PRICING["veo-3.0-fast-generate-001"] < VIDEO_PRICING["veo-3.0-generate-001"]
 
     def test_calculate_video_cost_basic(self):
         """Test basic video cost calculation."""
         # veo-3.1-generate-preview: $0.40/sec, 8 seconds
         cost = calculate_video_cost("veo-3.1-generate-preview", duration_seconds=8)
-        self.assertAlmostEqual(cost, 3.20)
+        assert cost == pytest.approx(3.20)
 
     def test_calculate_video_cost_multiple_videos(self):
         """Test cost for multiple videos."""
         cost = calculate_video_cost("veo-2.0-generate-001", duration_seconds=5, num_videos=2)
-        self.assertAlmostEqual(cost, 5 * 2 * 0.35)
+        assert cost == pytest.approx(5 * 2 * 0.35)
 
     def test_calculate_video_cost_zero_duration(self):
         """Test cost with zero duration."""
         cost = calculate_video_cost("veo-3.1-generate-preview", duration_seconds=0)
-        self.assertAlmostEqual(cost, 0.0)
+        assert cost == pytest.approx(0.0)
 
     def test_calculate_video_cost_unknown_model(self):
         """Test that unknown models use default pricing ($0.35/sec)."""
         cost = calculate_video_cost("unknown-veo", duration_seconds=10)
-        self.assertAlmostEqual(cost, 3.50)
+        assert cost == pytest.approx(3.50)
 
 
-class TestTtsPricing(unittest.TestCase):
+class TestTtsPricing:
     """Tests for TTS_PRICING and calculate_tts_cost."""
 
     def test_pricing_contains_all_tts_models(self):
@@ -1135,20 +1120,20 @@ class TestTtsPricing(unittest.TestCase):
             "gemini-2.5-pro-preview-tts",
         ]
         for model in expected_models:
-            self.assertIn(model, TTS_PRICING, f"{model} missing from TTS_PRICING")
+            assert model in TTS_PRICING, f"{model} missing from TTS_PRICING"
 
     def test_pricing_values_are_positive(self):
         """Test that all pricing values are positive."""
         for model, (input_price, output_price) in TTS_PRICING.items():
-            self.assertGreater(input_price, 0, f"{model} input price should be positive")
-            self.assertGreater(output_price, 0, f"{model} output price should be positive")
+            assert input_price > 0, f"{model} input price should be positive"
+            assert output_price > 0, f"{model} output price should be positive"
 
     def test_pro_more_expensive_than_flash(self):
         """Test that Pro TTS is more expensive than Flash TTS."""
         flash_in, flash_out = TTS_PRICING["gemini-2.5-flash-preview-tts"]
         pro_in, pro_out = TTS_PRICING["gemini-2.5-pro-preview-tts"]
-        self.assertGreater(pro_in, flash_in)
-        self.assertGreater(pro_out, flash_out)
+        assert pro_in > flash_in
+        assert pro_out > flash_out
 
     def test_calculate_tts_cost_basic(self):
         """Test basic TTS cost calculation."""
@@ -1156,18 +1141,18 @@ class TestTtsPricing(unittest.TestCase):
         cost = calculate_tts_cost(
             "gemini-2.5-flash-preview-tts", input_tokens=1_000_000, output_tokens=1_000_000
         )
-        self.assertAlmostEqual(cost, 10.50)
+        assert cost == pytest.approx(10.50)
 
     def test_calculate_tts_cost_zero_tokens(self):
         """Test cost with zero tokens."""
         cost = calculate_tts_cost("gemini-2.5-flash-preview-tts", 0, 0)
-        self.assertAlmostEqual(cost, 0.0)
+        assert cost == pytest.approx(0.0)
 
     def test_calculate_tts_cost_unknown_model(self):
         """Test that unknown models use default pricing."""
         cost = calculate_tts_cost("unknown-tts", input_tokens=1_000_000, output_tokens=1_000_000)
         # Default: (0.50, 10.00)
-        self.assertAlmostEqual(cost, 10.50)
+        assert cost == pytest.approx(10.50)
 
     def test_calculate_tts_cost_small_token_count(self):
         """Test cost calculation with realistic small token counts."""
@@ -1176,48 +1161,44 @@ class TestTtsPricing(unittest.TestCase):
             "gemini-2.5-pro-preview-tts", input_tokens=500, output_tokens=10_000
         )
         expected = (500 / 1_000_000) * 1.00 + (10_000 / 1_000_000) * 20.00
-        self.assertAlmostEqual(cost, expected)
+        assert cost == pytest.approx(expected)
 
 
-class TestChatCompletionParametersThinking(unittest.TestCase):
+class TestChatCompletionParametersThinking:
     """Tests for thinking-related fields on ChatCompletionParameters."""
 
     def test_thinking_fields_default_none(self):
         """Test that thinking fields default to None."""
         params = ChatCompletionParameters(model="gemini-3-flash-preview")
-        self.assertIsNone(params.thinking_level)
-        self.assertIsNone(params.thinking_budget)
+        assert params.thinking_level is None
+        assert params.thinking_budget is None
 
     def test_thinking_level_set(self):
         """Test setting thinking_level."""
         params = ChatCompletionParameters(model="gemini-3-flash-preview", thinking_level="high")
-        self.assertEqual(params.thinking_level, "high")
-        self.assertIsNone(params.thinking_budget)
+        assert params.thinking_level == "high"
+        assert params.thinking_budget is None
 
     def test_thinking_budget_set(self):
         """Test setting thinking_budget."""
         params = ChatCompletionParameters(model="gemini-2.5-flash", thinking_budget=1024)
-        self.assertIsNone(params.thinking_level)
-        self.assertEqual(params.thinking_budget, 1024)
+        assert params.thinking_level is None
+        assert params.thinking_budget == 1024
 
     def test_thinking_budget_zero(self):
         """Test thinking_budget=0 (disable thinking)."""
         params = ChatCompletionParameters(model="gemini-2.5-flash", thinking_budget=0)
-        self.assertEqual(params.thinking_budget, 0)
+        assert params.thinking_budget == 0
 
     def test_thinking_budget_dynamic(self):
         """Test thinking_budget=-1 (dynamic)."""
         params = ChatCompletionParameters(model="gemini-2.5-flash", thinking_budget=-1)
-        self.assertEqual(params.thinking_budget, -1)
+        assert params.thinking_budget == -1
 
     def test_both_thinking_params(self):
         """Test setting both thinking_level and thinking_budget."""
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview", thinking_level="low", thinking_budget=512
         )
-        self.assertEqual(params.thinking_level, "low")
-        self.assertEqual(params.thinking_budget, 512)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert params.thinking_level == "low"
+        assert params.thinking_budget == 512

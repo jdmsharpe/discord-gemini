@@ -121,17 +121,19 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 
 ## Testing
 
+- `pytest` from project root — pytest-native with `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed)
+- `pythonpath = ["src"]` configured in `pyproject.toml` — use direct imports (`from util import ...`)
+- Mocked Discord/Gemini clients, no real API calls
+
 ```bash
-# Run tests (from project root)
-PYTHONPATH=src .venv/Scripts/python.exe -m pytest tests/ -v    # Windows
-PYTHONPATH=src .venv/bin/python -m pytest tests/ -v            # Unix
+.venv/Scripts/python.exe -m pytest -q    # Windows
+.venv/bin/python -m pytest -q            # Unix
 ```
 
 - `test_util.py` — dataclasses, constants, pricing, utility functions, AgenticResult, callable tool handling
 - `test_button_view.py` — button callbacks, tool select behavior, custom functions toggle
 - `test_gemini_api.py` — cog methods, attachments, caching, pricing, embeds
 - `test_tools.py` — tool registry, @tool decorator, execute_tool_call, starter tools
-- Use `unittest.IsolatedAsyncioTestCase` for async tests; `MagicMock`/`AsyncMock` for mocks
 - CI runs on every push/PR; Docker build only proceeds if tests pass
 
 ## Adding a New Slash Command

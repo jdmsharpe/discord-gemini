@@ -1,6 +1,6 @@
-import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from discord.ui import Select
 
 from util import TOOL_GOOGLE_SEARCH
@@ -29,8 +29,9 @@ def _make_view(
     )
 
 
-class TestButtonView(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
+class TestButtonView:
+    @pytest.fixture(autouse=True)
+    async def setup(self):
         self.conversation_starter = MagicMock()
         self.conversation_starter.id = 123456789
         self.conversation_id = 987654321
@@ -49,11 +50,11 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
     async def test_init(self):
         """Test that ButtonView initializes correctly."""
-        self.assertEqual(self.view.conversation_starter, self.conversation_starter)
-        self.assertEqual(self.view.conversation_id, self.conversation_id)
+        assert self.view.conversation_starter == self.conversation_starter
+        assert self.view.conversation_id == self.conversation_id
         tool_selects = [item for item in self.view.children if isinstance(item, Select)]
-        self.assertEqual(len(tool_selects), 1)
-        self.assertEqual(tool_selects[0].max_values, 6)
+        assert len(tool_selects) == 1
+        assert tool_selects[0].max_values == 6
 
     async def test_init_with_initial_tools(self):
         """Test that initial_tools marks matching select options as default."""
@@ -63,12 +64,12 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         )
         tool_select = next(item for item in view.children if isinstance(item, Select))
         defaults = {option.value: option.default for option in tool_select.options}
-        self.assertTrue(defaults["google_search"])
-        self.assertFalse(defaults["code_execution"])
-        self.assertFalse(defaults["google_maps"])
-        self.assertFalse(defaults["url_context"])
-        self.assertFalse(defaults["file_search"])
-        self.assertFalse(defaults["custom_functions"])
+        assert defaults["google_search"] is True
+        assert defaults["code_execution"] is False
+        assert defaults["google_maps"] is False
+        assert defaults["url_context"] is False
+        assert defaults["file_search"] is False
+        assert defaults["custom_functions"] is False
 
     async def test_init_with_custom_functions_enabled(self):
         """Test that custom_functions_enabled marks the option as default."""
@@ -78,8 +79,8 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         )
         tool_select = next(item for item in view.children if isinstance(item, Select))
         defaults = {option.value: option.default for option in tool_select.options}
-        self.assertTrue(defaults["custom_functions"])
-        self.assertFalse(defaults["google_search"])
+        assert defaults["custom_functions"] is True
+        assert defaults["google_search"] is False
 
     async def test_tool_select_callback_calls_on_tools_changed(self):
         """Test that tool selection calls on_tools_changed with correct args."""
@@ -110,7 +111,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         )
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("Tools updated", call_args[0])
+        assert "Tools updated" in call_args[0]
 
     async def test_tool_select_callback_custom_functions_toggle(self):
         """Test that selecting custom_functions passes the flag."""
@@ -134,7 +135,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         # Verify custom_functions_selected was True
         call_args = self.on_tools_changed.call_args
-        self.assertTrue(call_args.args[1])  # custom_functions_selected
+        assert call_args.args[1] is True  # custom_functions_selected
 
     async def test_tool_select_callback_updates_defaults(self):
         """Test that Select defaults get updated after tool change."""
@@ -159,9 +160,9 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         # Verify Select defaults match active tools on real widget
         defaults = {option.value: option.default for option in real_select.options}
-        self.assertTrue(defaults["google_search"])
-        self.assertFalse(defaults["code_execution"])
-        self.assertFalse(defaults["custom_functions"])
+        assert defaults["google_search"] is True
+        assert defaults["code_execution"] is False
+        assert defaults["custom_functions"] is False
 
     async def test_tool_select_callback_error_from_callback(self):
         """Test that error from on_tools_changed is shown to user."""
@@ -184,7 +185,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("cannot be combined", call_args[0])
+        assert "cannot be combined" in call_args[0]
 
     async def test_tool_select_callback_wrong_user(self):
         """Test that tool selection rejects non-conversation starters."""
@@ -200,7 +201,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("not allowed", call_args[0])
+        assert "not allowed" in call_args[0]
 
     async def test_regenerate_button_wrong_user(self):
         """Test that regenerate button rejects non-conversation starters."""
@@ -213,7 +214,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("not allowed", call_args[0])
+        assert "not allowed" in call_args[0]
 
     async def test_regenerate_button_no_conversation(self):
         """Test that regenerate button handles missing conversation."""
@@ -226,7 +227,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("No active conversation", call_args[0])
+        assert "No active conversation" in call_args[0]
 
     async def test_play_pause_button_wrong_user(self):
         """Test that play/pause button rejects non-conversation starters."""
@@ -239,7 +240,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("not allowed", call_args[0])
+        assert "not allowed" in call_args[0]
 
     async def test_play_pause_button_no_conversation(self):
         """Test that play/pause button handles missing conversation."""
@@ -252,7 +253,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("No active conversation", call_args[0])
+        assert "No active conversation" in call_args[0]
 
     async def test_play_pause_button_toggles_pause(self):
         """Test that play/pause button toggles the paused state."""
@@ -268,15 +269,15 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
         interaction.response.is_done = MagicMock(return_value=False)
 
         await self.view.play_pause_button.callback(interaction)
-        self.assertTrue(mock_conversation.params.paused)
+        assert mock_conversation.params.paused is True
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("paused", call_args[0])
+        assert "paused" in call_args[0]
 
         interaction.response.send_message.reset_mock()
         await self.view.play_pause_button.callback(interaction)
-        self.assertFalse(mock_conversation.params.paused)
+        assert mock_conversation.params.paused is False
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("resumed", call_args[0])
+        assert "resumed" in call_args[0]
 
     async def test_stop_button_wrong_user(self):
         """Test that stop button rejects non-conversation starters."""
@@ -289,7 +290,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("not allowed", call_args[0])
+        assert "not allowed" in call_args[0]
 
     async def test_stop_button_no_conversation(self):
         """Test that stop button handles missing conversation."""
@@ -302,7 +303,7 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         interaction.response.send_message.assert_called_once()
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("No active conversation", call_args[0])
+        assert "No active conversation" in call_args[0]
 
     async def test_stop_button_ends_conversation(self):
         """Test that stop button properly ends the conversation."""
@@ -319,8 +320,4 @@ class TestButtonView(unittest.IsolatedAsyncioTestCase):
 
         self.on_stop.assert_awaited_once_with(self.conversation_id, self.conversation_starter)
         call_args = interaction.response.send_message.call_args.args
-        self.assertIn("Conversation ended", call_args[0])
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "Conversation ended" in call_args[0]

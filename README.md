@@ -126,6 +126,31 @@ Try these prompts with `/gemini music`:
 - **Moods**: "upbeat and energetic", "calm and meditative", "dark and atmospheric"
 - **Combinations**: "upbeat electronic dance music with heavy bass", "peaceful acoustic guitar with nature sounds"
 
+## Development
+
+### Testing
+
+Tests use pytest with pytest-asyncio (`asyncio_mode = "auto"`). All tests are mocked — no real API calls.
+
+```bash
+# Run tests
+.venv/Scripts/python.exe -m pytest -q    # Windows
+.venv/bin/python -m pytest -q            # Unix
+
+# Run tests in Docker
+docker build -f Dockerfile.test -t discord-gemini-test . && docker run --rm discord-gemini-test
+```
+
+### Linting & Type Checking
+
+```bash
+ruff check src/ tests/
+ruff format src/ tests/
+pyright src/
+```
+
+After cloning, run `git config core.hooksPath .githooks` to enable the pre-commit hook.
+
 ## Troubleshooting
 
 ### General Issues
