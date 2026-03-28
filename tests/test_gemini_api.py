@@ -1,7 +1,8 @@
 import tempfile
-import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 import gemini_api
 from gemini_api import (
@@ -28,68 +29,62 @@ def build_mock_bot() -> MagicMock:
     return bot
 
 
-class GeminiCogTestCase(unittest.TestCase):
+class GeminiCogTestCase:
     file_search_store_ids = ["store-1", "store-2"]
 
-    def setUp(self):
-        self.store_ids_patcher = patch.object(
-            gemini_api,
-            "GEMINI_FILE_SEARCH_STORE_IDS",
-            self.file_search_store_ids.copy(),
-        )
-        self.store_ids_patcher.start()
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        with (
+            patch.object(
+                gemini_api,
+                "GEMINI_FILE_SEARCH_STORE_IDS",
+                self.file_search_store_ids.copy(),
+            ) as _store_ids_patcher,
+            patch("gemini_api.genai.Client") as mock_genai_client,
+        ):
+            self.mock_genai_client = mock_genai_client
+            self.mock_client_instance = mock_genai_client.return_value
+            self.mock_client_instance.aio.aclose = AsyncMock()
+            self.mock_client_instance.close = MagicMock()
 
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        self.mock_client_instance = self.mock_genai_client.return_value
-        self.mock_client_instance.aio.aclose = AsyncMock()
-        self.mock_client_instance.close = MagicMock()
-
-        self.bot = build_mock_bot()
-        self.cog = GeminiAPI(bot=self.bot)
-
-    def tearDown(self):
-        self.genai_patcher.stop()
-        self.store_ids_patcher.stop()
+            self.bot = build_mock_bot()
+            self.cog = GeminiAPI(bot=self.bot)
+            yield
 
 
-class AsyncGeminiCogTestCase(unittest.IsolatedAsyncioTestCase):
+class AsyncGeminiCogTestCase:
     file_search_store_ids = ["store-1", "store-2"]
 
-    async def asyncSetUp(self):
-        self.store_ids_patcher = patch.object(
-            gemini_api,
-            "GEMINI_FILE_SEARCH_STORE_IDS",
-            self.file_search_store_ids.copy(),
-        )
-        self.store_ids_patcher.start()
+    @pytest.fixture(autouse=True)
+    async def setup(self):
+        with (
+            patch.object(
+                gemini_api,
+                "GEMINI_FILE_SEARCH_STORE_IDS",
+                self.file_search_store_ids.copy(),
+            ) as _store_ids_patcher,
+            patch("gemini_api.genai.Client") as mock_genai_client,
+        ):
+            self.mock_genai_client = mock_genai_client
+            self.mock_client_instance = mock_genai_client.return_value
+            self.mock_client_instance.aio.aclose = AsyncMock()
+            self.mock_client_instance.close = MagicMock()
 
-        self.genai_patcher = patch("gemini_api.genai.Client")
-        self.mock_genai_client = self.genai_patcher.start()
-
-        self.mock_client_instance = self.mock_genai_client.return_value
-        self.mock_client_instance.aio.aclose = AsyncMock()
-        self.mock_client_instance.close = MagicMock()
-
-        self.bot = build_mock_bot()
-        self.bot.loop = gemini_api.asyncio.get_running_loop()
-        self.cog = GeminiAPI(bot=self.bot)
-
-    async def asyncTearDown(self):
-        self.genai_patcher.stop()
-        self.store_ids_patcher.stop()
+            self.bot = build_mock_bot()
+            self.bot.loop = gemini_api.asyncio.get_running_loop()
+            self.cog = GeminiAPI(bot=self.bot)
+            yield
 
 
 class TestGeminiAPI(AsyncGeminiCogTestCase):
     async def test_cog_init(self):
         """Test that GeminiAPI cog initializes correctly."""
-        self.assertEqual(self.cog.bot, self.bot)
-        self.assertEqual(self.cog.conversations, {})
-        self.assertEqual(self.cog.message_to_conversation_id, {})
-        self.assertEqual(self.cog.views, {})
-        self.assertEqual(self.cog.last_view_messages, {})
-        self.assertIsNone(self.cog._http_session)
+        assert self.cog.bot == self.bot
+        assert self.cog.conversations == {}
+        assert self.cog.message_to_conversation_id == {}
+        assert self.cog.views == {}
+        assert self.cog.last_view_messages == {}
+        assert self.cog._http_session is None
 
     async def test_on_ready(self):
         """Test that on_ready syncs commands."""
@@ -98,17 +93,17 @@ class TestGeminiAPI(AsyncGeminiCogTestCase):
 
     async def test_get_http_session_creates_session(self):
         """Test that _get_http_session creates a new session."""
-        self.assertIsNone(self.cog._http_session)
+        assert self.cog._http_session is None
         session = await self.cog._get_http_session()
-        self.assertIsNotNone(session)
-        self.assertEqual(self.cog._http_session, session)
+        assert session is not None
+        assert self.cog._http_session == session
         await session.close()
 
     async def test_get_http_session_reuses_session(self):
         """Test that _get_http_session reuses existing session."""
         session1 = await self.cog._get_http_session()
         session2 = await self.cog._get_http_session()
-        self.assertEqual(session1, session2)
+        assert session1 == session2
         await session1.close()
 
     async def test_on_message_ignores_bot(self):
@@ -118,7 +113,7 @@ class TestGeminiAPI(AsyncGeminiCogTestCase):
 
         await self.cog.on_message(message)
 
-        self.assertEqual(len(self.cog.conversations), 0)
+        assert len(self.cog.conversations) == 0
 
     async def test_on_message_no_matching_conversation(self):
         """Test that on_message handles no matching conversation gracefully."""
@@ -134,15 +129,15 @@ class TestGeminiAPI(AsyncGeminiCogTestCase):
     async def test_cog_unload_closes_session(self):
         """Test that cog_unload closes the HTTP session."""
         session = await self.cog._get_http_session()
-        self.assertFalse(session.closed)
+        assert session.closed is False
 
         self.cog.cog_unload()
         await gemini_api.asyncio.sleep(0)
 
-        self.assertIsNone(self.cog._http_session)
+        assert self.cog._http_session is None
 
 
-class TestConversation(unittest.TestCase):
+class TestConversation:
     def test_conversation_dataclass(self):
         """Test the Conversation dataclass."""
         from util import ChatCompletionParameters
@@ -151,27 +146,27 @@ class TestConversation(unittest.TestCase):
         history = [{"role": "user", "parts": [{"text": "Hello"}]}]
         conversation = Conversation(params=params, history=history)
 
-        self.assertEqual(conversation.params, params)
-        self.assertEqual(conversation.history, history)
+        assert conversation.params == params
+        assert conversation.history == history
 
 
-class TestAppendResponseEmbeds(unittest.TestCase):
+class TestAppendResponseEmbeds:
     def test_append_response_embeds_short(self):
         """Test append_response_embeds with short text."""
         embeds = []
         append_response_embeds(embeds, "Hello, World!")
-        self.assertEqual(len(embeds), 1)
-        self.assertEqual(embeds[0].description, "Hello, World!")
-        self.assertEqual(embeds[0].title, "Response")
+        assert len(embeds) == 1
+        assert embeds[0].description == "Hello, World!"
+        assert embeds[0].title == "Response"
 
     def test_append_response_embeds_long(self):
         """Test append_response_embeds with long text that needs chunking."""
         embeds = []
         long_text = "A" * 7000
         append_response_embeds(embeds, long_text)
-        self.assertEqual(len(embeds), 2)
-        self.assertEqual(embeds[0].title, "Response")
-        self.assertEqual(embeds[1].title, "Response (Part 2)")
+        assert len(embeds) == 2
+        assert embeds[0].title == "Response"
+        assert embeds[1].title == "Response (Part 2)"
 
     def test_append_response_embeds_very_long(self):
         """Test append_response_embeds truncates very long text."""
@@ -179,17 +174,17 @@ class TestAppendResponseEmbeds(unittest.TestCase):
         very_long_text = "B" * 25000
         append_response_embeds(embeds, very_long_text)
         total_length = sum(len(e.description) for e in embeds)
-        self.assertLess(total_length, 21000)
+        assert total_length < 21000
 
 
-class TestExtractToolInfo(unittest.TestCase):
+class TestExtractToolInfo:
     def test_extract_tool_info_empty_output(self):
         """Test extract_tool_info with empty candidates."""
         response = SimpleNamespace(candidates=[])
         tool_info = extract_tool_info(response)
-        self.assertEqual(tool_info["tools_used"], [])
-        self.assertEqual(tool_info["citations"], [])
-        self.assertEqual(tool_info["search_queries"], [])
+        assert tool_info["tools_used"] == []
+        assert tool_info["citations"] == []
+        assert tool_info["search_queries"] == []
 
     def test_extract_tool_info_google_search(self):
         """Test extract_tool_info detects google_search and citations."""
@@ -214,12 +209,11 @@ class TestExtractToolInfo(unittest.TestCase):
         )
 
         tool_info = extract_tool_info(response)
-        self.assertIn("google_search", tool_info["tools_used"])
-        self.assertEqual(tool_info["search_queries"], ["who won euro 2024"])
-        self.assertEqual(
-            tool_info["citations"],
-            [{"title": "Example Source", "uri": "https://example.com/source"}],
-        )
+        assert "google_search" in tool_info["tools_used"]
+        assert tool_info["search_queries"] == ["who won euro 2024"]
+        assert tool_info["citations"] == [
+            {"title": "Example Source", "uri": "https://example.com/source"}
+        ]
 
     def test_extract_tool_info_code_execution(self):
         """Test extract_tool_info detects code_execution from response parts."""
@@ -240,9 +234,9 @@ class TestExtractToolInfo(unittest.TestCase):
         )
 
         tool_info = extract_tool_info(response)
-        self.assertIn("code_execution", tool_info["tools_used"])
-        self.assertEqual(tool_info["citations"], [])
-        self.assertEqual(tool_info["search_queries"], [])
+        assert "code_execution" in tool_info["tools_used"]
+        assert tool_info["citations"] == []
+        assert tool_info["search_queries"] == []
 
     def test_extract_tool_info_google_maps(self):
         """Test extract_tool_info detects google_maps citations and widget token."""
@@ -269,12 +263,11 @@ class TestExtractToolInfo(unittest.TestCase):
         )
 
         tool_info = extract_tool_info(response)
-        self.assertIn("google_maps", tool_info["tools_used"])
-        self.assertEqual(
-            tool_info["citations"],
-            [{"title": "Test Place", "uri": "https://maps.google.com/?cid=123"}],
-        )
-        self.assertEqual(tool_info["maps_widget_token"], "widgetcontent/token")
+        assert "google_maps" in tool_info["tools_used"]
+        assert tool_info["citations"] == [
+            {"title": "Test Place", "uri": "https://maps.google.com/?cid=123"}
+        ]
+        assert tool_info["maps_widget_token"] == "widgetcontent/token"
 
     def test_extract_tool_info_url_context(self):
         """Test extract_tool_info detects url_context metadata."""
@@ -296,16 +289,13 @@ class TestExtractToolInfo(unittest.TestCase):
         )
 
         tool_info = extract_tool_info(response)
-        self.assertIn("url_context", tool_info["tools_used"])
-        self.assertEqual(
-            tool_info["url_context_sources"],
-            [
-                {
-                    "retrieved_url": "https://example.com/a",
-                    "status": "URL_RETRIEVAL_STATUS_SUCCESS",
-                }
-            ],
-        )
+        assert "url_context" in tool_info["tools_used"]
+        assert tool_info["url_context_sources"] == [
+            {
+                "retrieved_url": "https://example.com/a",
+                "status": "URL_RETRIEVAL_STATUS_SUCCESS",
+            }
+        ]
 
     def test_extract_tool_info_file_search_via_retrieval_metadata(self):
         """Test extract_tool_info detects file_search via retrieval_metadata."""
@@ -334,7 +324,7 @@ class TestExtractToolInfo(unittest.TestCase):
         )
 
         tool_info = extract_tool_info(response)
-        self.assertIn("file_search", tool_info["tools_used"])
+        assert "file_search" in tool_info["tools_used"]
 
     def test_extract_tool_info_file_search_fallback(self):
         """Test extract_tool_info detects file_search when grounding chunks present without search/maps."""
@@ -354,11 +344,10 @@ class TestExtractToolInfo(unittest.TestCase):
         )
 
         tool_info = extract_tool_info(response)
-        self.assertIn("file_search", tool_info["tools_used"])
+        assert "file_search" in tool_info["tools_used"]
 
 
 class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
-
     async def test_fetch_attachment_bytes_success(self):
         """Test successful attachment download."""
         mock_session = MagicMock()
@@ -379,7 +368,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         attachment.url = "https://example.com/image.png"
 
         result = await self.cog._fetch_attachment_bytes(attachment)
-        self.assertEqual(result, b"image data")
+        assert result == b"image data"
 
     async def test_fetch_attachment_bytes_failure(self):
         """Test failed attachment download returns None."""
@@ -400,24 +389,21 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         attachment.url = "https://example.com/not-found.png"
 
         result = await self.cog._fetch_attachment_bytes(attachment)
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_enrich_file_search_tools_injects_store_ids(self):
         """Test that enrich_file_search_tools injects store IDs."""
         tools = [{"file_search": {}}]
         error = self.cog.enrich_file_search_tools(tools)
-        self.assertIsNone(error)
-        self.assertEqual(
-            tools[0],
-            {"file_search": {"file_search_store_names": ["store-1", "store-2"]}},
-        )
+        assert error is None
+        assert tools[0] == {"file_search": {"file_search_store_names": ["store-1", "store-2"]}}
 
     async def test_enrich_file_search_tools_no_file_search(self):
         """Test that enrich_file_search_tools is a no-op without file_search."""
         tools = [{"google_search": {}}]
         error = self.cog.enrich_file_search_tools(tools)
-        self.assertIsNone(error)
-        self.assertEqual(tools, [{"google_search": {}}])
+        assert error is None
+        assert tools == [{"google_search": {}}]
 
     async def test_enrich_file_search_tools_no_store_ids(self):
         """Test that enrich_file_search_tools returns error when store IDs not configured."""
@@ -428,8 +414,8 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         try:
             tools = [{"file_search": {}}]
             error = self.cog.enrich_file_search_tools(tools)
-            self.assertIsNotNone(error)
-            self.assertIn("GEMINI_FILE_SEARCH_STORE_IDS", error)
+            assert error is not None
+            assert "GEMINI_FILE_SEARCH_STORE_IDS" in error
         finally:
             gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = original
 
@@ -440,7 +426,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         attachment.content_type = "image/png"
 
         result = self.cog._validate_attachment_size(attachment)
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_validate_attachment_size_exceeds_file_api_max(self):
         """Test that attachments over 2 GB are rejected."""
@@ -449,9 +435,9 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         attachment.content_type = "video/mp4"
 
         result = self.cog._validate_attachment_size(attachment)
-        self.assertIsNotNone(result)
-        self.assertIn("too large", result)
-        self.assertIn("2 GB", result)
+        assert result is not None
+        assert "too large" in result
+        assert "2 GB" in result
 
     async def test_prepare_attachment_part_inline_small_file(self):
         """Test that small files use inline data."""
@@ -474,10 +460,10 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
         result = await self.cog._prepare_attachment_part(attachment)
 
-        self.assertIsNotNone(result)
-        self.assertIn("inline_data", result)
-        self.assertEqual(result["inline_data"]["mime_type"], "image/png")
-        self.assertEqual(result["inline_data"]["data"], b"image data")
+        assert result is not None
+        assert "inline_data" in result
+        assert result["inline_data"]["mime_type"] == "image/png"
+        assert result["inline_data"]["data"] == b"image data"
 
     async def test_prepare_attachment_part_file_api_large_file(self):
         """Test that large files use the File API."""
@@ -508,10 +494,10 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         uploaded_names = []
         result = await self.cog._prepare_attachment_part(attachment, uploaded_names)
 
-        self.assertIsNotNone(result)
-        self.assertIn("file_data", result)
-        self.assertEqual(result["file_data"]["mime_type"], "application/pdf")
-        self.assertEqual(uploaded_names, ["files/abc123"])
+        assert result is not None
+        assert "file_data" in result
+        assert result["file_data"]["mime_type"] == "application/pdf"
+        assert uploaded_names == ["files/abc123"]
 
     async def test_prepare_attachment_part_file_api_fallback_to_inline(self):
         """Test that File API failure falls back to inline data."""
@@ -536,9 +522,9 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
         result = await self.cog._prepare_attachment_part(attachment)
 
-        self.assertIsNotNone(result)
-        self.assertIn("inline_data", result)
-        self.assertEqual(result["inline_data"]["mime_type"], "audio/mpeg")
+        assert result is not None
+        assert "inline_data" in result
+        assert result["inline_data"]["mime_type"] == "audio/mpeg"
 
     async def test_prepare_attachment_part_fetch_failure(self):
         """Test that download failure returns None."""
@@ -559,7 +545,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         self.cog._http_session = mock_session
 
         result = await self.cog._prepare_attachment_part(attachment)
-        self.assertIsNone(result)
+        assert result is None
 
     async def test_cleanup_uploaded_files(self):
         """Test that _cleanup_uploaded_files deletes all tracked files."""
@@ -574,8 +560,8 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
         await self.cog._cleanup_uploaded_files(params)
 
-        self.assertEqual(self.cog.client.aio.files.delete.call_count, 2)
-        self.assertEqual(params.uploaded_file_names, [])
+        assert self.cog.client.aio.files.delete.call_count == 2
+        assert params.uploaded_file_names == []
 
     async def test_cleanup_uploaded_files_handles_errors(self):
         """Test that _cleanup_uploaded_files handles API errors gracefully."""
@@ -591,7 +577,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         # Should not raise
         await self.cog._cleanup_uploaded_files(params)
 
-        self.assertEqual(params.uploaded_file_names, [])
+        assert params.uploaded_file_names == []
 
     async def test_cleanup_uploaded_files_noop_when_empty(self):
         """Test that _cleanup_uploaded_files is a no-op with no files."""
@@ -615,8 +601,8 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         await self.cog._cleanup_conversation(user)
 
         mock_message.edit.assert_awaited_once_with(view=None)
-        self.assertNotIn(user, self.cog.last_view_messages)
-        self.assertNotIn(user, self.cog.views)
+        assert user not in self.cog.last_view_messages
+        assert user not in self.cog.views
 
     async def test_cleanup_conversation_no_previous_message(self):
         """Test that _cleanup_conversation handles missing last_view_messages gracefully."""
@@ -625,7 +611,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
         await self.cog._cleanup_conversation(user)
 
-        self.assertNotIn(user, self.cog.views)
+        assert user not in self.cog.views
 
     async def test_cleanup_conversation_edit_fails(self):
         """Test that _cleanup_conversation handles deleted messages without raising."""
@@ -643,8 +629,8 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
         await self.cog._cleanup_conversation(user)
 
         mock_message.edit.assert_awaited_once_with(view=None)
-        self.assertNotIn(user, self.cog.last_view_messages)
-        self.assertNotIn(user, self.cog.views)
+        assert user not in self.cog.last_view_messages
+        assert user not in self.cog.views
 
     async def test_cleanup_conversation_unknown_user(self):
         """Test that _cleanup_conversation is a no-op for users with no state."""
@@ -652,11 +638,11 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
         await self.cog._cleanup_conversation(user)
 
-        self.assertNotIn(user, self.cog.last_view_messages)
-        self.assertNotIn(user, self.cog.views)
+        assert user not in self.cog.last_view_messages
+        assert user not in self.cog.views
 
 
-class TestGeminiImageResponseText(unittest.TestCase):
+class TestGeminiImageResponseText:
     """Tests for image generation text response handling and truncation."""
 
     def test_text_response_truncation_under_limit(self):
@@ -667,8 +653,8 @@ class TestGeminiImageResponseText(unittest.TestCase):
         # Simulate the truncation logic
         truncated = short_text[:max_length] + "..." if len(short_text) > max_length else short_text
 
-        self.assertEqual(truncated, short_text)
-        self.assertNotIn("...", truncated)
+        assert truncated == short_text
+        assert "..." not in truncated
 
     def test_text_response_truncation_over_limit(self):
         """Test that long text responses are truncated to 3800 chars."""
@@ -678,8 +664,8 @@ class TestGeminiImageResponseText(unittest.TestCase):
         # Simulate the truncation logic
         truncated = long_text[:max_length] + "..." if len(long_text) > max_length else long_text
 
-        self.assertEqual(len(truncated), max_length + 3)  # 3800 + "..."
-        self.assertTrue(truncated.endswith("..."))
+        assert len(truncated) == max_length + 3  # 3800 + "..."
+        assert truncated.endswith("...")
 
     def test_text_response_fits_in_discord_embed(self):
         """Test that truncated text + other content fits Discord's 4096 char limit."""
@@ -699,7 +685,7 @@ class TestGeminiImageResponseText(unittest.TestCase):
         embed_description += "\n*Note: These parameters are not yet implemented for Gemini: negative_prompt, guidance_scale, aspect_ratio, person_generation*"
 
         # Discord's limit is 4096 characters
-        self.assertLessEqual(len(embed_description), 4096)
+        assert len(embed_description) <= 4096
 
     def test_user_prompt_truncation_under_limit(self):
         """Test that short user prompts are not truncated."""
@@ -711,8 +697,8 @@ class TestGeminiImageResponseText(unittest.TestCase):
             short_prompt[:max_length] + "..." if len(short_prompt) > max_length else short_prompt
         )
 
-        self.assertEqual(truncated, short_prompt)
-        self.assertNotIn("...", truncated)
+        assert truncated == short_prompt
+        assert "..." not in truncated
 
     def test_user_prompt_truncation_over_limit(self):
         """Test that long user prompts are truncated to 2000 chars."""
@@ -724,8 +710,8 @@ class TestGeminiImageResponseText(unittest.TestCase):
             long_prompt[:max_length] + "..." if len(long_prompt) > max_length else long_prompt
         )
 
-        self.assertEqual(len(truncated), max_length + 3)  # 2000 + "..."
-        self.assertTrue(truncated.endswith("..."))
+        assert len(truncated) == max_length + 3  # 2000 + "..."
+        assert truncated.endswith("...")
 
     def test_user_prompt_truncation_fits_embed(self):
         """Test that truncated prompt + metadata fits Discord's 4096 char limit."""
@@ -745,7 +731,7 @@ class TestGeminiImageResponseText(unittest.TestCase):
         embed_description += "**Number of Images:** 1\n"
 
         # Discord's limit is 4096 characters
-        self.assertLessEqual(len(embed_description), 4096)
+        assert len(embed_description) <= 4096
 
 
 class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
@@ -763,7 +749,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
         await self.cog._generate_image_with_gemini(params, attachment=None)
 
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
-        self.assertEqual(call_kwargs.kwargs["contents"], "Create image: A cat")
+        assert call_kwargs.kwargs["contents"] == "Create image: A cat"
 
     async def test_prompt_unchanged_for_editing(self):
         """Test that prompts are NOT prefixed when an attachment is provided."""
@@ -781,7 +767,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
         await self.cog._generate_image_with_gemini(params, attachment=MagicMock())
 
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
-        self.assertEqual(call_kwargs.kwargs["contents"], "Edit this cat")
+        assert call_kwargs.kwargs["contents"] == "Edit this cat"
 
     async def test_generate_image_with_gemini_default_config(self):
         """Test that default config has response_modalities and no custom image_config/tools."""
@@ -800,12 +786,12 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
-        self.assertEqual(config.response_modalities, ["TEXT", "IMAGE"])
+        assert config.response_modalities == ["TEXT", "IMAGE"]
         # image_config may be auto-initialized but should have no custom values
         if config.image_config:
-            self.assertIsNone(config.image_config.image_size)
-            self.assertIsNone(config.image_config.aspect_ratio)
-        self.assertIsNone(config.tools)
+            assert config.image_config.image_size is None
+            assert config.image_config.aspect_ratio is None
+        assert config.tools is None
 
     async def test_generate_image_with_gemini_image_size(self):
         """Test that image_size is passed via image_config."""
@@ -825,8 +811,8 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
-        self.assertIsNotNone(config.image_config)
-        self.assertEqual(config.image_config.image_size, "2k")
+        assert config.image_config is not None
+        assert config.image_config.image_size == "2k"
 
     async def test_generate_image_with_gemini_aspect_ratio(self):
         """Test that non-default aspect_ratio is passed via image_config."""
@@ -846,8 +832,8 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
-        self.assertIsNotNone(config.image_config)
-        self.assertEqual(config.image_config.aspect_ratio, "16:9")
+        assert config.image_config is not None
+        assert config.image_config.aspect_ratio == "16:9"
 
     async def test_generate_image_with_gemini_image_search(self):
         """Test that google_image_search adds tools with search_types."""
@@ -867,13 +853,13 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
-        self.assertIsNotNone(config.tools)
-        self.assertEqual(len(config.tools), 1)
+        assert config.tools is not None
+        assert len(config.tools) == 1
         tool = config.tools[0]
-        self.assertIsNotNone(tool.google_search)
-        self.assertIsNotNone(tool.google_search.search_types)
-        self.assertIsNotNone(tool.google_search.search_types.image_search)
-        self.assertIsNotNone(tool.google_search.search_types.web_search)
+        assert tool.google_search is not None
+        assert tool.google_search.search_types is not None
+        assert tool.google_search.search_types.image_search is not None
+        assert tool.google_search.search_types.web_search is not None
 
     async def test_generate_image_with_gemini_image_search_wrong_model(self):
         """Test that google_image_search is ignored for non-3.1-flash-image models."""
@@ -893,7 +879,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
-        self.assertIsNone(config.tools)
+        assert config.tools is None
 
     async def test_generate_image_with_gemini_combined_config(self):
         """Test that image_size, aspect_ratio, and google_image_search combine correctly."""
@@ -916,18 +902,18 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
         # image_config should have both aspect_ratio and image_size
-        self.assertEqual(config.image_config.aspect_ratio, "9:16")
-        self.assertEqual(config.image_config.image_size, "2k")
+        assert config.image_config.aspect_ratio == "9:16"
+        assert config.image_config.image_size == "2k"
         # tools should have google_search with image_search
-        self.assertEqual(len(config.tools), 1)
-        self.assertIsNotNone(config.tools[0].google_search.search_types.image_search)
+        assert len(config.tools) == 1
+        assert config.tools[0].google_search.search_types.image_search is not None
 
 
 class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
     """Tests for deep research helper methods."""
 
-    async def asyncSetUp(self):
-        await super().asyncSetUp()
+    @pytest.fixture(autouse=True)
+    async def setup_research(self, setup):
         self.mock_client_instance.aio.interactions.create = AsyncMock()
         self.mock_client_instance.aio.interactions.get = AsyncMock()
 
@@ -962,10 +948,10 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
                 thinking_tokens,
             ) = await self.cog._run_deep_research(params)
 
-        self.assertEqual(report_text, "# AI Safety Report\n\nDetailed findings...")
-        self.assertEqual(input_tokens, 250_000)
-        self.assertEqual(output_tokens, 60_000)
-        self.assertEqual(thinking_tokens, 5_000)
+        assert report_text == "# AI Safety Report\n\nDetailed findings..."
+        assert input_tokens == 250_000
+        assert output_tokens == 60_000
+        assert thinking_tokens == 5_000
         self.cog.client.aio.interactions.create.assert_called_once_with(
             input="Research AI safety",
             agent="deep-research-pro-preview-12-2025",
@@ -993,12 +979,12 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
             report_text, _, _, _ = await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
-        self.assertIn("tools", call_kwargs.kwargs)
-        self.assertEqual(call_kwargs.kwargs["tools"][0]["type"], "file_search")
-        self.assertEqual(
-            call_kwargs.kwargs["tools"][0]["file_search_store_names"],
-            ["store-1", "store-2"],
-        )
+        assert "tools" in call_kwargs.kwargs
+        assert call_kwargs.kwargs["tools"][0]["type"] == "file_search"
+        assert call_kwargs.kwargs["tools"][0]["file_search_store_names"] == [
+            "store-1",
+            "store-2",
+        ]
 
     async def test_run_deep_research_file_search_no_store_ids(self):
         """Test _run_deep_research raises when file_search enabled but no store IDs."""
@@ -1010,9 +996,8 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
         original = gemini_api.GEMINI_FILE_SEARCH_STORE_IDS
         gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = []
         try:
-            with self.assertRaises(Exception) as ctx:
+            with pytest.raises(Exception, match="GEMINI_FILE_SEARCH_STORE_IDS"):
                 await self.cog._run_deep_research(params)
-            self.assertIn("GEMINI_FILE_SEARCH_STORE_IDS", str(ctx.exception))
         finally:
             gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = original
 
@@ -1026,10 +1011,11 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         self.cog.client.aio.interactions.create.return_value = interaction_failed
 
-        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
-            with self.assertRaises(Exception) as ctx:
-                await self.cog._run_deep_research(params)
-            self.assertIn("failed", str(ctx.exception))
+        with (
+            patch("gemini_api.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(Exception, match="failed"),
+        ):
+            await self.cog._run_deep_research(params)
 
     async def test_run_deep_research_no_output(self):
         """Test _run_deep_research returns None text when no output."""
@@ -1056,8 +1042,8 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
                 thinking_tokens,
             ) = await self.cog._run_deep_research(params)
 
-        self.assertIsNone(report_text)
-        self.assertEqual(input_tokens, 100)
+        assert report_text is None
+        assert input_tokens == 100
 
     async def test_create_research_response_embeds(self):
         """Test _create_research_response_embeds creates header embed only."""
@@ -1068,10 +1054,10 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
         embeds = self.cog._create_research_response_embeds(params)
 
         # Only the header embed (report is sent as file attachment)
-        self.assertEqual(len(embeds), 1)
-        self.assertEqual(embeds[0].title, "Deep Research")
-        self.assertIn("Research quantum computing", embeds[0].description)
-        self.assertIn("deep-research-pro-preview-12-2025", embeds[0].description)
+        assert len(embeds) == 1
+        assert embeds[0].title == "Deep Research"
+        assert "Research quantum computing" in embeds[0].description
+        assert "deep-research-pro-preview-12-2025" in embeds[0].description
 
     async def test_create_research_response_embeds_with_file_search(self):
         """Test _create_research_response_embeds shows file search status."""
@@ -1081,7 +1067,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         embeds = self.cog._create_research_response_embeds(params)
 
-        self.assertIn("File Search", embeds[0].description)
+        assert "File Search" in embeds[0].description
 
     async def test_run_deep_research_with_google_maps(self):
         """Test _run_deep_research passes google_maps tool when enabled."""
@@ -1104,8 +1090,8 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
             report_text, _, _, _ = await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
-        self.assertIn("tools", call_kwargs.kwargs)
-        self.assertIn({"google_maps": {}}, call_kwargs.kwargs["tools"])
+        assert "tools" in call_kwargs.kwargs
+        assert {"google_maps": {}} in call_kwargs.kwargs["tools"]
 
     async def test_run_deep_research_with_file_search_and_google_maps(self):
         """Test _run_deep_research passes both file_search and google_maps tools."""
@@ -1131,9 +1117,9 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
         tools = call_kwargs.kwargs["tools"]
-        self.assertEqual(len(tools), 2)
-        self.assertEqual(tools[0]["type"], "file_search")
-        self.assertIn({"google_maps": {}}, tools)
+        assert len(tools) == 2
+        assert tools[0]["type"] == "file_search"
+        assert {"google_maps": {}} in tools
 
     async def test_create_research_response_embeds_with_google_maps(self):
         """Test _create_research_response_embeds shows Google Maps status."""
@@ -1143,7 +1129,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         embeds = self.cog._create_research_response_embeds(params)
 
-        self.assertIn("Google Maps", embeds[0].description)
+        assert "Google Maps" in embeds[0].description
 
     async def test_create_research_response_embeds_truncates_prompt(self):
         """Test _create_research_response_embeds truncates long prompts."""
@@ -1154,7 +1140,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
         embeds = self.cog._create_research_response_embeds(params)
 
         # Prompt should be truncated to 2000 + "..."
-        self.assertIn("...", embeds[0].description)
+        assert "..." in embeds[0].description
 
 
 class TestGeminiAPIPricing(GeminiCogTestCase):
@@ -1162,22 +1148,22 @@ class TestGeminiAPIPricing(GeminiCogTestCase):
 
     def test_cog_init_daily_costs(self):
         """Test that GeminiAPI cog initializes daily_costs dict."""
-        self.assertEqual(self.cog.daily_costs, {})
+        assert self.cog.daily_costs == {}
 
     def test_track_daily_cost_accumulates(self):
         """Test that _track_daily_cost accumulates costs for the same user and day."""
         daily1 = self.cog._track_daily_cost(user_id=12345, cost=0.50)
-        self.assertAlmostEqual(daily1, 0.50)
+        assert daily1 == pytest.approx(0.50)
 
-        # Second call same user — should accumulate
+        # Second call same user -- should accumulate
         daily2 = self.cog._track_daily_cost(user_id=12345, cost=0.50)
-        self.assertAlmostEqual(daily2, 1.00)
+        assert daily2 == pytest.approx(1.00)
 
     def test_track_daily_cost_separate_users(self):
         """Test that _track_daily_cost tracks users independently."""
         self.cog._track_daily_cost(user_id=111, cost=0.10)
         daily_user2 = self.cog._track_daily_cost(user_id=222, cost=0.10)
-        self.assertAlmostEqual(daily_user2, 0.10)
+        assert daily_user2 == pytest.approx(0.10)
 
     def test_append_pricing_embed(self):
         """Test that append_pricing_embed creates a Gemini Blue embed with cost info."""
@@ -1189,12 +1175,12 @@ class TestGeminiAPIPricing(GeminiCogTestCase):
             output_tokens=200_000,
             daily_cost=1.25,
         )
-        self.assertEqual(len(embeds), 1)
+        assert len(embeds) == 1
         embed = embeds[0]
-        self.assertIn("$", embed.description)
-        self.assertIn("500,000 tokens in", embed.description)
-        self.assertIn("200,000 tokens out", embed.description)
-        self.assertIn("daily $1.25", embed.description)
+        assert "$" in embed.description
+        assert "500,000 tokens in" in embed.description
+        assert "200,000 tokens out" in embed.description
+        assert "daily $1.25" in embed.description
 
     def test_append_pricing_embed_zero_tokens(self):
         """Test pricing embed with zero tokens."""
@@ -1206,17 +1192,17 @@ class TestGeminiAPIPricing(GeminiCogTestCase):
             output_tokens=0,
             daily_cost=0.0,
         )
-        self.assertEqual(len(embeds), 1)
-        self.assertIn("$0.0000", embeds[0].description)
-        self.assertIn("0 tokens in", embeds[0].description)
-        self.assertIn("0 tokens out", embeds[0].description)
+        assert len(embeds) == 1
+        assert "$0.0000" in embeds[0].description
+        assert "0 tokens in" in embeds[0].description
+        assert "0 tokens out" in embeds[0].description
 
 
 class TestGeminiAPICaching(AsyncGeminiCogTestCase):
     """Tests for explicit context caching logic."""
 
-    async def asyncSetUp(self):
-        await super().asyncSetUp()
+    @pytest.fixture(autouse=True)
+    async def setup_caching(self, setup):
         self.mock_client_instance.aio.caches.create = AsyncMock()
         self.mock_client_instance.aio.caches.delete = AsyncMock()
         self.mock_client_instance.aio.caches.update = AsyncMock()
@@ -1234,8 +1220,8 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
         await self.cog._maybe_create_cache(params, history, response)
 
-        self.assertIsNone(params.cache_name)
-        self.assertEqual(params.cached_history_length, 0)
+        assert params.cache_name is None
+        assert params.cached_history_length == 0
         self.cog.client.aio.caches.create.assert_not_called()
 
     async def test_maybe_create_cache_above_threshold(self):
@@ -1254,8 +1240,8 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
         await self.cog._maybe_create_cache(params, history, response)
 
-        self.assertEqual(params.cache_name, "cachedContents/test-cache-id")
-        self.assertEqual(params.cached_history_length, 2)
+        assert params.cache_name == "cachedContents/test-cache-id"
+        assert params.cached_history_length == 2
         self.cog.client.aio.caches.create.assert_called_once()
 
     async def test_maybe_create_cache_refreshes_ttl(self):
@@ -1279,8 +1265,8 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
         # Should refresh TTL, not create a new cache
         self.cog.client.aio.caches.create.assert_not_called()
         self.cog.client.aio.caches.update.assert_called_once()
-        self.assertEqual(params.cache_name, "cachedContents/existing")
-        self.assertEqual(params.cached_history_length, 4)
+        assert params.cache_name == "cachedContents/existing"
+        assert params.cached_history_length == 4
 
     async def test_maybe_create_cache_refreshes_ttl_error_handled(self):
         """Test that TTL refresh errors are handled gracefully."""
@@ -1302,7 +1288,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
         await self.cog._maybe_create_cache(params, [], response)
 
         # Cache should remain unchanged despite TTL refresh failure
-        self.assertEqual(params.cache_name, "cachedContents/existing")
+        assert params.cache_name == "cachedContents/existing"
 
     async def test_maybe_create_cache_recaches_when_uncached_tail_large(self):
         """Test that _maybe_create_cache re-caches when uncached portion exceeds threshold."""
@@ -1315,7 +1301,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
             cached_history_length=4,
         )
         history = [{"role": "user", "parts": [{"text": f"msg {i}"}]} for i in range(10)]
-        # uncached = 5000 - 2000 = 3000, threshold = 1024 → re-cache
+        # uncached = 5000 - 2000 = 3000, threshold = 1024 -> re-cache
         response = SimpleNamespace(
             usage_metadata=SimpleNamespace(
                 prompt_token_count=5000,
@@ -1329,8 +1315,8 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
         await self.cog._maybe_create_cache(params, history, response)
 
         # New cache created, old cache deleted
-        self.assertEqual(params.cache_name, "cachedContents/new-cache")
-        self.assertEqual(params.cached_history_length, 10)
+        assert params.cache_name == "cachedContents/new-cache"
+        assert params.cached_history_length == 10
         self.cog.client.aio.caches.create.assert_called_once()
         self.cog.client.aio.caches.delete.assert_called_once_with(name="cachedContents/old-cache")
         # TTL should NOT have been refreshed (we re-cached instead)
@@ -1358,8 +1344,8 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
         await self.cog._maybe_create_cache(params, history, response)
 
         # Old cache should be preserved
-        self.assertEqual(params.cache_name, "cachedContents/old-cache")
-        self.assertEqual(params.cached_history_length, 4)
+        assert params.cache_name == "cachedContents/old-cache"
+        assert params.cached_history_length == 4
         # Old cache should NOT have been deleted
         self.cog.client.aio.caches.delete.assert_not_called()
 
@@ -1372,7 +1358,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
         await self.cog._maybe_create_cache(params, [], response)
 
-        self.assertIsNone(params.cache_name)
+        assert params.cache_name is None
         self.cog.client.aio.caches.create.assert_not_called()
 
     async def test_maybe_create_cache_implicit_only_models_skipped(self):
@@ -1385,7 +1371,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
             await self.cog._maybe_create_cache(params, [], response)
 
-            self.assertIsNone(params.cache_name)
+            assert params.cache_name is None
         self.cog.client.aio.caches.create.assert_not_called()
 
     async def test_maybe_create_cache_no_usage_metadata(self):
@@ -1397,7 +1383,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
         await self.cog._maybe_create_cache(params, [], response)
 
-        self.assertIsNone(params.cache_name)
+        assert params.cache_name is None
         self.cog.client.aio.caches.create.assert_not_called()
 
     async def test_maybe_create_cache_handles_api_error(self):
@@ -1416,8 +1402,8 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
         await self.cog._maybe_create_cache(params, history, response)
 
         # Should not have set cache_name due to error
-        self.assertIsNone(params.cache_name)
-        self.assertEqual(params.cached_history_length, 0)
+        assert params.cache_name is None
+        assert params.cached_history_length == 0
 
     async def test_delete_conversation_cache(self):
         """Test that _delete_conversation_cache deletes and clears fields."""
@@ -1432,8 +1418,8 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
         await self.cog._delete_conversation_cache(params)
 
         self.cog.client.aio.caches.delete.assert_called_once_with(name="cachedContents/to-delete")
-        self.assertIsNone(params.cache_name)
-        self.assertEqual(params.cached_history_length, 0)
+        assert params.cache_name is None
+        assert params.cached_history_length == 0
 
     async def test_delete_conversation_cache_noop_when_none(self):
         """Test that _delete_conversation_cache is a no-op when no cache exists."""
@@ -1460,40 +1446,40 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
         await self.cog._delete_conversation_cache(params)
 
         # Fields should still be cleared even on API error
-        self.assertIsNone(params.cache_name)
-        self.assertEqual(params.cached_history_length, 0)
+        assert params.cache_name is None
+        assert params.cached_history_length == 0
 
 
-class TestGuessUrlMimeType(unittest.TestCase):
+class TestGuessUrlMimeType:
     """Tests for _guess_url_mime_type YouTube detection and fallback."""
 
     def test_youtube_long_url(self):
         result = _guess_url_mime_type("https://www.youtube.com/watch?v=abc123")
-        self.assertEqual(result, "video/mp4")
+        assert result == "video/mp4"
 
     def test_youtube_short_url(self):
         result = _guess_url_mime_type("https://youtu.be/abc123")
-        self.assertEqual(result, "video/mp4")
+        assert result == "video/mp4"
 
     def test_youtube_no_scheme(self):
         result = _guess_url_mime_type("youtube.com/watch?v=abc123")
-        self.assertEqual(result, "video/mp4")
+        assert result == "video/mp4"
 
     def test_youtube_http(self):
         result = _guess_url_mime_type("http://www.youtube.com/watch?v=abc123")
-        self.assertEqual(result, "video/mp4")
+        assert result == "video/mp4"
 
     def test_regular_image_url(self):
         result = _guess_url_mime_type("https://example.com/photo.jpg")
-        self.assertEqual(result, "image/jpeg")
+        assert result == "image/jpeg"
 
     def test_regular_pdf_url(self):
         result = _guess_url_mime_type("https://example.com/doc.pdf")
-        self.assertEqual(result, "application/pdf")
+        assert result == "application/pdf"
 
     def test_unknown_url_fallback(self):
         result = _guess_url_mime_type("https://example.com/api/data")
-        self.assertEqual(result, "application/octet-stream")
+        assert result == "application/octet-stream"
 
 
 class TestThinkingFeatures(GeminiCogTestCase):
@@ -1506,42 +1492,42 @@ class TestThinkingFeatures(GeminiCogTestCase):
     def test_build_thinking_config_none_when_no_params(self):
         """Test that _build_thinking_config returns None when both params are None."""
         result = _build_thinking_config(None, None)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_build_thinking_config_with_level(self):
         """Test that _build_thinking_config sets thinking_level and include_thoughts."""
         result = _build_thinking_config("high", None)
-        self.assertIsNotNone(result)
+        assert result is not None
         # SDK converts string to ThinkingLevel enum
-        self.assertIn("HIGH", str(result.thinking_level))
-        self.assertTrue(result.include_thoughts)
+        assert "HIGH" in str(result.thinking_level)
+        assert result.include_thoughts is True
 
     def test_build_thinking_config_with_budget(self):
         """Test that _build_thinking_config sets thinking_budget and include_thoughts."""
         result = _build_thinking_config(None, 1024)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.thinking_budget, 1024)
-        self.assertTrue(result.include_thoughts)
+        assert result is not None
+        assert result.thinking_budget == 1024
+        assert result.include_thoughts is True
 
     def test_build_thinking_config_with_both(self):
         """Test that _build_thinking_config sets both level and budget."""
         result = _build_thinking_config("low", 512)
-        self.assertIsNotNone(result)
-        self.assertIn("LOW", str(result.thinking_level))
-        self.assertEqual(result.thinking_budget, 512)
-        self.assertTrue(result.include_thoughts)
+        assert result is not None
+        assert "LOW" in str(result.thinking_level)
+        assert result.thinking_budget == 512
+        assert result.include_thoughts is True
 
     def test_build_thinking_config_budget_zero(self):
         """Test that _build_thinking_config handles budget=0 (disable thinking)."""
         result = _build_thinking_config(None, 0)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.thinking_budget, 0)
+        assert result is not None
+        assert result.thinking_budget == 0
 
     def test_build_thinking_config_budget_dynamic(self):
         """Test that _build_thinking_config handles budget=-1 (dynamic)."""
         result = _build_thinking_config(None, -1)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.thinking_budget, -1)
+        assert result is not None
+        assert result.thinking_budget == -1
 
     # --- extract_thinking_text ---
 
@@ -1560,7 +1546,7 @@ class TestThinkingFeatures(GeminiCogTestCase):
             ]
         )
         result = extract_thinking_text(response)
-        self.assertEqual(result, "Let me think...")
+        assert result == "Let me think..."
 
     def test_extract_thinking_text_multiple_thought_parts(self):
         """Test extracting multiple thought summary parts."""
@@ -1578,7 +1564,7 @@ class TestThinkingFeatures(GeminiCogTestCase):
             ]
         )
         result = extract_thinking_text(response)
-        self.assertEqual(result, "Step 1: analyze\n\nStep 2: compute")
+        assert result == "Step 1: analyze\n\nStep 2: compute"
 
     def test_extract_thinking_text_no_thoughts(self):
         """Test that no thinking text is returned when there are no thought parts."""
@@ -1594,19 +1580,19 @@ class TestThinkingFeatures(GeminiCogTestCase):
             ]
         )
         result = extract_thinking_text(response)
-        self.assertEqual(result, "")
+        assert result == ""
 
     def test_extract_thinking_text_empty_response(self):
         """Test extracting thinking text from an empty response."""
         response = SimpleNamespace(candidates=[])
         result = extract_thinking_text(response)
-        self.assertEqual(result, "")
+        assert result == ""
 
     def test_extract_thinking_text_no_candidates(self):
         """Test extracting thinking text when candidates is None."""
         response = SimpleNamespace(candidates=None)
         result = extract_thinking_text(response)
-        self.assertEqual(result, "")
+        assert result == ""
 
     # --- _get_response_content_parts ---
 
@@ -1618,28 +1604,28 @@ class TestThinkingFeatures(GeminiCogTestCase):
             candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part1, part2]))]
         )
         result = _get_response_content_parts(response)
-        self.assertIsNotNone(result)
-        self.assertEqual(len(result), 2)
-        self.assertIs(result[0], part1)
-        self.assertIs(result[1], part2)
+        assert result is not None
+        assert len(result) == 2
+        assert result[0] is part1
+        assert result[1] is part2
 
     def test_get_response_content_parts_empty_candidates(self):
         """Test that None is returned for empty candidates."""
         response = SimpleNamespace(candidates=[])
         result = _get_response_content_parts(response)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_response_content_parts_no_content(self):
         """Test that None is returned when content is None."""
         response = SimpleNamespace(candidates=[SimpleNamespace(content=None)])
         result = _get_response_content_parts(response)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_response_content_parts_no_parts(self):
         """Test that None is returned when parts is empty."""
         response = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))])
         result = _get_response_content_parts(response)
-        self.assertIsNone(result)
+        assert result is None
 
     # --- append_thinking_embeds ---
 
@@ -1647,29 +1633,29 @@ class TestThinkingFeatures(GeminiCogTestCase):
         """Test that thinking embed is created with spoilered text."""
         embeds = []
         append_thinking_embeds(embeds, "My thought process")
-        self.assertEqual(len(embeds), 1)
-        self.assertEqual(embeds[0].title, "Thinking")
-        self.assertEqual(embeds[0].description, "||My thought process||")
+        assert len(embeds) == 1
+        assert embeds[0].title == "Thinking"
+        assert embeds[0].description == "||My thought process||"
         # Check it uses light grey color
         from discord import Colour
 
-        self.assertEqual(embeds[0].color, Colour.light_grey())
+        assert embeds[0].color == Colour.light_grey()
 
     def test_append_thinking_embeds_empty_text(self):
         """Test that no embed is created for empty thinking text."""
         embeds = []
         append_thinking_embeds(embeds, "")
-        self.assertEqual(len(embeds), 0)
+        assert len(embeds) == 0
 
     def test_append_thinking_embeds_truncates_long_text(self):
         """Test that long thinking text is truncated."""
         embeds = []
         long_text = "A" * 4000  # Over 3500 limit
         append_thinking_embeds(embeds, long_text)
-        self.assertEqual(len(embeds), 1)
-        self.assertIn("[thinking truncated]", embeds[0].description)
+        assert len(embeds) == 1
+        assert "[thinking truncated]" in embeds[0].description
         # Check total length is under Discord limit (spoiler markers add 4 chars)
-        self.assertLessEqual(len(embeds[0].description), 3600)
+        assert len(embeds[0].description) <= 3600
 
     # --- pricing with thinking tokens ---
 
@@ -1684,10 +1670,10 @@ class TestThinkingFeatures(GeminiCogTestCase):
             daily_cost=0.50,
             thinking_tokens=200_000,
         )
-        self.assertEqual(len(embeds), 1)
-        self.assertIn("200,000 thinking", embeds[0].description)
-        self.assertIn("100,000 in", embeds[0].description)
-        self.assertIn("50,000 out", embeds[0].description)
+        assert len(embeds) == 1
+        assert "200,000 thinking" in embeds[0].description
+        assert "100,000 in" in embeds[0].description
+        assert "50,000 out" in embeds[0].description
 
     def test_append_pricing_embed_zero_thinking_tokens(self):
         """Test pricing embed omits thinking when zero."""
@@ -1700,9 +1686,9 @@ class TestThinkingFeatures(GeminiCogTestCase):
             daily_cost=0.10,
             thinking_tokens=0,
         )
-        self.assertEqual(len(embeds), 1)
-        self.assertNotIn("thinking", embeds[0].description)
-        self.assertIn("tokens in", embeds[0].description)
+        assert len(embeds) == 1
+        assert "thinking" not in embeds[0].description
+        assert "tokens in" in embeds[0].description
 
     def test_track_daily_cost_with_thinking_tokens(self):
         """Test that _track_daily_cost accumulates pre-calculated cost including thinking."""
@@ -1713,7 +1699,7 @@ class TestThinkingFeatures(GeminiCogTestCase):
         cost = calculate_cost("gemini-2.0-flash", 1_000_000, 500_000, thinking_tokens=500_000)
         daily = self.cog._track_daily_cost(user_id=99, cost=cost)
         # $0.10 + ($0.40 * 1.0) = $0.50
-        self.assertAlmostEqual(daily, 0.50)
+        assert daily == pytest.approx(0.50)
 
     def test_append_pricing_embed_with_maps_grounding(self):
         """Test pricing embed includes Maps grounding surcharge."""
@@ -1726,8 +1712,8 @@ class TestThinkingFeatures(GeminiCogTestCase):
             daily_cost=0.10,
             google_maps_grounded=True,
         )
-        self.assertEqual(len(embeds), 1)
-        self.assertIn("Maps grounded", embeds[0].description)
+        assert len(embeds) == 1
+        assert "Maps grounded" in embeds[0].description
 
     def test_append_pricing_embed_without_maps_grounding(self):
         """Test pricing embed omits Maps label when not grounded."""
@@ -1740,8 +1726,8 @@ class TestThinkingFeatures(GeminiCogTestCase):
             daily_cost=0.10,
             google_maps_grounded=False,
         )
-        self.assertEqual(len(embeds), 1)
-        self.assertNotIn("Maps", embeds[0].description)
+        assert len(embeds) == 1
+        assert "Maps" not in embeds[0].description
 
     def test_log_cost_basic(self):
         """Test that _log_cost calls logger.info with structured cost data."""
@@ -1758,9 +1744,9 @@ class TestThinkingFeatures(GeminiCogTestCase):
         self.cog.logger.info.assert_called_once()
         call_args = self.cog.logger.info.call_args
         fmt = call_args[0][0]
-        self.assertIn("COST", fmt)
-        self.assertIn("command=%s", fmt)
-        self.assertIn("daily=$%.4f", fmt)
+        assert "COST" in fmt
+        assert "command=%s" in fmt
+        assert "daily=$%.4f" in fmt
 
     def test_log_cost_no_details(self):
         """Test _log_cost with no extra detail kwargs."""
@@ -1783,7 +1769,7 @@ class TestThinkingFeatures(GeminiCogTestCase):
         self.cog.logger.info.assert_called_once()
         call_args = self.cog.logger.info.call_args
         # The formatted string should include image and input token details
-        self.assertIn("images=2", str(call_args))
+        assert "images=2" in str(call_args)
 
 
 class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
@@ -1796,8 +1782,8 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
             )
             for file in files:
                 file.close()
-        self.assertIn(expected_mode, embed.description)
-        self.assertEqual(len(files), 1)
+        assert expected_mode in embed.description
+        assert len(files) == 1
 
     async def test_mode_text_to_video(self):
         """Test embed shows Text-to-Video mode when no attachments."""
@@ -1838,7 +1824,7 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
         await self._assert_video_mode(params, "Last Frame Constrained")
 
 
-class TestTemperatureWarning(unittest.TestCase):
+class TestTemperatureWarning:
     """Test temperature warning for Gemini 3 models.
 
     These tests verify the warning logic inline rather than calling
@@ -1858,41 +1844,37 @@ class TestTemperatureWarning(unittest.TestCase):
     def test_gemini3_temperature_warning_low(self):
         """Temperature below 1.0 on Gemini 3 triggers warning."""
         desc = self._build_temperature_description("gemini-3.1-pro-preview", 0.5)
-        self.assertIn("warning", desc)
-        self.assertIn("looping", desc)
+        assert "warning" in desc
+        assert "looping" in desc
 
     def test_gemini3_temperature_warning_high(self):
         """Temperature above 1.0 on Gemini 3 triggers warning."""
         desc = self._build_temperature_description("gemini-3-flash-preview", 1.5)
-        self.assertIn("warning", desc)
+        assert "warning" in desc
 
     def test_gemini3_temperature_no_warning_at_default(self):
         """Temperature 1.0 on Gemini 3 does not trigger warning."""
         desc = self._build_temperature_description("gemini-3.1-pro-preview", 1.0)
-        self.assertNotIn("warning", desc)
-        self.assertIn("1.0", desc)
+        assert "warning" not in desc
+        assert "1.0" in desc
 
     def test_gemini25_no_warning(self):
         """Temperature != 1.0 on Gemini 2.5 does not trigger warning."""
         desc = self._build_temperature_description("gemini-2.5-pro", 0.5)
-        self.assertNotIn("warning", desc)
-        self.assertIn("0.5", desc)
+        assert "warning" not in desc
+        assert "0.5" in desc
 
     def test_temperature_none_no_output(self):
         """No temperature set produces no description."""
         desc = self._build_temperature_description("gemini-3.1-pro-preview", None)
-        self.assertEqual(desc, "")
+        assert desc == ""
 
     def test_gemini3_flash_lite_warning(self):
         """Gemini 3.1 Flash Lite also triggers warning."""
         desc = self._build_temperature_description("gemini-3.1-flash-lite-preview", 0.7)
-        self.assertIn("warning", desc)
+        assert "warning" in desc
 
     def test_gemini2_flash_no_warning(self):
         """Gemini 2.0 Flash does not trigger warning."""
         desc = self._build_temperature_description("gemini-2.0-flash", 0.3)
-        self.assertNotIn("warning", desc)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "warning" not in desc
