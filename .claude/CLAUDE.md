@@ -31,7 +31,7 @@ discord-gemini/
 ## Core Dependencies
 
 - **Python** 3.10-3.13 — currently tested in CI and local Docker matrix
-- **google-genai** ~1.68 — Gemini API client (native async via `client.aio`)
+- **google-genai** ~1.69 — Gemini API client (native async via `client.aio`)
 - **py-cord** ~2.7 — Discord bot framework (fork of discord.py)
 - **Pillow** ~12.1 — Image processing
 - **aiohttp** — Async HTTP for attachment downloads
