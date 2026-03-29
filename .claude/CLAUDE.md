@@ -23,13 +23,14 @@ discord-gemini/
 ├── .githooks/
 │   └── pre-commit             # ruff format + lint on staged Python files
 ├── .github/workflows/
-│   └── main.yml               # CI: tests + Docker build
+│   └── main.yml               # CI: pytest matrix (3.10-3.13) + Docker checks
 ├── pyproject.toml             # ruff + pyright config (single source of truth)
 └── requirements.txt
 ```
 
 ## Core Dependencies
 
+- **Python** 3.10-3.13 — currently tested in CI and local Docker matrix
 - **google-genai** ~1.68 — Gemini API client (native async via `client.aio`)
 - **py-cord** ~2.7 — Discord bot framework (fork of discord.py)
 - **Pillow** ~12.1 — Image processing
@@ -115,7 +116,7 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 
 - **ruff** handles both linting and formatting, configured in `pyproject.toml`
 - Rules: `E`, `W`, `F`, `I`, `UP`, `B`, `SIM` (E501 ignored — formatter handles line length)
-- Line length: 100, target: Python 3.13
+- Line length: 100, target: Python 3.10
 - Pre-commit hook in `.githooks/pre-commit`: auto-formats staged files, blocks commit on lint failure
 - After cloning, run `git config core.hooksPath .githooks` to enable the hook
 
@@ -124,17 +125,23 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 - `pytest` from project root — pytest-native with `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed)
 - `pythonpath = ["src"]` configured in `pyproject.toml` — use direct imports (`from util import ...`)
 - Mocked Discord/Gemini clients, no real API calls
+- Supported/tested Python versions: 3.10, 3.11, 3.12, 3.13
 
 ```bash
 .venv/Scripts/python.exe -m pytest -q    # Windows
 .venv/bin/python -m pytest -q            # Unix
+
+# Docker version check
+docker build --build-arg PYTHON_VERSION=3.10 -f Dockerfile.test -t discord-gemini-test:3.10 .
+docker run --rm discord-gemini-test:3.10
 ```
 
 - `test_util.py` — dataclasses, constants, pricing, utility functions, AgenticResult, callable tool handling
 - `test_button_view.py` — button callbacks, tool select behavior, custom functions toggle
 - `test_gemini_api.py` — cog methods, attachments, caching, pricing, embeds
 - `test_tools.py` — tool registry, @tool decorator, execute_tool_call, starter tools
-- CI runs on every push/PR; Docker build only proceeds if tests pass
+- GitHub Actions runs `pytest` on Python 3.10-3.13 for every push/PR
+- CI also builds the Docker test image after the matrix passes; release image builds on push
 
 ## Adding a New Slash Command
 
