@@ -110,7 +110,7 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.10+
 - google-genai ~1.68
 - py-cord ~2.7
 - Pillow ~12.1
@@ -131,6 +131,7 @@ Try these prompts with `/gemini music`:
 ### Testing
 
 Tests use pytest with pytest-asyncio (`asyncio_mode = "auto"`). All tests are mocked — no real API calls.
+GitHub Actions runs the test suite against Python 3.10, 3.11, 3.12, and 3.13.
 
 ```bash
 # Run tests
@@ -138,7 +139,8 @@ Tests use pytest with pytest-asyncio (`asyncio_mode = "auto"`). All tests are mo
 .venv/bin/python -m pytest -q            # Unix
 
 # Run tests in Docker
-docker build -f Dockerfile.test -t discord-gemini-test . && docker run --rm discord-gemini-test
+docker build --build-arg PYTHON_VERSION=3.10 -f Dockerfile.test -t discord-gemini-test:3.10 .
+docker run --rm discord-gemini-test:3.10
 ```
 
 ### Linting & Type Checking
