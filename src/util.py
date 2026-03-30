@@ -75,6 +75,13 @@ TTS_PRICING: dict[str, tuple[float, float]] = {
     "gemini-2.5-pro-preview-tts": (1.00, 20.00),
 }
 
+LYRIA_REALTIME_MODEL = "lyria-realtime-exp"
+LYRIA_3_MODELS = frozenset(
+    {
+        "lyria-3-pro-preview",
+        "lyria-3-clip-preview",
+    }
+)
 
 MAPS_GROUNDING_COST_PER_REQUEST = 0.025  # $25 per 1K grounded prompts
 
@@ -352,9 +359,10 @@ class SpeechGenerationParameters:
 
 @dataclass
 class MusicGenerationParameters:
-    """A dataclass to store parameters for music generation using Lyria RealTime."""
+    """A dataclass to store parameters for music generation using Lyria models."""
 
     prompts: list[str]
+    model: str = LYRIA_REALTIME_MODEL
     prompt_weights: list[float] | None = None
     duration: int = 30  # seconds
     bpm: int | None = None  # 60-200

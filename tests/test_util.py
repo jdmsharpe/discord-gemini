@@ -9,6 +9,8 @@ from util import (
     CACHE_TTL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
     IMAGE_PRICING,
+    LYRIA_3_MODELS,
+    LYRIA_REALTIME_MODEL,
     MAPS_GROUNDING_COST_PER_REQUEST,
     MAX_AGENTIC_ITERATIONS,
     MODEL_PRICING,
@@ -571,6 +573,7 @@ class TestMusicGenerationParameters:
     def test_defaults(self):
         params = MusicGenerationParameters(prompts=["upbeat jazz"])
         assert params.prompts == ["upbeat jazz"]
+        assert params.model == LYRIA_REALTIME_MODEL
         assert params.prompt_weights is None
         assert params.duration == 30
         assert params.bpm is None
@@ -584,6 +587,12 @@ class TestMusicGenerationParameters:
         assert params.mute_bass is False
         assert params.mute_drums is False
         assert params.only_bass_and_drums is False
+
+    def test_supported_music_model_constants(self):
+        """Test the supported Lyria model constants."""
+        assert LYRIA_REALTIME_MODEL == "lyria-realtime-exp"
+        assert "lyria-3-pro-preview" in LYRIA_3_MODELS
+        assert "lyria-3-clip-preview" in LYRIA_3_MODELS
 
     def test_to_weighted_prompts_without_weights(self):
         params = MusicGenerationParameters(prompts=["jazz", "piano"])

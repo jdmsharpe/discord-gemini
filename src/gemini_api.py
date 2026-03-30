@@ -49,6 +49,8 @@ from util import (
     AVAILABLE_TOOLS,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
+    LYRIA_3_MODELS,
+    LYRIA_REALTIME_MODEL,
     MAX_AGENTIC_ITERATIONS,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
@@ -120,6 +122,61 @@ def _guess_url_mime_type(url: str) -> str:
         return "video/mp4"
     mime_type, _ = mimetypes.guess_type(url)
     return mime_type if mime_type is not None else "application/octet-stream"
+
+
+def _build_lyria3_prompt(music_params: MusicGenerationParameters) -> str:
+    """Translate structured music controls into natural-language guidance for Lyria 3."""
+    weighted_prompts = music_params.to_weighted_prompts()
+    prompt_blocks = []
+    for weighted_prompt in weighted_prompts:
+        text = weighted_prompt["text"]
+        weight = weighted_prompt["weight"]
+        if weight == 1.0 or len(weighted_prompts) == 1:
+            prompt_blocks.append(text)
+        else:
+            prompt_blocks.append(f"{text} (importance {weight})")
+
+    production_notes: list[str] = []
+    if music_params.model == "lyria-3-clip-preview":
+        production_notes.append("Generate a 30-second music clip.")
+    else:
+        production_notes.append(f"Target duration: about {music_params.duration} seconds.")
+
+    if music_params.bpm is not None:
+        production_notes.append(f"Tempo: {music_params.bpm} BPM.")
+    if music_params.scale is not None:
+        production_notes.append(f"Musical key or scale: {music_params.scale.replace('_', ' ')}.")
+    if music_params.density is not None:
+        production_notes.append(f"Density: {music_params.density} on a 0 to 1 scale.")
+    if music_params.brightness is not None:
+        production_notes.append(f"Brightness: {music_params.brightness} on a 0 to 1 scale.")
+    if music_params.guidance != 4.0:
+        production_notes.append(
+            f"Prompt adherence target: {music_params.guidance} on a 0 to 6 scale."
+        )
+
+    if not production_notes:
+        return "\n".join(prompt_blocks)
+
+    return "\n".join(prompt_blocks) + "\n\nProduction notes:\n" + "\n".join(
+        f"- {note}" for note in production_notes
+    )
+
+
+def _music_file_suffix_for_mime_type(mime_type: str | None) -> str:
+    """Map an audio MIME type to a Discord-friendly file extension."""
+    if mime_type in {"audio/wav", "audio/wave", "audio/x-wav"}:
+        return "wav"
+    return "mp3"
+
+
+def _music_model_display_name(model: str) -> str:
+    """Return a human-friendly name for supported music models."""
+    if model == "lyria-3-pro-preview":
+        return "Lyria 3 Pro Preview"
+    if model == "lyria-3-clip-preview":
+        return "Lyria 3 Clip Preview"
+    return "Lyria RealTime Experimental"
 
 
 def append_response_embeds(embeds, response_text):
@@ -2478,7 +2535,7 @@ class GeminiAPI(commands.Cog):
 
     @gemini.command(
         name="music",
-        description="Generate instrumental music using Gemini's Lyria RealTime model.",
+        description="Generate music using Lyria 3 or Lyria RealTime.",
     )
     @option(
         "prompt",
@@ -2487,8 +2544,19 @@ class GeminiAPI(commands.Cog):
         type=str,
     )
     @option(
+        "model",
+        description="Choose music generation model. (default: Lyria RealTime Experimental)",
+        required=False,
+        choices=[
+            OptionChoice(name="Lyria 3 Pro Preview", value="lyria-3-pro-preview"),
+            OptionChoice(name="Lyria 3 Clip Preview", value="lyria-3-clip-preview"),
+            OptionChoice(name="Lyria RealTime Experimental", value=LYRIA_REALTIME_MODEL),
+        ],
+        type=str,
+    )
+    @option(
         "duration",
-        description="Duration of music to generate in seconds. Max is 120. (default: 30)",
+        description="Target duration in seconds. RealTime uses it directly; Lyria 3 uses it as guidance.",
         required=False,
         type=int,
         min_value=5,
@@ -2550,6 +2618,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
+        model: str = LYRIA_REALTIME_MODEL,
         duration: int = 30,
         bpm: int | None = None,
         scale: str | None = None,
@@ -2558,23 +2627,26 @@ class GeminiAPI(commands.Cog):
         guidance: float = 4.0,
     ):
         """
-        Generate instrumental music using Gemini's Lyria RealTime model.
+        Generate music using Lyria 3 or Lyria RealTime.
 
-        This function uses Google's state-of-the-art real-time streaming music generation
-        model to create instrumental music based on text prompts. The model supports
-        real-time control over various musical parameters.
+        This command supports two music-generation paths:
+
+        - Lyria 3 Pro / Clip: standard generate_content API returning encoded audio
+        - Lyria RealTime: live WebSocket streaming returning raw stereo PCM
 
         Features:
+        - Lyria 3 song and clip generation
         - Real-time streaming music generation
         - Support for various genres, instruments, and moods
-        - Controllable parameters: BPM, scale, density, brightness
-        - High-quality stereo audio output (48kHz, 16-bit)
-        - Instrumental music only
+        - Optional BPM, scale, density, brightness, and guidance controls
+        - High-quality stereo audio output
+        - Lyria 3 can return lyrics / structure notes alongside audio
 
         Args:
             ctx: Discord application context
             prompt: Musical prompt describing desired style/characteristics
-            duration: Length of music to generate in seconds
+            model: Music generation model to use
+            duration: Length or target length of music to generate in seconds
             bpm: Beats per minute (optional, model decides if not set)
             scale: Musical scale/key for generation
             density: Musical density (sparseness vs business)
@@ -2590,6 +2662,7 @@ class GeminiAPI(commands.Cog):
             # Create music generation parameters
             music_params = MusicGenerationParameters(
                 prompts=[prompt],
+                model=model,
                 duration=duration,
                 bpm=bpm,
                 scale=scale,
@@ -2598,37 +2671,58 @@ class GeminiAPI(commands.Cog):
                 brightness=brightness,
             )
 
-            # Generate music using Lyria RealTime
-            audio_data = await self._generate_music_with_lyria(music_params)
+            text_response = None
+            audio_mime_type = "audio/wav"
 
-            # Log music generation (no published pricing for Lyria — experimental)
+            if model in LYRIA_3_MODELS:
+                audio_data, text_response, audio_mime_type = await self._generate_music_with_lyria3(
+                    music_params
+                )
+            else:
+                audio_data = await self._generate_music_with_lyria_realtime(music_params)
+
+            # Log music generation (no music pricing is wired yet for these models)
             daily_cost = self._track_daily_cost(ctx.author.id, 0.0)
             self._log_cost(
                 "music",
                 ctx.author.id,
-                "lyria-realtime-exp",
+                model,
                 0.0,
                 daily_cost,
                 duration_seconds=duration,
             )
 
             if audio_data:
-                # Create temporary audio file
-                audio_file_path = Path(f"music_output_{int(time.time())}.wav")
+                suffix = (
+                    "wav"
+                    if model == LYRIA_REALTIME_MODEL
+                    else _music_file_suffix_for_mime_type(audio_mime_type)
+                )
+                audio_file_path = Path(f"music_output_{int(time.time())}.{suffix}")
 
-                # Write audio data to WAV file (stereo, 48kHz, 16-bit)
-                with wave.open(str(audio_file_path), "wb") as wf:
-                    wf.setnchannels(2)  # Stereo
-                    wf.setsampwidth(2)  # 16-bit
-                    wf.setframerate(48000)  # 48kHz sample rate
-                    wf.writeframes(audio_data)
+                if model == LYRIA_REALTIME_MODEL:
+                    with wave.open(str(audio_file_path), "wb") as wf:
+                        wf.setnchannels(2)  # Stereo
+                        wf.setsampwidth(2)  # 16-bit
+                        wf.setframerate(48000)  # 48kHz sample rate
+                        wf.writeframes(audio_data)
+                else:
+                    audio_file_path.write_bytes(audio_data)
 
                 # Create response embed
                 # Truncate prompt to avoid exceeding Discord's 4096 char embed limit
                 truncated_prompt = truncate_text(prompt, 2000)
                 description = f"**Prompt:** {truncated_prompt}\n"
-                description += "**Model:** Lyria RealTime\n"
-                description += f"**Duration:** {duration} seconds\n"
+                description += f"**Model:** {_music_model_display_name(model)} (`{model}`)\n"
+                if model == "lyria-3-clip-preview":
+                    description += "**Mode:** 30-second clip generation\n"
+                    description += "**Duration:** 30 seconds (fixed by model)\n"
+                elif model == "lyria-3-pro-preview":
+                    description += "**Mode:** Full song generation\n"
+                    description += f"**Target Duration:** {duration} seconds\n"
+                else:
+                    description += "**Mode:** Real-time instrumental generation\n"
+                    description += f"**Duration:** {duration} seconds\n"
                 if bpm is not None:
                     description += f"**BPM:** {bpm}\n"
                 if scale is not None:
@@ -2638,7 +2732,22 @@ class GeminiAPI(commands.Cog):
                 if brightness is not None:
                     description += f"**Brightness:** {brightness}\n"
                 description += f"**Guidance:** {guidance}\n"
-                description += "**Format:** WAV (48kHz, 16-bit, Stereo)\n"
+                if model == LYRIA_REALTIME_MODEL:
+                    description += "**Format:** WAV (48kHz, 16-bit, Stereo)\n"
+                else:
+                    description += f"**Format:** {suffix.upper()}\n"
+                    if text_response:
+                        description += (
+                            f"**Lyrics / Notes:** {truncate_text(text_response, 500)}\n"
+                        )
+                    if any(
+                        value is not None
+                        for value in (bpm, scale, density, brightness)
+                    ) or guidance != 4.0:
+                        description += (
+                            "*Advanced controls were translated into prompt guidance for "
+                            "Lyria 3.*\n"
+                        )
 
                 embed = Embed(
                     title="Music Generation",
@@ -2655,7 +2764,10 @@ class GeminiAPI(commands.Cog):
                 await ctx.send_followup(
                     embed=Embed(
                         title="No Music Generated",
-                        description="The model did not generate any music. Please try again with a different prompt or parameters.",
+                        description=(
+                            "The model did not generate any music. Please try again with a "
+                            "different prompt or parameters."
+                        ),
                         color=Colour.orange(),
                     )
                 )
@@ -3159,7 +3271,45 @@ class GeminiAPI(commands.Cog):
 
         return embed, files
 
-    async def _generate_music_with_lyria(
+    async def _generate_music_with_lyria3(
+        self, music_params: MusicGenerationParameters
+    ) -> tuple[bytes | None, str | None, str | None]:
+        """
+        Generate music using a Lyria 3 model via the standard generate_content API.
+
+        Returns:
+            tuple: (audio_data, text_response, mime_type)
+        """
+        try:
+            response = await self.client.aio.models.generate_content(
+                model=music_params.model,
+                contents=_build_lyria3_prompt(music_params),
+                config=types.GenerateContentConfig(response_modalities=["AUDIO", "TEXT"]),
+            )
+
+            text_parts: list[str] = []
+            audio_data: bytes | None = None
+            mime_type: str | None = None
+            response_parts = _get_response_content_parts(response) or []
+
+            for part in response_parts:
+                text = getattr(part, "text", None)
+                if text:
+                    text_parts.append(text)
+
+                inline_data = getattr(part, "inline_data", None)
+                if inline_data and getattr(inline_data, "data", None):
+                    audio_data = inline_data.data
+                    mime_type = getattr(inline_data, "mime_type", None)
+
+            text_response = "\n\n".join(text_parts) if text_parts else None
+            return audio_data, text_response, mime_type
+
+        except Exception as e:
+            self.logger.error(f"Error generating music with Lyria 3: {e}")
+            raise MusicGenerationError(f"Music generation failed: {e}") from e
+
+    async def _generate_music_with_lyria_realtime(
         self, music_params: MusicGenerationParameters
     ) -> bytes | None:
         """
