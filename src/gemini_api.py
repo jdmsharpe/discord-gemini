@@ -155,11 +155,10 @@ def _build_lyria3_prompt(music_params: MusicGenerationParameters) -> str:
             f"Prompt adherence target: {music_params.guidance} on a 0 to 6 scale."
         )
 
-    if not production_notes:
-        return "\n".join(prompt_blocks)
-
-    return "\n".join(prompt_blocks) + "\n\nProduction notes:\n" + "\n".join(
-        f"- {note}" for note in production_notes
+    return (
+        "\n".join(prompt_blocks)
+        + "\n\nProduction notes:\n"
+        + "\n".join(f"- {note}" for note in production_notes)
     )
 
 
@@ -2606,7 +2605,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "density",
-        description="(Advanced) Musical density from 0.0 top 1.0. Lower is sparser, Higher is busier. (default: not set)",
+        description="(Advanced) Musical density from 0.0 to 1.0. Lower is sparser, Higher is busier. (default: not set)",
         required=False,
         type=float,
         min_value=0.0,
@@ -2768,13 +2767,11 @@ class GeminiAPI(commands.Cog):
                 else:
                     description += f"**Format:** {suffix.upper()}\n"
                     if text_response:
-                        description += (
-                            f"**Lyrics / Notes:** {truncate_text(text_response, 500)}\n"
-                        )
-                    if any(
-                        value is not None
-                        for value in (bpm, scale, density, brightness)
-                    ) or guidance != 4.0:
+                        description += f"**Lyrics / Notes:** {truncate_text(text_response, 500)}\n"
+                    if (
+                        any(value is not None for value in (bpm, scale, density, brightness))
+                        or guidance != 4.0
+                    ):
                         description += (
                             "*Advanced controls were translated into prompt guidance for "
                             "Lyria 3.*\n"
