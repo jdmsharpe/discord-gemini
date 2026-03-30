@@ -87,6 +87,7 @@ All commands are grouped under `/gemini` for clean namespacing.
   - Musical scale/key selection
   - Density and brightness controls
   - Prompt guidance strength
+- Optional reference image input for Lyria 3 Pro/Clip
 - Lyria 3 can return lyrics or structure notes alongside audio
 - High-quality stereo audio output (MP3/WAV for Lyria 3, WAV for RealTime)
 - Support for various genres, instruments, moods, songs, and clips
