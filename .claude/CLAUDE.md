@@ -1,170 +1,73 @@
 # Discord Gemini Bot - Developer Reference
 
-A Discord bot integrating Google's Gemini AI API for text generation, image generation, video generation, TTS, music generation, and deep research via Discord slash commands.
+## Supported Entry Points
 
-## Project Structure
+- Launcher: `python src/bot.py` remains supported and delegates to `discord_gemini.bot.main`.
+- Cog composition contract:
+
+  ```python
+  from discord_gemini import GeminiAPI
+
+  bot.add_cog(GeminiAPI(bot=bot))
+  ```
+
+- Compatibility export: `Conversation` remains re-exported from `discord_gemini` during this refactor pass.
+- Legacy shim: `src/gemini_api.py` exists only for import compatibility and emits a `DeprecationWarning`.
+
+## Package Layout
 
 ```text
-discord-gemini/
-├── src/
-│   ├── bot.py                 # Main bot entry point
-│   ├── gemini_api.py          # Core API integration & slash commands (~2700 lines)
-│   ├── button_view.py         # Discord UI button controls (pause/resume/regenerate/stop + tool select)
-│   ├── exceptions.py          # Custom exception hierarchy (GeminiBotError base)
-│   ├── tools.py               # Custom function tool registry, @tool decorator, starter tools
-│   ├── util.py                # Dataclasses, constants, pricing, and utility functions
-│   └── config/
-│       └── auth.py            # API keys, guild IDs, env var config (fail-fast via _require_env)
-├── tests/
-│   ├── test_util.py           # Dataclass and utility function tests
-│   ├── test_button_view.py    # ButtonView UI tests
-│   ├── test_gemini_api.py     # GeminiAPI cog tests
-│   └── test_tools.py          # Tool registry and execution tests
-├── .githooks/
-│   └── pre-commit             # ruff format + lint on staged Python files
-├── .github/workflows/
-│   └── main.yml               # CI: pytest matrix (3.10-3.13) + Docker checks
-├── pyproject.toml             # ruff + pyright config (single source of truth)
-└── requirements.txt
+src/
+├── bot.py                           # Thin repo-local launcher
+├── gemini_api.py                    # Temporary compatibility shim
+├── button_view.py                   # Top-level compatibility shim
+├── config/                          # Top-level compatibility shim
+├── exceptions.py                    # Top-level compatibility shim
+├── tools.py                         # Top-level compatibility shim
+├── util.py                          # Top-level compatibility shim
+└── discord_gemini/
+    ├── __init__.py
+    ├── bot.py
+    ├── util.py
+    ├── config/
+    │   ├── __init__.py
+    │   └── auth.py
+    └── cogs/gemini/
+        ├── __init__.py
+        ├── attachments.py
+        ├── cache.py
+        ├── client.py
+        ├── cog.py
+        ├── embeds.py
+        ├── models.py
+        ├── responses.py
+        ├── tooling.py
+        └── views.py
 ```
 
-## Core Dependencies
+Most command flow still lives in `discord_gemini.cogs.gemini.cog`. Helper modules currently own the explicitly extracted support code.
 
-- **Python** 3.10-3.13 — currently tested in CI and local Docker matrix
-- **google-genai** ~1.69 — Gemini API client (native async via `client.aio`)
-- **py-cord** ~2.7 — Discord bot framework (fork of discord.py)
-- **Pillow** ~12.1 — Image processing
-- **aiohttp** — Async HTTP for attachment downloads
-- **ruff** ~0.15 — Linting and formatting
+## Testing And Patch Targets
 
-## Architecture
+- `pytest` runs with `pythonpath = ["src"]`.
+- New tests and patches should target real owners under `discord_gemini...`, not `gemini_api`.
+- Examples:
+  - `discord_gemini.cogs.gemini.cog.GEMINI_FILE_SEARCH_STORE_IDS`
+  - `discord_gemini.cogs.gemini.responses.MusicGenerationError`
+  - `discord_gemini.cogs.gemini.views.ButtonView`
+- `tests/test_gemini_api_shim.py` is the shim-only compatibility test.
 
-### Key Components
-
-- **GeminiAPI Cog** (`gemini_api.py`): All slash commands, conversation state, HTTP sessions, API calls, agentic tool-calling loop. Implements the `ConversationHost` protocol for ButtonView decoupling.
-- **ButtonView** (`button_view.py`): Interactive buttons + tool select dropdown (6 options incl. Custom Functions) for mid-conversation toggling. Communicates with the cog via the `ConversationHost` protocol (not direct attribute access).
-- **exceptions.py**: Custom exception hierarchy rooted at `GeminiBotError` — `APICallError`, `CacheError`, `FileUploadError`, `ValidationError`, `MusicGenerationError`. Replaces bare `Exception` raises for precise catch blocks.
-- **tools.py**: Custom function tool registry with `@tool` decorator, `execute_tool_call()`, starter tools (`get_current_time`, `roll_dice`)
-- **util.py**: Parameter dataclasses (`ChatCompletionParameters`, `ImageGenerationParameters`, `VideoGenerationParameters`, `SpeechGenerationParameters`, `MusicGenerationParameters`, `ResearchParameters`, `AgenticResult`), pricing dicts/functions, constants, text utilities
-
-### Slash Commands
-
-All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on the group, not individual commands.
-
-| Command | API Method | Notes |
-|---------|-----------|-------|
-| `/gemini chat` | `client.aio.models.generate_content()` | Multi-turn, 19 params, `on_message` for follow-ups, agentic tool-calling loop |
-| `/gemini image` | `generate_content` (Gemini) or `generate_images` (Imagen) | Different APIs per model family |
-| `/gemini video` | `client.aio.models.generate_videos()` | Long-running op, polls every 20s, 10min timeout |
-| `/gemini tts` | `generate_content` with `response_modalities` | WAV output (24kHz, 16-bit, Mono) |
-| `/gemini music` | `generate_content` (Lyria 3) or WebSocket streaming (Lyria RealTime) | Lyria 3 Pro/Clip return encoded audio + optional lyrics text; RealTime streams stereo PCM/WAV |
-| `/gemini research` | `client.aio.interactions.create/get()` | Interactions API, polls 15s, 20min timeout |
-
-### Key Design Patterns
-
-1. **Native async**: All API calls use `client.aio.*` — no thread offloading
-2. **Conversation state**: `self.conversations: Dict[int, Conversation]`, `self.message_to_conversation_id: Dict[int, int]`, `self.views: Dict[Member|User, ButtonView]`, `self.last_view_messages: Dict[Member|User, Message]`
-3. **One conversation per user per channel** — enforced, persists until ended or bot restarts
-4. **Explicit context caching**: Gemini 3.x models auto-cache when token count exceeds `CACHE_MIN_TOKEN_COUNT`; Gemini 2.5 and below use implicit caching (automatic). Cache includes system instruction + `display_name` for observability, TTL refreshed each turn, re-cached when uncached tail grows large, cleaned up on conversation end/cog unload
-5. **Typing indicators**: `asyncio.create_task(self.keep_typing(ctx.channel))` for long ops
-6. **Shared HTTP session**: Lazy-initialized with lock via `_get_http_session()`, configured with `ClientTimeout(total=300, connect=15)` and `TCPConnector(limit=20, limit_per_host=10, ttl_dns_cache=300)`
-7. **Agentic tool-calling loop**: `_run_agentic_loop()` wraps `generate_content()` calls — when the model returns `function_calls`, registered Python tools are executed and results fed back, up to `MAX_AGENTIC_ITERATIONS` (10) rounds. Token usage accumulated across iterations for accurate pricing.
-8. **Error handling**: Centralized via `_send_error_followup()` for slash commands; custom exceptions from `exceptions.py` for domain-specific errors. Error followup is wrapped in try/except to ensure cleanup runs even if Discord API fails.
-
-### Tool System
-
-**Server-side tools** (executed by Google): `google_search`, `code_execution`, `google_maps`, `url_context`, `file_search`
-
-**Custom function tools** (executed locally): Registered via `@tool` decorator in `tools.py`. Model calls them via `function_calls` in the response; `_run_agentic_loop()` executes them and feeds `FunctionResponse` back. Toggled via `custom_functions` param on `/gemini chat` or ButtonView dropdown. Controlled by `ENABLE_CUSTOM_TOOLS` env var (default: true).
-
-**Constraints:**
-
-- `file_search` is incompatible with `google_search`, `google_maps`, `url_context` (enforced via `FILE_SEARCH_INCOMPATIBLE_TOOLS`)
-- `google_search` and `google_maps` are mutually exclusive (enforced via `MUTUALLY_EXCLUSIVE_TOOLS`)
-- File Search requires `GEMINI_FILE_SEARCH_STORE_IDS` env var; store IDs injected at runtime via `enrich_file_search_tools()`
-- Custom function callables pass through model compatibility and file_search filters unchanged
-
-### Attachment Handling
-
-- Small files (≤20 MB) → inline_data; large files (>20 MB) → Gemini File API upload
-- Max 2 GB via File API; PDFs max 50 MB inline
-- Media parts placed before text in API requests (Google recommendation)
-- YouTube URLs detected and set to `video/mp4` MIME type
-- Uploaded files tracked in `ChatCompletionParameters.uploaded_file_names`, cleaned up on conversation end
-
-### Discord Embed Constraints
-
-- Embed description max: 4096 chars; total embed: 6000 chars
-- User prompts truncated to 2000 chars; model responses chunked at 3500 chars via `append_response_embeds()`
-- Gemini image text responses truncated to 3800 chars
-- `chunk_text()` and `truncate_text()` in `util.py`
-
-### Pricing
-
-- Per-request cost + daily accumulation tracked for all commands
-- Pricing dicts in `util.py`: `MODEL_PRICING`, `IMAGE_PRICING`, `VIDEO_PRICING`, `TTS_PRICING`
-- Cost functions: `calculate_cost()` (with `thinking_tokens`), `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()`
-- Embeds toggled via `SHOW_COST_EMBEDS` env var (default: true)
-- Structured cost logging via `_log_cost()` on every API call
-
-### Music Models
-
-- `/gemini music` supports `lyria-3-pro-preview`, `lyria-3-clip-preview`, and `lyria-realtime-exp`
-- Lyria 3 models use `client.aio.models.generate_content(..., response_modalities=["AUDIO", "TEXT"])`
-- Lyria 3 music requests may include an optional image attachment; RealTime remains text-only weighted prompts
-- Lyria RealTime keeps the existing WebSocket path via `music_client.aio.live.music.connect(...)`
-- The shared slash-command controls (`duration`, `bpm`, `scale`, `density`, `brightness`, `guidance`) are translated into natural-language prompt guidance for Lyria 3 models
-
-### Resource Cleanup (`cog_unload`)
-
-- HTTP session, async client (`client.aio.aclose()`), sync client (`client.close()`)
-- All active caches deleted, uploaded files cleaned up, temp files removed
-
-## Linting & Formatting
-
-- **ruff** handles both linting and formatting, configured in `pyproject.toml`
-- Rules: `E`, `W`, `F`, `I`, `UP`, `B`, `SIM` (E501 ignored — formatter handles line length)
-- Line length: 100, target: Python 3.10
-- Pre-commit hook in `.githooks/pre-commit`: auto-formats staged files, blocks commit on lint failure
-- After cloning, run `git config core.hooksPath .githooks` to enable the hook
-
-## Testing
-
-- `pytest` from project root — pytest-native with `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed)
-- `pythonpath = ["src"]` configured in `pyproject.toml` — use direct imports (`from util import ...`)
-- Mocked Discord/Gemini clients, no real API calls
-- Supported/tested Python versions: 3.10, 3.11, 3.12, 3.13
+## Validation Commands
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q    # Windows
-.venv/bin/python -m pytest -q            # Unix
-
-# Docker version check
-docker build --build-arg PYTHON_VERSION=3.10 -f Dockerfile.test -t discord-gemini-test:3.10 .
-docker run --rm discord-gemini-test:3.10
+ruff check src/ tests/
+ruff format src/ tests/
+pyright src/
+pytest -q
 ```
 
-- `test_util.py` — dataclasses, constants, pricing, utility functions, AgenticResult, callable tool handling
-- `test_button_view.py` — button callbacks, tool select behavior, custom functions toggle
-- `test_gemini_api.py` — cog methods, attachments, caching, pricing, embeds
-- `test_tools.py` — tool registry, @tool decorator, execute_tool_call, starter tools
-- GitHub Actions runs `pytest` on Python 3.10-3.13 for every push/PR
-- CI also builds the Docker test image after the matrix passes; release image builds on push
+## Provider Notes
 
-## Adding a New Slash Command
-
-1. Define with `@gemini.command` (not `@slash_command`) + `@option` decorators
-2. `await ctx.defer()` immediately, wrap in try/except, errors as red embeds
-3. Use parameter dataclass from `util.py` for config
-4. Add tests in `test_gemini_api.py`
-
-## Adding a Custom Tool
-
-1. Define an async or sync function in `src/tools.py` with type-hinted params and a docstring
-2. Decorate with `@tool` — the SDK auto-generates JSON schema from type hints
-3. The tool is automatically available when "Custom Functions" is enabled in a chat
-4. Add tests in `tests/test_tools.py`
-
-## External Resources
-
-- [Gemini API Docs](https://ai.google.dev/gemini-api/docs) · [py-cord Docs](https://docs.pycord.dev/) · [AI Studio](https://aistudio.google.com/)
+- Preserve the current cache/file-search/maps/tool compatibility behavior when refactoring further.
+- `GEMINI_FILE_SEARCH_STORE_IDS` is the runtime gate for file-search-enabled flows.
+- `discord_gemini.cogs.gemini.cog` remains the canonical owner for most chat, music, video, speech, and research orchestration in this pass.

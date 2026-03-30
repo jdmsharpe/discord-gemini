@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "discord-gemini"
 version = "1.0.0"
@@ -29,3 +33,13 @@ exclude = [".venv", "**/node_modules", "**/__pycache__", "**/.*"]
 extraPaths = ["src"]
 venvPath = "."
 venv = ".venv"
+
+[tool.setuptools]
+py-modules = ["gemini_api"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["discord_gemini*"]

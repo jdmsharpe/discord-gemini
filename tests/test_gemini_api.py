@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 from io import BytesIO
@@ -5,11 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from PIL import Image
 
-import gemini_api
-from gemini_api import (
-    Conversation,
-    GeminiAPI,
+from discord_gemini import Conversation, GeminiAPI
+from discord_gemini.cogs.gemini import cog as gemini_cog
+from discord_gemini.cogs.gemini.cog import (
     _build_lyria3_prompt,
     _build_thinking_config,
     _get_response_content_parts,
@@ -22,6 +23,7 @@ from gemini_api import (
     extract_thinking_text,
     extract_tool_info,
 )
+from discord_gemini.cogs.gemini.responses import MusicGenerationError
 
 
 def build_mock_bot() -> MagicMock:
@@ -41,11 +43,11 @@ class GeminiCogTestCase:
     def setup(self):
         with (
             patch.object(
-                gemini_api,
+                gemini_cog,
                 "GEMINI_FILE_SEARCH_STORE_IDS",
                 self.file_search_store_ids.copy(),
             ) as _store_ids_patcher,
-            patch("gemini_api.genai.Client") as mock_genai_client,
+            patch("discord_gemini.cogs.gemini.cog.genai.Client") as mock_genai_client,
         ):
             self.mock_genai_client = mock_genai_client
             self.mock_client_instance = mock_genai_client.return_value
@@ -64,11 +66,11 @@ class AsyncGeminiCogTestCase:
     async def setup(self):
         with (
             patch.object(
-                gemini_api,
+                gemini_cog,
                 "GEMINI_FILE_SEARCH_STORE_IDS",
                 self.file_search_store_ids.copy(),
             ) as _store_ids_patcher,
-            patch("gemini_api.genai.Client") as mock_genai_client,
+            patch("discord_gemini.cogs.gemini.cog.genai.Client") as mock_genai_client,
         ):
             self.mock_genai_client = mock_genai_client
             self.mock_client_instance = mock_genai_client.return_value
@@ -76,7 +78,7 @@ class AsyncGeminiCogTestCase:
             self.mock_client_instance.close = MagicMock()
 
             self.bot = build_mock_bot()
-            self.bot.loop = gemini_api.asyncio.get_running_loop()
+            self.bot.loop = asyncio.get_running_loop()
             self.cog = GeminiAPI(bot=self.bot)
             yield
 
@@ -137,7 +139,7 @@ class TestGeminiAPI(AsyncGeminiCogTestCase):
         assert session.closed is False
 
         self.cog.cog_unload()
-        await gemini_api.asyncio.sleep(0)
+        await asyncio.sleep(0)
 
         assert self.cog._http_session is None
 
@@ -145,7 +147,7 @@ class TestGeminiAPI(AsyncGeminiCogTestCase):
 class TestConversation:
     def test_conversation_dataclass(self):
         """Test the Conversation dataclass."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-3-flash-preview")
         history = [{"role": "user", "parts": [{"text": "Hello"}]}]
@@ -412,17 +414,15 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
     async def test_enrich_file_search_tools_no_store_ids(self):
         """Test that enrich_file_search_tools returns error when store IDs not configured."""
-        import gemini_api
-
-        original = gemini_api.GEMINI_FILE_SEARCH_STORE_IDS
-        gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = []
+        original = gemini_cog.GEMINI_FILE_SEARCH_STORE_IDS
+        gemini_cog.GEMINI_FILE_SEARCH_STORE_IDS = []
         try:
             tools = [{"file_search": {}}]
             error = self.cog.enrich_file_search_tools(tools)
             assert error is not None
             assert "GEMINI_FILE_SEARCH_STORE_IDS" in error
         finally:
-            gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = original
+            gemini_cog.GEMINI_FILE_SEARCH_STORE_IDS = original
 
     async def test_validate_attachment_size_within_limit(self):
         """Test that attachments within limits pass validation."""
@@ -554,7 +554,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
     async def test_cleanup_uploaded_files(self):
         """Test that _cleanup_uploaded_files deletes all tracked files."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -570,7 +570,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
     async def test_cleanup_uploaded_files_handles_errors(self):
         """Test that _cleanup_uploaded_files handles API errors gracefully."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -586,7 +586,7 @@ class TestGeminiAPIHelpers(AsyncGeminiCogTestCase):
 
     async def test_cleanup_uploaded_files_noop_when_empty(self):
         """Test that _cleanup_uploaded_files is a no-op with no files."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-3-flash-preview")
 
@@ -744,7 +744,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_prompt_prefix_for_generation(self):
         """Test that prompts are prefixed with 'Create image:' for Gemini models."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image-preview")
         mock_response = MagicMock()
@@ -758,7 +758,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_prompt_unchanged_for_editing(self):
         """Test that prompts are NOT prefixed when an attachment is provided."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="Edit this cat",
@@ -776,7 +776,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_generate_image_with_gemini_default_config(self):
         """Test that default config has response_modalities and no custom image_config/tools."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
@@ -800,7 +800,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_generate_image_with_gemini_image_size(self):
         """Test that image_size is passed via image_config."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
@@ -821,7 +821,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_generate_image_with_gemini_aspect_ratio(self):
         """Test that non-default aspect_ratio is passed via image_config."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
@@ -842,7 +842,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_generate_image_with_gemini_image_search(self):
         """Test that google_image_search adds tools with search_types."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
@@ -868,7 +868,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_generate_image_with_gemini_image_search_wrong_model(self):
         """Test that google_image_search is ignored for non-3.1-flash-image models."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
@@ -888,7 +888,7 @@ class TestGeminiAPIImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_generate_image_with_gemini_combined_config(self):
         """Test that image_size, aspect_ratio, and google_image_search combine correctly."""
-        from util import ImageGenerationParameters
+        from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
@@ -924,7 +924,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_run_deep_research_success(self):
         """Test _run_deep_research with a successful completion."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="Research AI safety")
 
@@ -945,7 +945,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
         self.cog.client.aio.interactions.create.return_value = interaction_started
         self.cog.client.aio.interactions.get.return_value = interaction_done
 
-        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+        with patch("discord_gemini.cogs.gemini.cog.asyncio.sleep", new_callable=AsyncMock):
             (
                 report_text,
                 input_tokens,
@@ -965,7 +965,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_run_deep_research_with_file_search(self):
         """Test _run_deep_research passes file_search tools when enabled."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="Analyze report", file_search=True)
 
@@ -980,7 +980,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
-        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+        with patch("discord_gemini.cogs.gemini.cog.asyncio.sleep", new_callable=AsyncMock):
             report_text, _, _, _ = await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
@@ -993,22 +993,21 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_run_deep_research_file_search_no_store_ids(self):
         """Test _run_deep_research raises when file_search enabled but no store IDs."""
-        import gemini_api
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="test", file_search=True)
 
-        original = gemini_api.GEMINI_FILE_SEARCH_STORE_IDS
-        gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = []
+        original = gemini_cog.GEMINI_FILE_SEARCH_STORE_IDS
+        gemini_cog.GEMINI_FILE_SEARCH_STORE_IDS = []
         try:
             with pytest.raises(Exception, match="GEMINI_FILE_SEARCH_STORE_IDS"):
                 await self.cog._run_deep_research(params)
         finally:
-            gemini_api.GEMINI_FILE_SEARCH_STORE_IDS = original
+            gemini_cog.GEMINI_FILE_SEARCH_STORE_IDS = original
 
     async def test_run_deep_research_failed(self):
         """Test _run_deep_research raises on failure."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="test")
 
@@ -1017,14 +1016,14 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
         self.cog.client.aio.interactions.create.return_value = interaction_failed
 
         with (
-            patch("gemini_api.asyncio.sleep", new_callable=AsyncMock),
+            patch("discord_gemini.cogs.gemini.cog.asyncio.sleep", new_callable=AsyncMock),
             pytest.raises(Exception, match="failed"),
         ):
             await self.cog._run_deep_research(params)
 
     async def test_run_deep_research_no_output(self):
         """Test _run_deep_research returns None text when no output."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="test")
 
@@ -1039,7 +1038,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
-        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+        with patch("discord_gemini.cogs.gemini.cog.asyncio.sleep", new_callable=AsyncMock):
             (
                 report_text,
                 input_tokens,
@@ -1052,7 +1051,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_create_research_response_embeds(self):
         """Test _create_research_response_embeds creates header embed only."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="Research quantum computing")
 
@@ -1066,7 +1065,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_create_research_response_embeds_with_file_search(self):
         """Test _create_research_response_embeds shows file search status."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="Analyze docs", file_search=True)
 
@@ -1076,7 +1075,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_run_deep_research_with_google_maps(self):
         """Test _run_deep_research passes google_maps tool when enabled."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="Best restaurants in Tokyo", google_maps=True)
 
@@ -1091,7 +1090,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
-        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+        with patch("discord_gemini.cogs.gemini.cog.asyncio.sleep", new_callable=AsyncMock):
             report_text, _, _, _ = await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
@@ -1100,7 +1099,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_run_deep_research_with_file_search_and_google_maps(self):
         """Test _run_deep_research passes both file_search and google_maps tools."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(
             prompt="Local docs about Tokyo", file_search=True, google_maps=True
@@ -1117,7 +1116,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
-        with patch("gemini_api.asyncio.sleep", new_callable=AsyncMock):
+        with patch("discord_gemini.cogs.gemini.cog.asyncio.sleep", new_callable=AsyncMock):
             await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
@@ -1128,7 +1127,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_create_research_response_embeds_with_google_maps(self):
         """Test _create_research_response_embeds shows Google Maps status."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="Find restaurants nearby", google_maps=True)
 
@@ -1138,7 +1137,7 @@ class TestGeminiAPIDeepResearch(AsyncGeminiCogTestCase):
 
     async def test_create_research_response_embeds_truncates_prompt(self):
         """Test _create_research_response_embeds truncates long prompts."""
-        from util import ResearchParameters
+        from discord_gemini.util import ResearchParameters
 
         params = ResearchParameters(prompt="X" * 3000)
 
@@ -1214,7 +1213,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_below_threshold(self):
         """Test that _maybe_create_cache does nothing when below token threshold."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-3-flash-preview")
         history = [
@@ -1231,7 +1230,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_above_threshold(self):
         """Test that _maybe_create_cache creates a cache when above threshold."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-3-flash-preview", conversation_id=100)
         history = [
@@ -1251,7 +1250,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_refreshes_ttl(self):
         """Test that _maybe_create_cache refreshes TTL when uncached tail is small."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -1275,7 +1274,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_refreshes_ttl_error_handled(self):
         """Test that TTL refresh errors are handled gracefully."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -1297,7 +1296,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_recaches_when_uncached_tail_large(self):
         """Test that _maybe_create_cache re-caches when uncached portion exceeds threshold."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -1329,7 +1328,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_recache_keeps_old_on_create_error(self):
         """Test that re-cache failure preserves the old cache."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -1356,7 +1355,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_unsupported_model(self):
         """Test that _maybe_create_cache skips for models without explicit caching."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-2.0-flash")
         response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=5000))
@@ -1368,7 +1367,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_implicit_only_models_skipped(self):
         """Test that 2.5 models rely on implicit caching and are skipped."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         for model in ("gemini-2.5-pro", "gemini-2.5-flash"):
             params = ChatCompletionParameters(model=model)
@@ -1381,7 +1380,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_no_usage_metadata(self):
         """Test that _maybe_create_cache handles missing usage_metadata."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-3-flash-preview")
         response = SimpleNamespace()  # No usage_metadata
@@ -1393,7 +1392,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_maybe_create_cache_handles_api_error(self):
         """Test that _maybe_create_cache logs warning on API error."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-3-flash-preview", conversation_id=100)
         history = [
@@ -1412,7 +1411,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_delete_conversation_cache(self):
         """Test that _delete_conversation_cache deletes and clears fields."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -1428,7 +1427,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_delete_conversation_cache_noop_when_none(self):
         """Test that _delete_conversation_cache is a no-op when no cache exists."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(model="gemini-3-flash-preview")
 
@@ -1438,7 +1437,7 @@ class TestGeminiAPICaching(AsyncGeminiCogTestCase):
 
     async def test_delete_conversation_cache_handles_api_error(self):
         """Test that _delete_conversation_cache handles API errors gracefully."""
-        from util import ChatCompletionParameters
+        from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview",
@@ -1505,7 +1504,7 @@ class TestGuessAttachmentMimeType:
 
 class TestLyriaHelpers:
     def test_build_lyria3_prompt_for_pro_includes_controls(self):
-        from util import MusicGenerationParameters
+        from discord_gemini.util import MusicGenerationParameters
 
         params = MusicGenerationParameters(
             prompts=["Dreamy synthpop with warm vocals"],
@@ -1529,7 +1528,7 @@ class TestLyriaHelpers:
         assert "Prompt adherence target: 5.0 on a 0 to 6 scale." in prompt
 
     def test_build_lyria3_prompt_for_clip_forces_30_second_note(self):
-        from util import MusicGenerationParameters
+        from discord_gemini.util import MusicGenerationParameters
 
         params = MusicGenerationParameters(
             prompts=["Lo-fi beat"],
@@ -1550,7 +1549,7 @@ class TestLyriaHelpers:
 
 class TestLyria3Generation(AsyncGeminiCogTestCase):
     async def test_generate_music_with_lyria3_uses_generate_content(self):
-        from util import MusicGenerationParameters
+        from discord_gemini.util import MusicGenerationParameters
 
         response = SimpleNamespace(
             candidates=[
@@ -1592,9 +1591,9 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
         assert "Tempo: 110 BPM." in call_kwargs["contents"]
 
     async def test_generate_music_with_lyria3_with_attachment_uses_multimodal_contents(self):
-        from util import MusicGenerationParameters
+        from discord_gemini.util import MusicGenerationParameters
 
-        image = gemini_api.Image.new("RGB", (2, 2), color="blue")
+        image = Image.new("RGB", (2, 2), color="blue")
         image_bytes = BytesIO()
         image.save(image_bytes, format="PNG")
 
@@ -1617,10 +1616,10 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
         assert isinstance(call_kwargs["contents"], list)
         assert len(call_kwargs["contents"]) == 2
         assert isinstance(call_kwargs["contents"][0], str)
-        assert isinstance(call_kwargs["contents"][1], gemini_api.Image.Image)
+        assert isinstance(call_kwargs["contents"][1], Image.Image)
 
     async def test_generate_music_with_lyria3_returns_text_without_audio(self):
-        from util import MusicGenerationParameters
+        from discord_gemini.util import MusicGenerationParameters
 
         response = SimpleNamespace(
             candidates=[
@@ -1645,7 +1644,7 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
         assert mime_type is None
 
     async def test_build_lyria3_music_contents_invalid_attachment_raises(self):
-        from util import MusicGenerationParameters
+        from discord_gemini.util import MusicGenerationParameters
 
         self.cog._fetch_attachment_bytes = AsyncMock(return_value=b"not-an-image")
         attachment = MagicMock()
@@ -1657,7 +1656,7 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
             model="lyria-3-pro-preview",
         )
 
-        with pytest.raises(gemini_api.MusicGenerationError):
+        with pytest.raises(MusicGenerationError):
             await self.cog._build_lyria3_music_contents(params, attachment)
 
 
@@ -1910,7 +1909,7 @@ class TestThinkingFeatures(GeminiCogTestCase):
 
     def test_track_daily_cost_with_thinking_tokens(self):
         """Test that _track_daily_cost accumulates pre-calculated cost including thinking."""
-        from util import calculate_cost
+        from discord_gemini.util import calculate_cost
 
         # gemini-2.0-flash: $0.10/M in, $0.40/M out
         # thinking tokens billed at output rate
@@ -2011,14 +2010,14 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
 
     async def test_mode_text_to_video(self):
         """Test embed shows Text-to-Video mode when no attachments."""
-        from util import VideoGenerationParameters
+        from discord_gemini.util import VideoGenerationParameters
 
         params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
         await self._assert_video_mode(params, "Text-to-Video")
 
     async def test_mode_image_to_video(self):
         """Test embed shows Image-to-Video mode when attachment provided."""
-        from util import VideoGenerationParameters
+        from discord_gemini.util import VideoGenerationParameters
 
         params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
         mock_attachment = MagicMock()
@@ -2026,7 +2025,7 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
 
     async def test_mode_interpolation(self):
         """Test embed shows Interpolation mode when both attachment and last_frame."""
-        from util import VideoGenerationParameters
+        from discord_gemini.util import VideoGenerationParameters
 
         params = VideoGenerationParameters(
             prompt="A sunset",
@@ -2038,7 +2037,7 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
 
     async def test_mode_last_frame_only(self):
         """Test embed shows Last Frame Constrained mode when only last_frame."""
-        from util import VideoGenerationParameters
+        from discord_gemini.util import VideoGenerationParameters
 
         params = VideoGenerationParameters(
             prompt="A sunset",

@@ -1,30 +1,17 @@
-"""Custom exception hierarchy for the Discord Gemini bot.
+"""Legacy exceptions shim."""
 
-Using specific exception types instead of bare ``Exception`` makes catch
-blocks precise: you can handle a cache failure differently from a file
-upload failure without resorting to fragile string matching.
-"""
+from warnings import warn
 
+from discord_gemini.cogs.gemini.responses import (
+    APICallError,
+    MusicGenerationError,
+    ValidationError,
+)
 
-class GeminiBotError(Exception):
-    """Base exception for all bot-specific errors."""
+warn(
+    "exceptions is deprecated; import from discord_gemini.cogs.gemini.responses instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-
-class APICallError(GeminiBotError):
-    """An error originating from a Google Gemini API call."""
-
-
-class CacheError(GeminiBotError):
-    """Failed to create, refresh, or delete an explicit context cache."""
-
-
-class FileUploadError(GeminiBotError):
-    """Failed to upload or clean up a file via the Gemini File API."""
-
-
-class ValidationError(GeminiBotError):
-    """A user-supplied parameter or combination of parameters is invalid."""
-
-
-class MusicGenerationError(GeminiBotError):
-    """An error specific to the Lyria RealTime music generation pipeline."""
+__all__ = ["APICallError", "MusicGenerationError", "ValidationError"]
