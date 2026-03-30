@@ -27,3 +27,5 @@ quote-style = "double"
 include = ["src"]
 exclude = [".venv", "**/node_modules", "**/__pycache__", "**/.*"]
 extraPaths = ["src"]
+venvPath = "."
+venv = ".venv"
