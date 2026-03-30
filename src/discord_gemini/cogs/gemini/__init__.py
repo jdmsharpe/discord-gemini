@@ -1,3 +1,4 @@
-from .cog import Conversation, GeminiAPI
+from .cog import GeminiCog
+from .models import Conversation
 
-__all__ = ["GeminiAPI", "Conversation"]
+__all__ = ["GeminiCog", "Conversation"]

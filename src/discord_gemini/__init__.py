@@ -1,5 +1,5 @@
 """Public namespace for the discord-gemini package."""
 
-from .cogs.gemini import Conversation, GeminiAPI
+from .cogs.gemini import Conversation, GeminiCog
 
-__all__ = ["GeminiAPI", "Conversation"]
+__all__ = ["GeminiCog", "Conversation"]
