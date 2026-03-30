@@ -1,23 +1,25 @@
-import os
+"""Legacy shim for config.auth pointing to the new namespaced package."""
 
-from dotenv import load_dotenv
+from warnings import warn
 
-load_dotenv()
+from discord_gemini.config.auth import (
+    BOT_TOKEN,
+    GEMINI_API_KEY,
+    GEMINI_FILE_SEARCH_STORE_IDS,
+    GUILD_IDS,
+    SHOW_COST_EMBEDS,
+)
 
+warn(
+    "config.auth is deprecated; import from discord_gemini.config.auth instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-def require_env(key: str) -> str:
-    """Return an environment variable's value or raise if unset/empty."""
-    value = os.getenv(key)
-    if not value:
-        raise RuntimeError(f"Required environment variable {key} is not set or is empty")
-    return value
-
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GUILD_IDS = [int(id) for id in os.getenv("GUILD_IDS", "").split(",") if id]
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_FILE_SEARCH_STORE_IDS = [
-    store_id for store_id in os.getenv("GEMINI_FILE_SEARCH_STORE_IDS", "").split(",") if store_id
+__all__ = [
+    "BOT_TOKEN",
+    "GUILD_IDS",
+    "GEMINI_API_KEY",
+    "GEMINI_FILE_SEARCH_STORE_IDS",
+    "SHOW_COST_EMBEDS",
 ]
-SHOW_COST_EMBEDS = os.getenv("SHOW_COST_EMBEDS", "true").lower() in ("true", "1", "yes")
-ENABLE_CUSTOM_TOOLS = os.getenv("ENABLE_CUSTOM_TOOLS", "true").lower() in ("true", "1", "yes")

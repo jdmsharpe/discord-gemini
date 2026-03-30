@@ -1,12 +1,13 @@
 import pytest
 
-from util import (
+from discord_gemini.util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
     ATTACHMENT_MAX_INLINE_SIZE,
     ATTACHMENT_PDF_MAX_INLINE_SIZE,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
+    DEFAULT_MUSIC_MODEL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
     IMAGE_PRICING,
     LYRIA_3_MODELS,
@@ -573,7 +574,7 @@ class TestMusicGenerationParameters:
     def test_defaults(self):
         params = MusicGenerationParameters(prompts=["upbeat jazz"])
         assert params.prompts == ["upbeat jazz"]
-        assert params.model == LYRIA_REALTIME_MODEL
+        assert params.model == DEFAULT_MUSIC_MODEL
         assert params.prompt_weights is None
         assert params.duration == 30
         assert params.bpm is None
@@ -590,6 +591,7 @@ class TestMusicGenerationParameters:
 
     def test_supported_music_model_constants(self):
         """Test the supported Lyria model constants."""
+        assert DEFAULT_MUSIC_MODEL == "lyria-3-clip-preview"
         assert LYRIA_REALTIME_MODEL == "lyria-realtime-exp"
         assert "lyria-3-pro-preview" in LYRIA_3_MODELS
         assert "lyria-3-clip-preview" in LYRIA_3_MODELS
@@ -733,7 +735,7 @@ class TestTruncateText:
 
     def test_truncate_text_under_limit(self):
         """Test that short text is not truncated."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         text = "Short text"
         result = truncate_text(text, 100)
@@ -742,7 +744,7 @@ class TestTruncateText:
 
     def test_truncate_text_over_limit(self):
         """Test that long text is truncated with suffix."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         text = "A" * 100
         result = truncate_text(text, 50)
@@ -752,7 +754,7 @@ class TestTruncateText:
 
     def test_truncate_text_at_limit(self):
         """Test that text exactly at limit is not truncated."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         text = "B" * 100
         result = truncate_text(text, 100)
@@ -761,7 +763,7 @@ class TestTruncateText:
 
     def test_truncate_text_custom_suffix(self):
         """Test truncation with custom suffix."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         text = "Hello, world!"
         result = truncate_text(text, 5, suffix="[...]")
@@ -769,21 +771,21 @@ class TestTruncateText:
 
     def test_truncate_text_none(self):
         """Test that None input returns None."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         result = truncate_text(None, 100)
         assert result is None
 
     def test_truncate_text_empty_string(self):
         """Test that empty string is handled correctly."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         result = truncate_text("", 100)
         assert result == ""
 
     def test_truncate_text_empty_suffix(self):
         """Test truncation with empty suffix."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         text = "Hello, world!"
         result = truncate_text(text, 5, suffix="")
@@ -792,7 +794,7 @@ class TestTruncateText:
 
     def test_truncate_text_prompt_limit(self):
         """Test standard 2000 char prompt truncation."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         long_prompt = "A" * 3000
         result = truncate_text(long_prompt, 2000)
@@ -801,7 +803,7 @@ class TestTruncateText:
 
     def test_truncate_text_response_limit(self):
         """Test standard 3500 char response truncation."""
-        from util import truncate_text
+        from discord_gemini.util import truncate_text
 
         long_response = "B" * 5000
         result = truncate_text(long_response, 3500)
