@@ -2746,10 +2746,10 @@ class GeminiAPI(commands.Cog):
                 if attachment:
                     description += "**Reference Image:** Attached\n"
                 if model == "lyria-3-clip-preview":
-                    description += "**Mode:** 30-second clip generation\n"
+                    description += "**Mode:** Clip generation\n"
                     description += "**Duration:** 30 seconds (fixed by model)\n"
                 elif model == "lyria-3-pro-preview":
-                    description += "**Mode:** Full song generation\n"
+                    description += "**Mode:** Song generation\n"
                     description += f"**Target Duration:** {duration} seconds\n"
                 else:
                     description += "**Mode:** Real-time instrumental generation\n"
