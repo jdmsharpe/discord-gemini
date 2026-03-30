@@ -78,6 +78,7 @@ All commands are grouped under `/gemini` for clean namespacing.
 ### Music Generation
 
 - **`/gemini music`**: Create music using Lyria 3 or Lyria RealTime
+- Default music model: Lyria 3 Clip Preview (`lyria-3-clip-preview`)
 - Multiple music model options:
   - Lyria 3 Pro Preview for full-length songs with structural coherence
   - Lyria 3 Clip Preview for 30-second clips, loops, and previews

@@ -45,6 +45,7 @@ from ...util import (
     AVAILABLE_TOOLS,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
+    DEFAULT_MUSIC_MODEL,
     LYRIA_3_MODELS,
     LYRIA_REALTIME_MODEL,
     MAX_AGENTIC_ITERATIONS,
@@ -2559,7 +2560,7 @@ class GeminiAPI(commands.Cog):
     )
     @option(
         "model",
-        description="Choose music generation model. (default: Lyria RealTime Experimental)",
+        description="Choose music generation model. (default: Lyria 3 Clip Preview)",
         required=False,
         choices=[
             OptionChoice(name="Lyria 3 Pro Preview", value="lyria-3-pro-preview"),
@@ -2633,7 +2634,7 @@ class GeminiAPI(commands.Cog):
         ctx: ApplicationContext,
         prompt: str,
         attachment: Attachment | None = None,
-        model: str = LYRIA_REALTIME_MODEL,
+        model: str = DEFAULT_MUSIC_MODEL,
         duration: int = 30,
         bpm: int | None = None,
         scale: str | None = None,

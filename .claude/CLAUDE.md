@@ -71,3 +71,4 @@ pytest -q
 - Preserve the current cache/file-search/maps/tool compatibility behavior when refactoring further.
 - `GEMINI_FILE_SEARCH_STORE_IDS` is the runtime gate for file-search-enabled flows.
 - `discord_gemini.cogs.gemini.cog` remains the canonical owner for most chat, music, video, speech, and research orchestration in this pass.
+- Default music model is `lyria-3-clip-preview`; keep `discord_gemini.util.DEFAULT_MUSIC_MODEL`, the `/gemini music` slash-command metadata, and user-facing docs aligned when changing it.
