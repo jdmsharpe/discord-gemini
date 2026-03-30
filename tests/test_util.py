@@ -7,6 +7,7 @@ from discord_gemini.util import (
     ATTACHMENT_PDF_MAX_INLINE_SIZE,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
+    DEFAULT_MUSIC_MODEL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
     IMAGE_PRICING,
     LYRIA_3_MODELS,
@@ -573,7 +574,7 @@ class TestMusicGenerationParameters:
     def test_defaults(self):
         params = MusicGenerationParameters(prompts=["upbeat jazz"])
         assert params.prompts == ["upbeat jazz"]
-        assert params.model == LYRIA_REALTIME_MODEL
+        assert params.model == DEFAULT_MUSIC_MODEL
         assert params.prompt_weights is None
         assert params.duration == 30
         assert params.bpm is None
@@ -590,6 +591,7 @@ class TestMusicGenerationParameters:
 
     def test_supported_music_model_constants(self):
         """Test the supported Lyria model constants."""
+        assert DEFAULT_MUSIC_MODEL == "lyria-3-clip-preview"
         assert LYRIA_REALTIME_MODEL == "lyria-realtime-exp"
         assert "lyria-3-pro-preview" in LYRIA_3_MODELS
         assert "lyria-3-clip-preview" in LYRIA_3_MODELS

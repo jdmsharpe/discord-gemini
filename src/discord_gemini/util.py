@@ -75,6 +75,7 @@ TTS_PRICING: dict[str, tuple[float, float]] = {
     "gemini-2.5-pro-preview-tts": (1.00, 20.00),
 }
 
+DEFAULT_MUSIC_MODEL = "lyria-3-clip-preview"
 LYRIA_REALTIME_MODEL = "lyria-realtime-exp"
 LYRIA_3_MODELS = frozenset(
     {
@@ -362,7 +363,7 @@ class MusicGenerationParameters:
     """A dataclass to store parameters for music generation using Lyria models."""
 
     prompts: list[str]
-    model: str = LYRIA_REALTIME_MODEL
+    model: str = DEFAULT_MUSIC_MODEL
     prompt_weights: list[float] | None = None
     duration: int = 30  # seconds
     bpm: int | None = None  # 60-200
