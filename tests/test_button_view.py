@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from discord.ui import Select
 
-from util import TOOL_GOOGLE_SEARCH
+from discord_gemini.util import TOOL_GOOGLE_SEARCH
 
 
 def _make_view(
@@ -15,7 +15,7 @@ def _make_view(
     on_tools_changed=None,
     on_stop=None,
 ):
-    from button_view import ButtonView
+    from discord_gemini.cogs.gemini.views import ButtonView
 
     return ButtonView(
         conversation_starter=conversation_starter or MagicMock(),

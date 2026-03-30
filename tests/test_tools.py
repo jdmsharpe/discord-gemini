@@ -1,6 +1,6 @@
 import pytest
 
-from tools import (
+from discord_gemini.cogs.gemini.tooling import (
     ToolEntry,
     clear_registry,
     execute_tool_call,
@@ -19,7 +19,7 @@ class TestToolDecorator:
         yield
         # Restore original registry (starter tools)
         clear_registry()
-        from tools import _TOOL_REGISTRY
+        from discord_gemini.cogs.gemini.tooling import _TOOL_REGISTRY
 
         _TOOL_REGISTRY.update(self._original)
 
@@ -89,7 +89,7 @@ class TestExecuteToolCall:
         clear_registry()
         yield
         clear_registry()
-        from tools import _TOOL_REGISTRY
+        from discord_gemini.cogs.gemini.tooling import _TOOL_REGISTRY
 
         _TOOL_REGISTRY.update(self._original)
 
