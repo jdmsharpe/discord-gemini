@@ -2,7 +2,7 @@
 
 from warnings import warn
 
-from discord_gemini import Conversation, GeminiAPI
+from discord_gemini import Conversation, GeminiCog
 
 warn(
     "gemini_api is deprecated; import from discord_gemini instead.",
@@ -10,4 +10,4 @@ warn(
     stacklevel=2,
 )
 
-__all__ = ["GeminiAPI", "Conversation"]
+__all__ = ["GeminiCog", "Conversation"]

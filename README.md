@@ -84,12 +84,15 @@ All commands are grouped under `/gemini` for clean namespacing.
   - Lyria 3 Clip Preview for 30-second clips, loops, and previews
   - Lyria RealTime Experimental for streaming instrumental generation
 - Customizable parameters:
+  - Duration for Lyria RealTime only
   - BPM (60-200)
   - Musical scale/key selection
   - Density and brightness controls
   - Prompt guidance strength
+- Lyria 3 Clip is always 30 seconds; Lyria 3 Pro ignores the slash-command `duration` value
 - Optional reference image input for Lyria 3 Pro/Clip
 - Lyria 3 can return lyrics or structure notes alongside audio
+- Long Lyria lyrics/structure notes are previewed in the embed and attached as `music_notes.txt`
 - High-quality stereo audio output (MP3/WAV for Lyria 3, WAV for RealTime)
 - Support for various genres, instruments, moods, songs, and clips
 
@@ -122,14 +125,14 @@ All commands are grouped under `/gemini` for clean namespacing.
 To compose this repo into a larger bot, import the namespaced package:
 
 ```python
-from discord_gemini import GeminiAPI
+from discord_gemini import GeminiCog
 
-bot.add_cog(GeminiAPI(bot=bot))
+bot.add_cog(GeminiCog(bot=bot))
 ```
 
 `Conversation` remains re-exported from `discord_gemini` for compatibility during this refactor pass.
 The legacy top-level `gemini_api` module remains as a temporary compatibility shim and emits a `DeprecationWarning`.
-Top-level `bot.py`, `button_view.py`, `config`, `exceptions.py`, `tools.py`, and `util.py` are compatibility layers or repo-local helpers, not the installed public API surface.
+Top-level `bot.py`, `button_view.py`, `config`, `exceptions.py`, `tools.py`, and `util.py` are compatibility layers or repo-local helpers, not the installed public API surface. The legacy shim re-exports `GeminiCog` and `Conversation` only; `GeminiAPI` is no longer a supported symbol.
 
 ## Requirements
 

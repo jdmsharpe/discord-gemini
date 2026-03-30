@@ -4,7 +4,7 @@ import logging
 
 from discord import Bot, Intents
 
-from . import GeminiAPI
+from . import GeminiCog
 from .config.auth import BOT_TOKEN
 
 
@@ -15,7 +15,7 @@ def build_bot() -> Bot:
     intents.message_content = True
     intents.guilds = True
     bot = Bot(intents=intents)
-    bot.add_cog(GeminiAPI(bot=bot))
+    bot.add_cog(GeminiCog(bot=bot))
     return bot
 
 

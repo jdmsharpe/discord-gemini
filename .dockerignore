@@ -1,4 +1,5 @@
 .venv/
+.venv-wsl/
 .git/
 .claude/
 __pycache__/
