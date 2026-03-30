@@ -57,7 +57,7 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 | `/gemini image` | `generate_content` (Gemini) or `generate_images` (Imagen) | Different APIs per model family |
 | `/gemini video` | `client.aio.models.generate_videos()` | Long-running op, polls every 20s, 10min timeout |
 | `/gemini tts` | `generate_content` with `response_modalities` | WAV output (24kHz, 16-bit, Mono) |
-| `/gemini music` | WebSocket streaming (`api_version='v1alpha'`) | Stereo WAV (48kHz), Lyria model |
+| `/gemini music` | `generate_content` (Lyria 3) or WebSocket streaming (Lyria RealTime) | Lyria 3 Pro/Clip return encoded audio + optional lyrics text; RealTime streams stereo PCM/WAV |
 | `/gemini research` | `client.aio.interactions.create/get()` | Interactions API, polls 15s, 20min timeout |
 
 ### Key Design Patterns
@@ -106,6 +106,13 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 - Cost functions: `calculate_cost()` (with `thinking_tokens`), `calculate_image_cost()`, `calculate_video_cost()`, `calculate_tts_cost()`
 - Embeds toggled via `SHOW_COST_EMBEDS` env var (default: true)
 - Structured cost logging via `_log_cost()` on every API call
+
+### Music Models
+
+- `/gemini music` supports `lyria-3-pro-preview`, `lyria-3-clip-preview`, and `lyria-realtime-exp`
+- Lyria 3 models use `client.aio.models.generate_content(..., response_modalities=["AUDIO", "TEXT"])`
+- Lyria RealTime keeps the existing WebSocket path via `music_client.aio.live.music.connect(...)`
+- The shared slash-command controls (`duration`, `bpm`, `scale`, `density`, `brightness`, `guidance`) are translated into natural-language prompt guidance for Lyria 3 models
 
 ### Resource Cleanup (`cog_unload`)
 

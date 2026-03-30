@@ -77,15 +77,19 @@ All commands are grouped under `/gemini` for clean namespacing.
 
 ### Music Generation
 
-- **`/gemini music`**: Create instrumental music using Lyria RealTime
-- Real-time streaming music generation
+- **`/gemini music`**: Create music using Lyria 3 or Lyria RealTime
+- Multiple music model options:
+  - Lyria 3 Pro Preview for full-length songs with structural coherence
+  - Lyria 3 Clip Preview for 30-second clips, loops, and previews
+  - Lyria RealTime Experimental for streaming instrumental generation
 - Customizable parameters:
   - BPM (60-200)
   - Musical scale/key selection
   - Density and brightness controls
   - Prompt guidance strength
-- High-quality stereo audio output (48kHz, 16-bit)
-- Support for various genres, instruments, and moods
+- Lyria 3 can return lyrics or structure notes alongside audio
+- High-quality stereo audio output (MP3/WAV for Lyria 3, WAV for RealTime)
+- Support for various genres, instruments, moods, songs, and clips
 
 ### Deep Research
 

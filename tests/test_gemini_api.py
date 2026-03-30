@@ -8,9 +8,11 @@ import gemini_api
 from gemini_api import (
     Conversation,
     GeminiAPI,
+    _build_lyria3_prompt,
     _build_thinking_config,
     _get_response_content_parts,
     _guess_url_mime_type,
+    _music_file_suffix_for_mime_type,
     append_pricing_embed,
     append_response_embeds,
     append_thinking_embeds,
@@ -1480,6 +1482,120 @@ class TestGuessUrlMimeType:
     def test_unknown_url_fallback(self):
         result = _guess_url_mime_type("https://example.com/api/data")
         assert result == "application/octet-stream"
+
+
+class TestLyriaHelpers:
+    def test_build_lyria3_prompt_for_pro_includes_controls(self):
+        from util import MusicGenerationParameters
+
+        params = MusicGenerationParameters(
+            prompts=["Dreamy synthpop with warm vocals"],
+            model="lyria-3-pro-preview",
+            duration=90,
+            bpm=120,
+            scale="C_MAJOR_A_MINOR",
+            density=0.4,
+            brightness=0.6,
+            guidance=5.0,
+        )
+
+        prompt = _build_lyria3_prompt(params)
+
+        assert "Dreamy synthpop with warm vocals" in prompt
+        assert "Target duration: about 90 seconds." in prompt
+        assert "Tempo: 120 BPM." in prompt
+        assert "Musical key or scale: C MAJOR A MINOR." in prompt
+        assert "Density: 0.4 on a 0 to 1 scale." in prompt
+        assert "Brightness: 0.6 on a 0 to 1 scale." in prompt
+        assert "Prompt adherence target: 5.0 on a 0 to 6 scale." in prompt
+
+    def test_build_lyria3_prompt_for_clip_forces_30_second_note(self):
+        from util import MusicGenerationParameters
+
+        params = MusicGenerationParameters(
+            prompts=["Lo-fi beat"],
+            model="lyria-3-clip-preview",
+            duration=75,
+        )
+
+        prompt = _build_lyria3_prompt(params)
+
+        assert "Generate a 30-second music clip." in prompt
+        assert "Target duration" not in prompt
+
+    def test_music_file_suffix_for_mime_type(self):
+        assert _music_file_suffix_for_mime_type("audio/mpeg") == "mp3"
+        assert _music_file_suffix_for_mime_type("audio/wav") == "wav"
+        assert _music_file_suffix_for_mime_type(None) == "mp3"
+
+
+class TestLyria3Generation(AsyncGeminiCogTestCase):
+    async def test_generate_music_with_lyria3_uses_generate_content(self):
+        from util import MusicGenerationParameters
+
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(text="Lyrics line", inline_data=None),
+                            SimpleNamespace(
+                                text=None,
+                                inline_data=SimpleNamespace(
+                                    data=b"audio-bytes",
+                                    mime_type="audio/mpeg",
+                                ),
+                            ),
+                        ]
+                    )
+                )
+            ]
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+
+        params = MusicGenerationParameters(
+            prompts=["Dream pop song"],
+            model="lyria-3-pro-preview",
+            duration=75,
+            bpm=110,
+        )
+
+        audio_data, text_response, mime_type = await self.cog._generate_music_with_lyria3(params)
+
+        assert audio_data == b"audio-bytes"
+        assert text_response == "Lyrics line"
+        assert mime_type == "audio/mpeg"
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args.kwargs
+        assert call_kwargs["model"] == "lyria-3-pro-preview"
+        assert call_kwargs["config"].response_modalities == ["AUDIO", "TEXT"]
+        assert "Target duration: about 75 seconds." in call_kwargs["contents"]
+        assert "Tempo: 110 BPM." in call_kwargs["contents"]
+
+    async def test_generate_music_with_lyria3_returns_text_without_audio(self):
+        from util import MusicGenerationParameters
+
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[SimpleNamespace(text="Only lyrics", inline_data=None)]
+                    )
+                )
+            ]
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+
+        params = MusicGenerationParameters(
+            prompts=["Minimal piano interlude"],
+            model="lyria-3-clip-preview",
+        )
+
+        audio_data, text_response, mime_type = await self.cog._generate_music_with_lyria3(params)
+
+        assert audio_data is None
+        assert text_response == "Only lyrics"
+        assert mime_type is None
 
 
 class TestThinkingFeatures(GeminiCogTestCase):
