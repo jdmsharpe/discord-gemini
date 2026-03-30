@@ -1,23 +1,6 @@
-"""
-Notes
----------------
-May need to use this command to install pycord
-python -m pip install --upgrade --no-deps --force-reinstall git+https://github.com/Pycord-Development/pycord
-"""
+"""Legacy launcher preserved for `python src/bot.py`."""
 
-from discord import Bot, Intents
-
-from config.auth import BOT_TOKEN, require_env
-from gemini_api import GeminiAPI
+from discord_gemini.bot import main
 
 if __name__ == "__main__":
-    require_env("BOT_TOKEN")
-    require_env("GEMINI_API_KEY")
-    intents = Intents.default()
-    intents.presences = False
-    intents.members = True
-    intents.message_content = True
-    intents.guilds = True
-    bot = Bot(intents=intents)
-    bot.add_cog(GeminiAPI(bot=bot))
-    bot.run(BOT_TOKEN)
+    main()

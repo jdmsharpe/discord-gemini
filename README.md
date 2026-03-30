@@ -114,6 +114,22 @@ All commands are grouped under `/gemini` for clean namespacing.
 3. Set up Discord bot permissions in your server
 4. Run the bot: `python src/bot.py`
 
+`src/bot.py` remains a thin repo-local launcher that delegates to `discord_gemini.bot.main`.
+
+### Using as a Cog
+
+To compose this repo into a larger bot, import the namespaced package:
+
+```python
+from discord_gemini import GeminiAPI
+
+bot.add_cog(GeminiAPI(bot=bot))
+```
+
+`Conversation` remains re-exported from `discord_gemini` for compatibility during this refactor pass.
+The legacy top-level `gemini_api` module remains as a temporary compatibility shim and emits a `DeprecationWarning`.
+Top-level `bot.py`, `button_view.py`, `config`, `exceptions.py`, `tools.py`, and `util.py` are compatibility layers or repo-local helpers, not the installed public API surface.
+
 ## Requirements
 
 - Python 3.10+
