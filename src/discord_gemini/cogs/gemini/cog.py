@@ -448,7 +448,7 @@ class GeminiAPI(commands.Cog):
             bot: The bot instance.
         """
         self.bot = bot
-        self.client = genai.Client(api_key=GEMINI_API_KEY)
+        self._client: genai.Client | None = None
         logging.basicConfig(
             level=logging.DEBUG,  # Capture all levels of logs
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -467,6 +467,13 @@ class GeminiAPI(commands.Cog):
         self.daily_costs: dict[tuple[int, str], float] = {}
         self._http_session: aiohttp.ClientSession | None = None
         self._session_lock = asyncio.Lock()
+
+    @property
+    def client(self) -> genai.Client:
+        """Create the Gemini client on first use so the cog can be imported without auth."""
+        if self._client is None:
+            self._client = genai.Client(api_key=GEMINI_API_KEY)
+        return self._client
 
     # -- ConversationHost protocol methods (used by ButtonView) --
 
@@ -912,6 +919,7 @@ class GeminiAPI(commands.Cog):
 
     def cog_unload(self):
         loop = getattr(self.bot, "loop", None)
+        client = self._client
 
         # Close HTTP session
         session = self._http_session
@@ -929,18 +937,19 @@ class GeminiAPI(commands.Cog):
         # Delete any active caches and uploaded files
         for conversation in self.conversations.values():
             cache_name = conversation.params.cache_name
-            if cache_name and loop and loop.is_running():
-                loop.create_task(self.client.aio.caches.delete(name=cache_name))
+            if cache_name and client and loop and loop.is_running():
+                loop.create_task(client.aio.caches.delete(name=cache_name))
             for file_name in conversation.params.uploaded_file_names:
-                if loop and loop.is_running():
-                    loop.create_task(self.client.aio.files.delete(name=file_name))
+                if client and loop and loop.is_running():
+                    loop.create_task(client.aio.files.delete(name=file_name))
 
         self.last_view_messages.clear()
 
         # Close Gemini clients
-        if loop and loop.is_running():
-            loop.create_task(self.client.aio.aclose())
-        self.client.close()
+        if client:
+            if loop and loop.is_running():
+                loop.create_task(client.aio.aclose())
+            client.close()
 
     async def _strip_previous_view(self, user) -> None:
         """Remove the button view from the previous turn's message for a user."""

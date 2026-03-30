@@ -92,6 +92,8 @@ class TestGeminiAPI(AsyncGeminiCogTestCase):
         assert self.cog.views == {}
         assert self.cog.last_view_messages == {}
         assert self.cog._http_session is None
+        assert self.cog._client is None
+        self.mock_genai_client.assert_not_called()
 
     async def test_on_ready(self):
         """Test that on_ready syncs commands."""
