@@ -111,6 +111,7 @@ All commands use `SlashCommandGroup` under `/gemini` — `guild_ids` is set on t
 
 - `/gemini music` supports `lyria-3-pro-preview`, `lyria-3-clip-preview`, and `lyria-realtime-exp`
 - Lyria 3 models use `client.aio.models.generate_content(..., response_modalities=["AUDIO", "TEXT"])`
+- Lyria 3 music requests may include an optional image attachment; RealTime remains text-only weighted prompts
 - Lyria RealTime keeps the existing WebSocket path via `music_client.aio.live.music.connect(...)`
 - The shared slash-command controls (`duration`, `bpm`, `scale`, `density`, `brightness`, `guidance`) are translated into natural-language prompt guidance for Lyria 3 models
 

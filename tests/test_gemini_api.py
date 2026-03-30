@@ -1,4 +1,5 @@
 import tempfile
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,7 @@ from gemini_api import (
     _build_lyria3_prompt,
     _build_thinking_config,
     _get_response_content_parts,
+    _guess_attachment_mime_type,
     _guess_url_mime_type,
     _music_file_suffix_for_mime_type,
     append_pricing_embed,
@@ -1484,6 +1486,22 @@ class TestGuessUrlMimeType:
         assert result == "application/octet-stream"
 
 
+class TestGuessAttachmentMimeType:
+    def test_uses_content_type_when_present(self):
+        attachment = MagicMock()
+        attachment.content_type = "image/png"
+        attachment.filename = "cover.bin"
+
+        assert _guess_attachment_mime_type(attachment) == "image/png"
+
+    def test_falls_back_to_filename_guess(self):
+        attachment = MagicMock()
+        attachment.content_type = None
+        attachment.filename = "cover.png"
+
+        assert _guess_attachment_mime_type(attachment) == "image/png"
+
+
 class TestLyriaHelpers:
     def test_build_lyria3_prompt_for_pro_includes_controls(self):
         from util import MusicGenerationParameters
@@ -1572,6 +1590,34 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
         assert "Target duration: about 75 seconds." in call_kwargs["contents"]
         assert "Tempo: 110 BPM." in call_kwargs["contents"]
 
+    async def test_generate_music_with_lyria3_with_attachment_uses_multimodal_contents(self):
+        from util import MusicGenerationParameters
+
+        image = gemini_api.Image.new("RGB", (2, 2), color="blue")
+        image_bytes = BytesIO()
+        image.save(image_bytes, format="PNG")
+
+        response = SimpleNamespace(candidates=[])
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=image_bytes.getvalue())
+
+        attachment = MagicMock()
+        attachment.filename = "reference.png"
+        attachment.content_type = "image/png"
+
+        params = MusicGenerationParameters(
+            prompts=["Dream pop song"],
+            model="lyria-3-pro-preview",
+        )
+
+        await self.cog._generate_music_with_lyria3(params, attachment)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args.kwargs
+        assert isinstance(call_kwargs["contents"], list)
+        assert len(call_kwargs["contents"]) == 2
+        assert isinstance(call_kwargs["contents"][0], str)
+        assert isinstance(call_kwargs["contents"][1], gemini_api.Image.Image)
+
     async def test_generate_music_with_lyria3_returns_text_without_audio(self):
         from util import MusicGenerationParameters
 
@@ -1596,6 +1642,61 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
         assert audio_data is None
         assert text_response == "Only lyrics"
         assert mime_type is None
+
+    async def test_build_lyria3_music_contents_invalid_attachment_raises(self):
+        from util import MusicGenerationParameters
+
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=b"not-an-image")
+        attachment = MagicMock()
+        attachment.filename = "bad.png"
+        attachment.content_type = "image/png"
+
+        params = MusicGenerationParameters(
+            prompts=["Dream pop song"],
+            model="lyria-3-pro-preview",
+        )
+
+        with pytest.raises(gemini_api.MusicGenerationError):
+            await self.cog._build_lyria3_music_contents(params, attachment)
+
+
+class TestMusicAttachmentValidation(AsyncGeminiCogTestCase):
+    async def test_validate_music_attachment_accepts_lyria3_image(self):
+        attachment = MagicMock()
+        attachment.size = 1024
+        attachment.content_type = "image/png"
+        attachment.filename = "cover.png"
+
+        result = self.cog._validate_music_attachment("lyria-3-pro-preview", attachment)
+        assert result is None
+
+    async def test_validate_music_attachment_rejects_realtime_image(self):
+        attachment = MagicMock()
+        attachment.size = 1024
+        attachment.content_type = "image/png"
+        attachment.filename = "cover.png"
+
+        result = self.cog._validate_music_attachment("lyria-realtime-exp", attachment)
+        assert result is not None
+        assert "Lyria 3 Pro Preview" in result
+
+    async def test_validate_music_attachment_rejects_non_image(self):
+        attachment = MagicMock()
+        attachment.size = 1024
+        attachment.content_type = "audio/mpeg"
+        attachment.filename = "clip.mp3"
+
+        result = self.cog._validate_music_attachment("lyria-3-pro-preview", attachment)
+        assert result == "Music reference attachments must be image files."
+
+    async def test_validate_music_attachment_uses_filename_when_content_type_missing(self):
+        attachment = MagicMock()
+        attachment.size = 1024
+        attachment.content_type = None
+        attachment.filename = "cover.png"
+
+        result = self.cog._validate_music_attachment("lyria-3-clip-preview", attachment)
+        assert result is None
 
 
 class TestThinkingFeatures(GeminiCogTestCase):

@@ -179,6 +179,14 @@ def _music_model_display_name(model: str) -> str:
     return "Lyria RealTime Experimental"
 
 
+def _guess_attachment_mime_type(attachment: Attachment) -> str:
+    """Guess MIME type for a Discord attachment when content_type is absent."""
+    if attachment.content_type:
+        return attachment.content_type
+    mime_type, _ = mimetypes.guess_type(attachment.filename)
+    return mime_type if mime_type is not None else "application/octet-stream"
+
+
 def append_response_embeds(embeds, response_text):
     # Compute how many characters are already used by existing embeds (e.g. thinking embed).
     # Discord enforces a 6000-char total per message; leave 500 chars headroom for pricing/sources.
@@ -2544,6 +2552,12 @@ class GeminiAPI(commands.Cog):
         type=str,
     )
     @option(
+        "attachment",
+        description="(Lyria 3 only) Reference image for multimodal music generation.",
+        required=False,
+        type=Attachment,
+    )
+    @option(
         "model",
         description="Choose music generation model. (default: Lyria RealTime Experimental)",
         required=False,
@@ -2618,6 +2632,7 @@ class GeminiAPI(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
+        attachment: Attachment | None = None,
         model: str = LYRIA_REALTIME_MODEL,
         duration: int = 30,
         bpm: int | None = None,
@@ -2645,6 +2660,7 @@ class GeminiAPI(commands.Cog):
         Args:
             ctx: Discord application context
             prompt: Musical prompt describing desired style/characteristics
+            attachment: Optional reference image for Lyria 3 multimodal generation
             model: Music generation model to use
             duration: Length or target length of music to generate in seconds
             bpm: Beats per minute (optional, model decides if not set)
@@ -2659,6 +2675,18 @@ class GeminiAPI(commands.Cog):
         await ctx.defer()
 
         try:
+            if attachment:
+                validation_error = self._validate_music_attachment(model, attachment)
+                if validation_error:
+                    await ctx.send_followup(
+                        embed=Embed(
+                            title="Error",
+                            description=validation_error,
+                            color=Colour.red(),
+                        )
+                    )
+                    return
+
             # Create music generation parameters
             music_params = MusicGenerationParameters(
                 prompts=[prompt],
@@ -2676,7 +2704,8 @@ class GeminiAPI(commands.Cog):
 
             if model in LYRIA_3_MODELS:
                 audio_data, text_response, audio_mime_type = await self._generate_music_with_lyria3(
-                    music_params
+                    music_params,
+                    attachment,
                 )
             else:
                 audio_data = await self._generate_music_with_lyria_realtime(music_params)
@@ -2714,6 +2743,8 @@ class GeminiAPI(commands.Cog):
                 truncated_prompt = truncate_text(prompt, 2000)
                 description = f"**Prompt:** {truncated_prompt}\n"
                 description += f"**Model:** {_music_model_display_name(model)} (`{model}`)\n"
+                if attachment:
+                    description += "**Reference Image:** Attached\n"
                 if model == "lyria-3-clip-preview":
                     description += "**Mode:** 30-second clip generation\n"
                     description += "**Duration:** 30 seconds (fixed by model)\n"
@@ -3272,7 +3303,9 @@ class GeminiAPI(commands.Cog):
         return embed, files
 
     async def _generate_music_with_lyria3(
-        self, music_params: MusicGenerationParameters
+        self,
+        music_params: MusicGenerationParameters,
+        attachment: Attachment | None = None,
     ) -> tuple[bytes | None, str | None, str | None]:
         """
         Generate music using a Lyria 3 model via the standard generate_content API.
@@ -3283,7 +3316,7 @@ class GeminiAPI(commands.Cog):
         try:
             response = await self.client.aio.models.generate_content(
                 model=music_params.model,
-                contents=_build_lyria3_prompt(music_params),
+                contents=await self._build_lyria3_music_contents(music_params, attachment),
                 config=types.GenerateContentConfig(response_modalities=["AUDIO", "TEXT"]),
             )
 
@@ -3308,6 +3341,50 @@ class GeminiAPI(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error generating music with Lyria 3: {e}")
             raise MusicGenerationError(f"Music generation failed: {e}") from e
+
+    def _validate_music_attachment(self, model: str, attachment: Attachment) -> str | None:
+        """Validate an attachment for use with music generation."""
+        size_error = self._validate_attachment_size(attachment)
+        if size_error:
+            return size_error
+
+        if model == LYRIA_REALTIME_MODEL:
+            return (
+                "Reference images are only supported for Lyria 3 Pro Preview and "
+                "Lyria 3 Clip Preview."
+            )
+
+        mime_type = _guess_attachment_mime_type(attachment)
+        if not mime_type.startswith("image/"):
+            return "Music reference attachments must be image files."
+
+        return None
+
+    async def _build_lyria3_music_contents(
+        self,
+        music_params: MusicGenerationParameters,
+        attachment: Attachment | None = None,
+    ) -> str | list[Any]:
+        """Build generate_content contents for Lyria 3 text-only or multimodal requests."""
+        prompt = _build_lyria3_prompt(music_params)
+        if attachment is None:
+            return prompt
+
+        attachment_data = await self._fetch_attachment_bytes(attachment)
+        if attachment_data is None:
+            raise MusicGenerationError(
+                "Failed to read the uploaded image for music generation. Please try again."
+            )
+
+        try:
+            image = Image.open(BytesIO(attachment_data))
+            image.load()
+        except Exception as error:
+            raise MusicGenerationError(
+                "The uploaded music reference attachment could not be processed as an image."
+            ) from error
+
+        return [prompt, image]
 
     async def _generate_music_with_lyria_realtime(
         self, music_params: MusicGenerationParameters
