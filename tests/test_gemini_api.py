@@ -1,3 +1,4 @@
+import os
 import tempfile
 from io import BytesIO
 from types import SimpleNamespace
@@ -1991,7 +1992,11 @@ class TestThinkingFeatures(GeminiCogTestCase):
 
 class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
     async def _assert_video_mode(self, params, expected_mode, attachment=None):
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as video_file:
+        # delete=False required on Windows: NamedTemporaryFile holds an exclusive
+        # lock while open, so _create_video_response_embed can't re-open the path.
+        video_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)  # noqa: SIM115
+        try:
+            video_file.close()
             embed, files = await self.cog._create_video_response_embed(
                 video_params=params,
                 generated_videos=[video_file.name],
@@ -1999,6 +2004,8 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
             )
             for file in files:
                 file.close()
+        finally:
+            os.unlink(video_file.name)
         assert expected_mode in embed.description
         assert len(files) == 1
 
