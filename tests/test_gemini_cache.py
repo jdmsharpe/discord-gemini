@@ -162,17 +162,36 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         assert params.cache_name is None
         self.cog.client.aio.caches.create.assert_not_called()
 
-    async def test_maybe_create_cache_implicit_only_models_skipped(self):
-        """Test that 2.5 models rely on implicit caching and are skipped."""
+    async def test_maybe_create_cache_2_5_flash_above_threshold(self):
+        """Test that 2.5 Flash now participates in explicit caching at 1024+ tokens."""
         from discord_gemini.util import ChatCompletionParameters
 
-        for model in ("gemini-2.5-pro", "gemini-2.5-flash"):
-            params = ChatCompletionParameters(model=model)
-            response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=10000))
+        params = ChatCompletionParameters(model="gemini-2.5-flash", conversation_id=100)
+        history = [
+            {"role": "user", "parts": [{"text": "long prompt " * 200}]},
+            {"role": "model", "parts": [{"text": "long response " * 200}]},
+        ]
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=1024))
 
-            await self.cog._maybe_create_cache(params, [], response)
+        mock_cache = SimpleNamespace(name="cachedContents/two-five-flash")
+        self.cog.client.aio.caches.create.return_value = mock_cache
 
-            assert params.cache_name is None
+        await self.cog._maybe_create_cache(params, history, response)
+
+        assert params.cache_name == "cachedContents/two-five-flash"
+        assert params.cached_history_length == 2
+        self.cog.client.aio.caches.create.assert_called_once()
+
+    async def test_maybe_create_cache_2_5_pro_below_threshold(self):
+        """Test that 2.5 Pro does not create a cache below its 4096-token threshold."""
+        from discord_gemini.util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-2.5-pro")
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=4095))
+
+        await self.cog._maybe_create_cache(params, [], response)
+
+        assert params.cache_name is None
         self.cog.client.aio.caches.create.assert_not_called()
 
     async def test_maybe_create_cache_no_usage_metadata(self):

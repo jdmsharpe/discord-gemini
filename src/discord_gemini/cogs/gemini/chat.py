@@ -26,7 +26,7 @@ from ...util import (
     resolve_tool_name,
     truncate_text,
 )
-from . import attachments, cache, embeds, responses, state, tooling
+from . import attachments, cache, embeds, responses, state, tooling, usage
 from .models import Conversation
 from .views import ButtonView
 
@@ -54,10 +54,10 @@ async def _run_agentic_loop(
         result.response = response
         result.iterations = iteration + 1
 
-        usage = getattr(response, "usage_metadata", None)
-        result.total_input_tokens += getattr(usage, "prompt_token_count", 0) or 0
-        result.total_output_tokens += getattr(usage, "candidates_token_count", 0) or 0
-        result.total_thinking_tokens += getattr(usage, "thoughts_token_count", 0) or 0
+        usage_counts = usage.extract_usage_counts(response)
+        result.total_input_tokens += usage_counts.input_tokens
+        result.total_output_tokens += usage_counts.output_tokens
+        result.total_thinking_tokens += usage_counts.thinking_tokens
 
         function_calls = response.function_calls
         if not function_calls:
@@ -106,6 +106,24 @@ async def keep_typing(cog: "GeminiCog", channel: Any) -> None:
     except asyncio.CancelledError:
         cog.logger.debug("Typing indicator cancelled for channel %s", channel.id)
         raise
+
+
+def _add_custom_function_tools(config_args: dict[str, Any], custom_functions_enabled: bool) -> None:
+    """Attach Python callable tools and keep execution in the manual tool loop."""
+
+    if not (custom_functions_enabled and ENABLE_CUSTOM_TOOLS):
+        return
+
+    callables = tooling.get_tool_callables()
+    if not callables:
+        return
+
+    tool_list = list(config_args.get("tools", []))
+    tool_list.extend(callables)
+    config_args["tools"] = tool_list
+    config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(
+        disable=True
+    )
 
 
 async def handle_new_message_in_conversation(
@@ -180,12 +198,7 @@ async def handle_new_message_in_conversation(
             if supported_tools:
                 config_args["tools"] = supported_tools
 
-        if params.custom_functions_enabled and ENABLE_CUSTOM_TOOLS:
-            callables = tooling.get_tool_callables()
-            if callables:
-                tool_list = config_args.get("tools", [])
-                tool_list.extend(callables)
-                config_args["tools"] = tool_list
+        _add_custom_function_tools(config_args, params.custom_functions_enabled)
 
         history_start = params.cached_history_length if params.cache_name else 0
         contents = [
@@ -489,12 +502,7 @@ async def chat_command(
             config_args["tools"] = tools
 
         custom_functions_enabled = custom_functions and ENABLE_CUSTOM_TOOLS
-        if custom_functions_enabled:
-            callables = tooling.get_tool_callables()
-            if callables:
-                tool_list = config_args.get("tools", [])
-                tool_list.extend(callables)
-                config_args["tools"] = tool_list
+        _add_custom_function_tools(config_args, custom_functions_enabled)
 
         generation_config = types.GenerateContentConfig(**config_args) if config_args else None
 

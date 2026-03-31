@@ -10,7 +10,7 @@ from PIL import Image
 
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import ImageGenerationParameters, calculate_image_cost, truncate_text
-from . import attachments, embeds, state
+from . import attachments, embeds, state, usage
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
@@ -74,8 +74,8 @@ async def _generate_image_with_gemini(
         config=types.GenerateContentConfig(**cast(Any, config_kwargs)),
     )
 
-    usage = getattr(gemini_response, "usage_metadata", None)
-    input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+    usage_counts = usage.extract_usage_counts(gemini_response)
+    input_tokens = usage_counts.input_tokens
 
     text_response = None
     generated_images: list[Image.Image] = []

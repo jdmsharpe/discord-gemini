@@ -140,12 +140,14 @@ def calculate_tts_cost(model: str, input_tokens: int, output_tokens: int) -> flo
     return (input_tokens / 1_000_000) * input_price + (output_tokens / 1_000_000) * output_price
 
 
-# Minimum input token counts required for explicit context caching per model.
-# Models not listed here rely on implicit caching (automatic, no dev work).
-# Only Gemini 3.x models use explicit caching; 2.5 and below use implicit.
+# Minimum input token counts required for this bot's explicit context caching policy.
+# Gemini 2.5 and newer models also support implicit caching automatically.
+# Models not listed here fall back to implicit caching only.
 CACHE_MIN_TOKEN_COUNT: dict[str, int] = {
     "gemini-3.1-pro-preview": 4096,
     "gemini-3-flash-preview": 1024,
+    "gemini-2.5-pro": 4096,
+    "gemini-2.5-flash": 1024,
 }
 
 CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches

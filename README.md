@@ -37,7 +37,10 @@ All commands are grouped under `/gemini` for clean namespacing.
   - `thinking_budget` for Gemini 2.5 models (token budget, -1 for dynamic, 0 to disable)
   - Thought summaries displayed as spoilered embeds when thinking params are set
 - Thought signatures preserved in conversation history for multi-turn reasoning context
-- Automatic explicit context caching for long conversations on Gemini 3.x models with TTL refresh and periodic re-caching; 2.5 and below use implicit caching
+- Automatic explicit context caching for long conversations on selected Gemini 3.x and 2.5 models with TTL refresh and periodic re-caching; Gemini 2.5+ still also benefits from implicit caching
+- Optional `GEMINI_API_VERSION` env var to pin the Gemini Developer API surface:
+  - `v1` for stability
+  - `v1alpha` for preview-only features
 - Multimodal support (text + images, PDFs, audio, video, documents)
 - External URL file input (pass a URL to a PDF, image, YouTube video, etc. directly to the model)
 - Automatic File API routing for large attachments (>20 MB) with transparent fallback
@@ -112,6 +115,7 @@ All commands are grouped under `/gemini` for clean namespacing.
    - `BOT_TOKEN`: Your Discord bot token
    - `GUILD_IDS`: Comma-separated list of Discord server IDs
    - `GEMINI_API_KEY`: Your Google Gemini API key
+   - `GEMINI_API_VERSION` (optional): Gemini API version override, such as `v1` for stable endpoints or `v1alpha` for preview features
    - `GEMINI_FILE_SEARCH_STORE_IDS` (optional): Comma-separated File Search store IDs for RAG
    - `SHOW_COST_EMBEDS` (optional): Show per-request cost embeds in chat responses (default: `true`)
    - `ENABLE_CUSTOM_TOOLS` (optional): Enable custom function tool calling in chat (default: `true`)
