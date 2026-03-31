@@ -1,5 +1,5 @@
 from discord_gemini.cogs.gemini import tooling as gemini_tooling
-from tests.gemini_test_support import AsyncGeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase
 
 
 class TestGeminiTooling(AsyncGeminiCogTestCase):

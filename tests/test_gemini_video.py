@@ -2,7 +2,7 @@ import os
 import tempfile
 from unittest.mock import MagicMock
 
-from tests.gemini_test_support import AsyncGeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase
 
 
 class TestVideoResponseEmbed(AsyncGeminiCogTestCase):

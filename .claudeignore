@@ -1,5 +1,9 @@
 .venv/
 .venv-wsl/
+venv/
 __pycache__/
+.pytest_cache/
+.ruff_cache/
 .git/
 *.pyc
+music_output_*.mp3

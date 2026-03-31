@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tests.gemini_test_support import AsyncGeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase
 
 
 class TestGeminiCaching(AsyncGeminiCogTestCase):

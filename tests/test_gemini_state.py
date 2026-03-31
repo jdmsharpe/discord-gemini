@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tests.gemini_test_support import AsyncGeminiCogTestCase, GeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase, GeminiCogTestCase
 
 
 class TestGeminiStateHelpers(AsyncGeminiCogTestCase):

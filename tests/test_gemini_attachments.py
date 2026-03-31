@@ -5,7 +5,7 @@ from discord_gemini.cogs.gemini.attachments import (
     _guess_attachment_mime_type,
     _guess_url_mime_type,
 )
-from tests.gemini_test_support import AsyncGeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase
 
 
 class TestGeminiAttachmentHelpers(AsyncGeminiCogTestCase):

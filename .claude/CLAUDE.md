@@ -23,31 +23,33 @@ src/
 ├── exceptions.py                    # Top-level compatibility shim
 ├── tools.py                         # Top-level compatibility shim
 ├── util.py                          # Top-level compatibility shim
-    └── discord_gemini/
+└── discord_gemini/
     ├── __init__.py
     ├── bot.py
     ├── util.py
     ├── config/
     │   ├── __init__.py
     │   └── auth.py
-    └── cogs/gemini/
+    └── cogs/
         ├── __init__.py
-        ├── attachments.py
-        ├── cache.py
-        ├── chat.py
-        ├── client.py
-        ├── cog.py
-        ├── embeds.py
-        ├── image.py
-        ├── music.py
-        ├── models.py
-        ├── research.py
-        ├── responses.py
-        ├── speech.py
-        ├── state.py
-        ├── tooling.py
-        ├── video.py
-        └── views.py
+        └── gemini/
+            ├── __init__.py
+            ├── attachments.py
+            ├── cache.py
+            ├── chat.py
+            ├── client.py
+            ├── cog.py
+            ├── embeds.py
+            ├── image.py
+            ├── music.py
+            ├── models.py
+            ├── research.py
+            ├── responses.py
+            ├── speech.py
+            ├── state.py
+            ├── tooling.py
+            ├── video.py
+            └── views.py
 ```
 
 `discord_gemini.cogs.gemini.cog` is now the thin registration/orchestration layer. Helper modules own the extracted state, parsing, attachments, cache lifecycle, and feature flows.
@@ -56,6 +58,7 @@ src/
 
 - `pytest` runs with `pythonpath = ["src"]`.
 - The test suite is organized into module-aligned files such as `tests/test_gemini_models.py`, `tests/test_gemini_responses.py`, `tests/test_gemini_attachments.py`, `tests/test_gemini_music.py`, and `tests/test_gemini_video.py`.
+- `tests/test_package_import.py` is the package import smoke test, and `tests/support.py` holds shared Gemini test helpers.
 - New tests and patches should target real owners under `discord_gemini...`.
 - Examples:
   - `discord_gemini.cogs.gemini.tooling.GEMINI_FILE_SEARCH_STORE_IDS`
