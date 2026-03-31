@@ -33,6 +33,7 @@ from ...util import (
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
     resolve_tool_name,
+    validate_builtin_custom_tool_combination,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,14 @@ def _resolve_tools_for_view(
     enrich_error = enrich_file_search_tools(supported_tools)
     if enrich_error:
         return set(), enrich_error
+
+    combination_error = validate_builtin_custom_tool_combination(
+        conversation.params.model,
+        supported_tools,
+        custom_functions_selected,
+    )
+    if combination_error:
+        return set(), combination_error
 
     conversation.params.tools = supported_tools
     conversation.params.custom_functions_enabled = custom_functions_selected

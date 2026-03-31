@@ -23,8 +23,11 @@ from ...util import (
     check_mutually_exclusive_tools,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
+    has_server_side_tools,
+    model_supports_tool_combinations,
     resolve_tool_name,
     truncate_text,
+    validate_builtin_custom_tool_combination,
 )
 from . import attachments, cache, embeds, responses, state, tooling, usage
 from .models import Conversation
@@ -80,12 +83,14 @@ async def _run_agentic_loop(
             )
             result.tool_calls_made.append(name)
             call_result = await tooling.execute_tool_call(name, function_call.args)
-            func_response_parts.append(
-                types.Part.from_function_response(
-                    name=name,
-                    response=call_result,
-                )
+            function_response = types.FunctionResponse(
+                name=name,
+                response=call_result,
             )
+            function_call_id = getattr(function_call, "id", None)
+            if function_call_id:
+                function_response.id = function_call_id
+            func_response_parts.append(types.Part(function_response=function_response))
 
         contents.append({"role": "user", "parts": func_response_parts})
     else:
@@ -123,6 +128,29 @@ def _add_custom_function_tools(config_args: dict[str, Any], custom_functions_ena
     config_args["tools"] = tool_list
     config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(
         disable=True
+    )
+
+
+def _configure_tool_context_circulation(
+    config_args: dict[str, Any],
+    model: str,
+    custom_functions_enabled: bool,
+) -> None:
+    """Enable server-side tool circulation for supported Gemini 3 tool setups."""
+
+    tools = list(config_args.get("tools", []))
+    if not tools or not has_server_side_tools(tools) or not model_supports_tool_combinations(model):
+        return
+
+    function_calling_config = None
+    if custom_functions_enabled:
+        function_calling_config = types.FunctionCallingConfig(
+            mode=types.FunctionCallingConfigMode.VALIDATED
+        )
+
+    config_args["tool_config"] = types.ToolConfig(
+        include_server_side_tool_invocations=True,
+        function_calling_config=function_calling_config,
     )
 
 
@@ -198,7 +226,17 @@ async def handle_new_message_in_conversation(
             if supported_tools:
                 config_args["tools"] = supported_tools
 
+        combination_error = validate_builtin_custom_tool_combination(
+            params.model,
+            config_args.get("tools", []),
+            params.custom_functions_enabled,
+        )
+        if combination_error:
+            await message.reply(embed=embeds.build_error_embed(combination_error))
+            return
+
         _add_custom_function_tools(config_args, params.custom_functions_enabled)
+        _configure_tool_context_circulation(config_args, params.model, params.custom_functions_enabled)
 
         history_start = params.cached_history_length if params.cache_name else 0
         contents = [
@@ -502,7 +540,19 @@ async def chat_command(
             config_args["tools"] = tools
 
         custom_functions_enabled = custom_functions and ENABLE_CUSTOM_TOOLS
+        combination_error = validate_builtin_custom_tool_combination(
+            model,
+            tools,
+            custom_functions_enabled,
+        )
+        if combination_error:
+            await ctx.send_followup(embed=embeds.build_error_embed(combination_error))
+            if typing_task:
+                typing_task.cancel()
+            return
+
         _add_custom_function_tools(config_args, custom_functions_enabled)
+        _configure_tool_context_circulation(config_args, model, custom_functions_enabled)
 
         generation_config = types.GenerateContentConfig(**config_args) if config_args else None
 

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from discord_gemini.cogs.gemini import tooling as gemini_tooling
 from tests.support import AsyncGeminiCogTestCase
 
@@ -28,3 +30,25 @@ class TestGeminiTooling(AsyncGeminiCogTestCase):
             assert "GEMINI_FILE_SEARCH_STORE_IDS" in error
         finally:
             gemini_tooling.GEMINI_FILE_SEARCH_STORE_IDS = original
+
+    async def test_resolve_tools_for_view_rejects_unsupported_builtin_custom_combo(self):
+        conversation = SimpleNamespace(
+            params=SimpleNamespace(
+                model="gemini-2.5-flash",
+                tools=[],
+                custom_functions_enabled=False,
+            )
+        )
+
+        active, message = gemini_tooling._resolve_tools_for_view(
+            self.cog,
+            ["google_search"],
+            True,
+            conversation,
+        )
+
+        assert active == set()
+        assert message is not None
+        assert "cannot be combined" in message
+        assert conversation.params.tools == []
+        assert conversation.params.custom_functions_enabled is False
