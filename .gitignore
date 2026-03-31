@@ -4,13 +4,20 @@
 # Ignore VS Code settings
 .vscode/
 
-# Ignore virtual environment folders
+# Ignore virtual environments
 .venv/
 .venv-wsl/
+venv/
+
+# Ignore Python cache files
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+
+# Ignore generated media artifacts
+music_output_*.mp3
 
 # Ignore system files
 .DS_Store
 Thumbs.db
-
-# Ignore Python cache files
-__pycache__/

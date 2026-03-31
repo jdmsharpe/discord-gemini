@@ -12,7 +12,7 @@ from discord_gemini.cogs.gemini.music import (
     music_command,
 )
 from discord_gemini.cogs.gemini.responses import MusicGenerationError
-from tests.gemini_test_support import AsyncGeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase
 
 
 class TestLyriaHelpers:

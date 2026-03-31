@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from discord_gemini.cogs.gemini import research as gemini_research
-from tests.gemini_test_support import AsyncGeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase
 
 
 class TestGeminiCog(AsyncGeminiCogTestCase):
