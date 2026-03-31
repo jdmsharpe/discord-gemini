@@ -12,14 +12,12 @@
   ```
 
 - Compatibility export: `Conversation` remains re-exported from `discord_gemini` during this refactor pass.
-- Legacy shim: `src/gemini_api.py` exists only for module-path compatibility, emits a `DeprecationWarning`, and re-exports `GeminiCog` plus `Conversation` only.
 
 ## Package Layout
 
 ```text
 src/
 ├── bot.py                           # Thin repo-local launcher
-├── gemini_api.py                    # Temporary compatibility shim
 ├── button_view.py                   # Top-level compatibility shim
 ├── config/                          # Top-level compatibility shim
 ├── exceptions.py                    # Top-level compatibility shim
@@ -57,13 +55,14 @@ src/
 ## Testing And Patch Targets
 
 - `pytest` runs with `pythonpath = ["src"]`.
-- New tests and patches should target real owners under `discord_gemini...`, not `gemini_api`.
+- The test suite is organized into module-aligned files such as `tests/test_gemini_models.py`, `tests/test_gemini_responses.py`, `tests/test_gemini_attachments.py`, `tests/test_gemini_music.py`, and `tests/test_gemini_video.py`.
+- New tests and patches should target real owners under `discord_gemini...`.
 - Examples:
   - `discord_gemini.cogs.gemini.tooling.GEMINI_FILE_SEARCH_STORE_IDS`
   - `discord_gemini.cogs.gemini.research.GEMINI_FILE_SEARCH_STORE_IDS`
   - `discord_gemini.cogs.gemini.responses.MusicGenerationError`
   - `discord_gemini.cogs.gemini.views.ButtonView`
-- `tests/test_gemini_api_shim.py` is the shim-only compatibility test.
+- Import `GeminiCog` from `discord_gemini`; do not reintroduce legacy `gemini_api` shim paths.
 
 ## Validation Commands
 
