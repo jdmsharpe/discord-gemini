@@ -7,9 +7,11 @@ from discord_gemini.config import auth as auth_module
 
 class TestGeminiClientBuilders:
     def test_build_gemini_client_without_api_version(self):
-        with patch.object(gemini_client.genai, "Client") as mock_client:
-            with patch.object(gemini_client, "GEMINI_API_VERSION", None):
-                gemini_client.build_gemini_client()
+        with (
+            patch.object(gemini_client.genai, "Client") as mock_client,
+            patch.object(gemini_client, "GEMINI_API_VERSION", None),
+        ):
+            gemini_client.build_gemini_client()
 
         mock_client.assert_called_once_with(api_key=gemini_client.GEMINI_API_KEY)
 

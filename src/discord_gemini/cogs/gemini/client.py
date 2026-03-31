@@ -9,10 +9,12 @@ from ...config.auth import GEMINI_API_KEY, GEMINI_API_VERSION
 def build_gemini_client() -> genai.Client:
     """Build the standard Gemini client used by the cog."""
 
-    client_kwargs = {"api_key": GEMINI_API_KEY}
     if GEMINI_API_VERSION:
-        client_kwargs["http_options"] = types.HttpOptions(api_version=GEMINI_API_VERSION)
-    return genai.Client(**client_kwargs)
+        return genai.Client(
+            api_key=GEMINI_API_KEY,
+            http_options=types.HttpOptions(api_version=GEMINI_API_VERSION),
+        )
+    return genai.Client(api_key=GEMINI_API_KEY)
 
 
 def build_lyria_realtime_client() -> genai.Client:

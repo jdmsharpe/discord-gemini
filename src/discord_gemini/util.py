@@ -169,6 +169,7 @@ AVAILABLE_TOOLS = {
     "url_context": TOOL_URL_CONTEXT,
     "file_search": TOOL_FILE_SEARCH,
 }
+SERVER_SIDE_TOOLS = frozenset(AVAILABLE_TOOLS)
 
 # Tools that cannot be combined with file_search per API limitations.
 FILE_SEARCH_INCOMPATIBLE_TOOLS = frozenset({"google_search", "google_maps", "url_context"})
@@ -492,6 +493,35 @@ def filter_supported_tools_for_model(model: str, tools: list[Any]) -> tuple[list
         supported_tools.append(deepcopy(tool_config))
 
     return supported_tools, unsupported_tools
+
+
+def has_server_side_tools(tools: list[Any]) -> bool:
+    """Return True when the provided tool list includes Gemini server-side tools."""
+
+    return any(resolve_tool_name(tool_config) in SERVER_SIDE_TOOLS for tool_config in tools)
+
+
+def model_supports_tool_combinations(model: str) -> bool:
+    """Return True when the model supports built-in/custom tool combinations."""
+
+    return model.startswith("gemini-3")
+
+
+def validate_builtin_custom_tool_combination(
+    model: str,
+    tools: list[Any],
+    custom_functions_enabled: bool,
+) -> str | None:
+    """Validate whether built-in and custom tools can be combined for the model."""
+
+    if not custom_functions_enabled or not has_server_side_tools(tools):
+        return None
+    if model_supports_tool_combinations(model):
+        return None
+    return (
+        f"Built-in tools and custom functions cannot be combined on `{model}`. "
+        "Tool combination preview requires a Gemini 3 model."
+    )
 
 
 def filter_file_search_incompatible_tools(

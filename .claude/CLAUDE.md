@@ -76,6 +76,11 @@ pytest -q
 
 - Preserve the current cache/file-search/maps/tool compatibility behavior when refactoring further.
 - `GEMINI_FILE_SEARCH_STORE_IDS` is the runtime gate for file-search-enabled flows.
+- Gemini chat now supports built-in + custom tool combinations only on Gemini 3 chat models.
+- When a request combines Gemini server-side tools with custom functions, `discord_gemini.cogs.gemini.chat` must enable `tool_config.include_server_side_tool_invocations = True`.
+- Combined built-in + custom tool requests should also set `tool_config.function_calling_config.mode = VALIDATED`.
+- Manual function tool execution must preserve the Gemini-provided function-call `id` when building the `functionResponse` part for the next turn.
+- Unsupported built-in + custom tool combinations should fail fast with a user-visible validation error rather than silently falling back.
 - `discord_gemini.cogs.gemini.chat`, `image`, `music`, `research`, `speech`, and `video` now own their respective orchestration flows.
 - Default music model is `lyria-3-clip-preview`; keep `discord_gemini.util.DEFAULT_MUSIC_MODEL`, the `/gemini music` slash-command metadata, and user-facing docs aligned when changing it.
 - `/gemini music` response embeds should show raw model IDs, not friendly-name rewrites.

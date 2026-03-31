@@ -22,10 +22,14 @@ All commands are grouped under `/gemini` for clean namespacing.
   - `google_maps` (model-dependent)
   - `url_context` (model-dependent)
   - `file_search` (model-dependent, RAG over uploaded document stores)
+- Gemini 3 chat models support built-in + custom function tool combinations with preserved server-side tool context across turns
+  - When Gemini combines built-in tools with custom functions, the bot preserves the returned tool/context parts and function-call IDs across turns
+  - Combined built-in + custom tool flows enable Gemini server-side tool invocation history and validated function-calling mode automatically
 - Tools can be enabled:
   - In the initial slash command options
   - Mid-conversation via the tool select dropdown
 - Tool/model compatibility is enforced automatically (unsupported tools are skipped with a user-visible message)
+- Built-in tools and custom functions are only combined on Gemini 3 chat models; unsupported combinations are rejected with a user-visible message instead of silently degrading
 - File Search cannot be combined with Google Search, Google Maps, or URL Context (incompatible tools are automatically disabled)
 - Responses can include a Sources embed with:
   - Web and Maps citations
@@ -115,7 +119,7 @@ All commands are grouped under `/gemini` for clean namespacing.
    - `BOT_TOKEN`: Your Discord bot token
    - `GUILD_IDS`: Comma-separated list of Discord server IDs
    - `GEMINI_API_KEY`: Your Google Gemini API key
-   - `GEMINI_API_VERSION` (optional): Gemini API version override, such as `v1` for stable endpoints or `v1alpha` for preview features
+   - `GEMINI_API_VERSION` (optional): Gemini API version override, such as `v1` for stable endpoints or `v1alpha` for preview features and newer preview-only tooling behavior
    - `GEMINI_FILE_SEARCH_STORE_IDS` (optional): Comma-separated File Search store IDs for RAG
    - `SHOW_COST_EMBEDS` (optional): Show per-request cost embeds in chat responses (default: `true`)
    - `ENABLE_CUSTOM_TOOLS` (optional): Enable custom function tool calling in chat (default: `true`)

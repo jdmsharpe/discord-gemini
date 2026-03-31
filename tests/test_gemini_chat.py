@@ -1,14 +1,23 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from google.genai import types
+
 from discord_gemini.cogs.gemini import tooling as gemini_tooling
-from discord_gemini.cogs.gemini.chat import _add_custom_function_tools
+from discord_gemini.cogs.gemini.chat import (
+    _add_custom_function_tools,
+    _configure_tool_context_circulation,
+)
 from tests.support import AsyncGeminiCogTestCase
 
 
 class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
     async def test_run_agentic_loop_executes_function_calls_manually(self):
-        function_call = SimpleNamespace(name="lookup_time", args={"timezone": "UTC"})
+        function_call = SimpleNamespace(
+            name="lookup_time",
+            args={"timezone": "UTC"},
+            id="call-123",
+        )
         first_response = SimpleNamespace(
             text=None,
             function_calls=[function_call],
@@ -57,6 +66,49 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
             "contents"
         ]
         assert second_call_contents[-1]["parts"]
+        function_response = second_call_contents[-1]["parts"][0].function_response
+        assert function_response is not None
+        assert function_response.id == "call-123"
+
+
+class TestGeminiToolCombinationConfig:
+    def test_configure_tool_context_circulation_for_builtin_and_custom_tools(self):
+        config_args = {"tools": [{"google_search": {}}]}
+
+        _configure_tool_context_circulation(
+            config_args,
+            model="gemini-3-flash-preview",
+            custom_functions_enabled=True,
+        )
+
+        tool_config = config_args["tool_config"]
+        assert tool_config.include_server_side_tool_invocations is True
+        assert tool_config.function_calling_config is not None
+        assert tool_config.function_calling_config.mode == types.FunctionCallingConfigMode.VALIDATED
+
+    def test_configure_tool_context_circulation_for_builtin_tools_only(self):
+        config_args = {"tools": [{"google_search": {}}]}
+
+        _configure_tool_context_circulation(
+            config_args,
+            model="gemini-3.1-pro-preview",
+            custom_functions_enabled=False,
+        )
+
+        tool_config = config_args["tool_config"]
+        assert tool_config.include_server_side_tool_invocations is True
+        assert tool_config.function_calling_config is None
+
+    def test_configure_tool_context_circulation_skips_unsupported_models(self):
+        config_args = {"tools": [{"google_search": {}}]}
+
+        _configure_tool_context_circulation(
+            config_args,
+            model="gemini-2.5-flash",
+            custom_functions_enabled=True,
+        )
+
+        assert "tool_config" not in config_args
 
     def test_add_custom_function_tools_disables_sdk_auto_execution(self):
         def lookup_time() -> str:

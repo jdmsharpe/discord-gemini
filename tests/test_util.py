@@ -38,7 +38,10 @@ from discord_gemini.util import (
     chunk_text,
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
+    has_server_side_tools,
+    model_supports_tool_combinations,
     resolve_tool_name,
+    validate_builtin_custom_tool_combination,
 )
 
 
@@ -230,6 +233,39 @@ class TestFilterSupportedToolsWithCallables:
         tools = [my_func]
         supported, _ = filter_supported_tools_for_model("gemini-3-flash-preview", tools)
         assert supported[0] is my_func
+
+
+class TestToolCombinationSupport:
+    def test_has_server_side_tools_detects_builtin_tools(self):
+        assert has_server_side_tools([TOOL_GOOGLE_SEARCH]) is True
+
+    def test_has_server_side_tools_ignores_custom_functions(self):
+        def my_func():
+            pass
+
+        assert has_server_side_tools([my_func]) is False
+
+    def test_model_supports_tool_combinations_for_gemini_3(self):
+        assert model_supports_tool_combinations("gemini-3-flash-preview") is True
+        assert model_supports_tool_combinations("gemini-3.1-pro-preview") is True
+        assert model_supports_tool_combinations("gemini-2.5-flash") is False
+
+    def test_validate_builtin_custom_tool_combination_rejects_unsupported_model(self):
+        result = validate_builtin_custom_tool_combination(
+            "gemini-2.5-flash",
+            [TOOL_GOOGLE_SEARCH],
+            custom_functions_enabled=True,
+        )
+        assert result is not None
+        assert "cannot be combined" in result
+
+    def test_validate_builtin_custom_tool_combination_allows_gemini_3(self):
+        result = validate_builtin_custom_tool_combination(
+            "gemini-3-flash-preview",
+            [TOOL_GOOGLE_SEARCH],
+            custom_functions_enabled=True,
+        )
+        assert result is None
 
 
 class TestFilterFileSearchIncompatibleTools:
