@@ -18,11 +18,6 @@
 ```text
 src/
 ├── bot.py                           # Thin repo-local launcher
-├── button_view.py                   # Top-level compatibility shim
-├── config/                          # Top-level compatibility shim
-├── exceptions.py                    # Top-level compatibility shim
-├── tools.py                         # Top-level compatibility shim
-├── util.py                          # Top-level compatibility shim
 └── discord_gemini/
     ├── __init__.py
     ├── bot.py
@@ -53,6 +48,7 @@ src/
 ```
 
 `discord_gemini.cogs.gemini.cog` is now the thin registration/orchestration layer. Helper modules own the extracted state, parsing, attachments, cache lifecycle, and feature flows.
+Only `src/bot.py` remains at the repo root; code imports should target `discord_gemini...`.
 
 ## Testing And Patch Targets
 

@@ -131,7 +131,7 @@ bot.add_cog(GeminiCog(bot=bot))
 ```
 
 `Conversation` remains re-exported from `discord_gemini` for compatibility during this refactor pass.
-Top-level `bot.py`, `button_view.py`, `config`, `exceptions.py`, `tools.py`, and `util.py` are repo-local helpers or compatibility surfaces, not the installed public API surface.
+Only `src/bot.py` remains at the repository root as a thin launcher; package code should be imported from `discord_gemini`.
 
 ## Requirements
 
