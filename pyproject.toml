@@ -34,9 +34,6 @@ extraPaths = ["src"]
 venvPath = "."
 venv = ".venv"
 
-[tool.setuptools]
-py-modules = ["gemini_api"]
-
 [tool.setuptools.package-dir]
 "" = "src"
 
