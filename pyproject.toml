@@ -6,7 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "discord-gemini"
 version = "1.0.0"
 description = "Discord bot to enable Google GenAI API interactions"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "John Magnus-Sharpe" },
+]
+
+[project.urls]
+Repository = "https://github.com/jdmsharpe/discord-gemini"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
