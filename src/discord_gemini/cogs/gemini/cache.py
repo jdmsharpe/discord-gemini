@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 from google.genai import types
 
 from ...util import CACHE_MIN_TOKEN_COUNT, CACHE_TTL
+from . import usage
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
@@ -22,14 +23,13 @@ async def _maybe_create_cache(
     if threshold is None:
         return
 
-    usage = getattr(response, "usage_metadata", None)
-    if usage is None:
+    usage_counts = usage.extract_usage_counts(response)
+    prompt_tokens = usage_counts.input_tokens
+    if prompt_tokens <= 0:
         return
 
-    prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
-
     if params.cache_name:
-        cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+        cached_tokens = usage_counts.cached_tokens
         uncached_tokens = prompt_tokens - cached_tokens
         if uncached_tokens >= threshold:
             await _recache(cog, params, history, prompt_tokens, uncached_tokens)

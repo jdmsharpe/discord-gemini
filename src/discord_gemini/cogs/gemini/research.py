@@ -10,7 +10,7 @@ from discord.commands import ApplicationContext
 
 from ...config.auth import GEMINI_FILE_SEARCH_STORE_IDS, SHOW_COST_EMBEDS
 from ...util import ResearchParameters, calculate_cost, truncate_text
-from . import embeds, state
+from . import embeds, state, usage
 from .responses import APICallError, ValidationError
 
 if TYPE_CHECKING:
@@ -64,10 +64,10 @@ async def _run_deep_research(
     if interaction.status == "cancelled":
         raise APICallError("Research was cancelled")
 
-    usage = getattr(interaction, "usage", None)
-    input_tokens = getattr(usage, "total_input_tokens", 0) or 0
-    output_tokens = getattr(usage, "total_output_tokens", 0) or 0
-    thinking_tokens = getattr(usage, "total_thought_tokens", 0) or 0
+    usage_counts = usage.extract_usage_counts(interaction)
+    input_tokens = usage_counts.input_tokens
+    output_tokens = usage_counts.output_tokens
+    thinking_tokens = usage_counts.thinking_tokens
 
     if interaction.outputs:
         for output in reversed(interaction.outputs):

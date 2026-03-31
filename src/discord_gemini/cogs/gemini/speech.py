@@ -10,7 +10,7 @@ from google.genai import types
 
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import SpeechGenerationParameters, calculate_tts_cost
-from . import embeds, state
+from . import embeds, state, usage
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
@@ -28,9 +28,9 @@ async def _generate_speech_with_gemini(
         config=types.GenerateContentConfig(**cast(Any, tts_params.to_dict())),
     )
 
-    usage = getattr(response, "usage_metadata", None)
-    input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-    output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+    usage_counts = usage.extract_usage_counts(response)
+    input_tokens = usage_counts.input_tokens
+    output_tokens = usage_counts.output_tokens
 
     if (
         response.candidates
