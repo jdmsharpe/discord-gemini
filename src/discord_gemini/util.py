@@ -4,11 +4,16 @@ from typing import Any
 
 from discord import Member, User
 
-TOOL_GOOGLE_SEARCH = {"google_search": {}}
-TOOL_CODE_EXECUTION = {"code_execution": {}}
-TOOL_GOOGLE_MAPS = {"google_maps": {}}
-TOOL_URL_CONTEXT = {"url_context": {}}
-TOOL_FILE_SEARCH = {"file_search": {}}
+from .cogs.gemini.tool_registry import (
+    build_runtime_tool_config,
+    get_tool_registry,
+)
+
+TOOL_GOOGLE_SEARCH = build_runtime_tool_config("google_search") or {"google_search": {}}
+TOOL_CODE_EXECUTION = build_runtime_tool_config("code_execution") or {"code_execution": {}}
+TOOL_GOOGLE_MAPS = build_runtime_tool_config("google_maps") or {"google_maps": {}}
+TOOL_URL_CONTEXT = build_runtime_tool_config("url_context") or {"url_context": {}}
+TOOL_FILE_SEARCH = build_runtime_tool_config("file_search") or {"file_search": {}}
 TOOL_CUSTOM_FUNCTIONS = {"_custom_functions": True}  # Sentinel for ButtonView toggle
 
 # Per-million-token pricing for chat models: (input_cost, output_cost)
@@ -162,48 +167,37 @@ ATTACHMENT_MAX_INLINE_SIZE = 100 * 1024 * 1024  # 100 MB general inline limit
 ATTACHMENT_PDF_MAX_INLINE_SIZE = 50 * 1024 * 1024  # 50 MB PDF inline limit
 ATTACHMENT_FILE_API_THRESHOLD = 20 * 1024 * 1024  # 20 MB — prefer File API above this
 ATTACHMENT_FILE_API_MAX_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB File API limit
+_TOOL_REGISTRY = get_tool_registry()
+
 AVAILABLE_TOOLS = {
-    "google_search": TOOL_GOOGLE_SEARCH,
-    "code_execution": TOOL_CODE_EXECUTION,
-    "google_maps": TOOL_GOOGLE_MAPS,
-    "url_context": TOOL_URL_CONTEXT,
-    "file_search": TOOL_FILE_SEARCH,
+    tool_id: config
+    for tool_id in _TOOL_REGISTRY
+    if tool_id != "custom_functions"
+    if (config := build_runtime_tool_config(tool_id)) is not None
 }
 SERVER_SIDE_TOOLS = frozenset(AVAILABLE_TOOLS)
 
 # Tools that cannot be combined with file_search per API limitations.
-FILE_SEARCH_INCOMPATIBLE_TOOLS = frozenset({"google_search", "google_maps", "url_context"})
+FILE_SEARCH_INCOMPATIBLE_TOOLS = frozenset(
+    tool_id for tool_id, metadata in _TOOL_REGISTRY.items() if metadata.file_search_incompatible
+)
 
 # Sets of tools that are mutually exclusive — only one from each set can be active at a time.
-MUTUALLY_EXCLUSIVE_TOOLS: list[tuple[str, str]] = [
-    ("google_search", "google_maps"),
-]
+MUTUALLY_EXCLUSIVE_TOOLS: list[tuple[str, str]] = []
+for _tool_id, _metadata in _TOOL_REGISTRY.items():
+    for _other in _metadata.mutually_exclusive_with:
+        _pair = (_tool_id, _other)
+        if (
+            _pair not in MUTUALLY_EXCLUSIVE_TOOLS
+            and (_other, _tool_id) not in MUTUALLY_EXCLUSIVE_TOOLS
+        ):
+            MUTUALLY_EXCLUSIVE_TOOLS.append(_pair)
 
 # Model-specific compatibility constraints for tools that are not universally supported.
 TOOL_MODEL_COMPATIBILITY: dict[str, set[str]] = {
-    "google_maps": {
-        "gemini-3.1-pro-preview",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-3-flash-preview",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-    },
-    "url_context": {
-        "gemini-3.1-pro-preview",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-3-flash-preview",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-    },
-    "file_search": {
-        "gemini-3.1-pro-preview",
-        "gemini-3-flash-preview",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash-lite",
-    },
+    tool_id: set(metadata.model_allowlist)
+    for tool_id, metadata in _TOOL_REGISTRY.items()
+    if metadata.model_allowlist is not None
 }
 
 

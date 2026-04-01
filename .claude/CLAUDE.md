@@ -42,6 +42,7 @@ src/
             ├── responses.py
             ├── speech.py
             ├── state.py
+            ├── tool_registry.py
             ├── tooling.py
             ├── video.py
             └── views.py

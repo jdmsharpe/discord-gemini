@@ -12,7 +12,8 @@ from discord import (
 )
 from discord.ui import Button, Select, View, button
 
-from ...util import AVAILABLE_TOOLS, resolve_tool_name
+from ...util import resolve_tool_name
+from .tool_registry import get_tool_registry, iter_tool_registry
 
 
 async def _send_interaction_error(interaction: Interaction, context: str, error: Exception) -> None:
@@ -58,49 +59,25 @@ class ButtonView(View):
         selected_tools = {
             name for tool in initial_tools if (name := resolve_tool_name(tool)) is not None
         }
+        options = [
+            SelectOption(
+                label=tool.label,
+                value=tool.canonical_id,
+                description=tool.description,
+                default=(
+                    custom_functions_enabled
+                    if tool.canonical_id == "custom_functions"
+                    else tool.canonical_id in selected_tools
+                ),
+            )
+            for tool in iter_tool_registry()
+        ]
         tool_select = Select(
             placeholder="Toggle conversation tools",
             min_values=0,
-            max_values=6,
+            max_values=len(options),
             row=1,
-            options=[
-                SelectOption(
-                    label="Google Search",
-                    value="google_search",
-                    description="Ground answers with live web results.",
-                    default="google_search" in selected_tools,
-                ),
-                SelectOption(
-                    label="Code Execution",
-                    value="code_execution",
-                    description="Run Python code for calculations.",
-                    default="code_execution" in selected_tools,
-                ),
-                SelectOption(
-                    label="Google Maps",
-                    value="google_maps",
-                    description="Ground answers with Maps place data.",
-                    default="google_maps" in selected_tools,
-                ),
-                SelectOption(
-                    label="URL Context",
-                    value="url_context",
-                    description="Retrieve and analyze provided URLs.",
-                    default="url_context" in selected_tools,
-                ),
-                SelectOption(
-                    label="File Search",
-                    value="file_search",
-                    description="Search over uploaded document stores.",
-                    default="file_search" in selected_tools,
-                ),
-                SelectOption(
-                    label="Custom Functions",
-                    value="custom_functions",
-                    description="Call Python tools (time, dice, etc.).",
-                    default=custom_functions_enabled,
-                ),
-            ],
+            options=options,
         )
 
         async def _tool_callback(interaction: Interaction) -> None:
@@ -126,7 +103,12 @@ class ButtonView(View):
                 )
                 return
 
-            selected_values = [value for value in tool_select.values if value in AVAILABLE_TOOLS]
+            tool_registry = get_tool_registry()
+            selected_values = [
+                value
+                for value in tool_select.values
+                if value in tool_registry and value != "custom_functions"
+            ]
             custom_functions_selected = "custom_functions" in tool_select.values
 
             active_names, result_message = self._on_tools_changed(
