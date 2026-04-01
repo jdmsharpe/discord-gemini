@@ -1,17 +1,15 @@
 import importlib
-import sys
 
 import pytest
-
 
 MODULE_NAME = "discord_gemini.config.auth"
 
 
 def _import_fresh_auth_module(monkeypatch=None):
-    sys.modules.pop(MODULE_NAME, None)
     if monkeypatch is not None:
         monkeypatch.setattr("dotenv.load_dotenv", lambda *_, **__: None)
-    return importlib.import_module(MODULE_NAME)
+    module = importlib.import_module(MODULE_NAME)
+    return importlib.reload(module)
 
 
 def test_validate_required_config_reports_missing_vars(monkeypatch):

@@ -12,7 +12,7 @@
   ```
 
 - `discord_gemini.bot.main()` now calls `validate_required_config()` before connecting, so missing or blank `BOT_TOKEN` and `GEMINI_API_KEY` values fail fast at startup.
-- Compatibility export: `Conversation` remains re-exported from `discord_gemini`. Both the top-level package and `cogs/gemini/__init__.py` use lazy `__getattr__` exports so `GeminiCog` and `Conversation` can be imported without eagerly pulling in the full Discord/runtime graph.
+- Compatibility export: `Conversation` remains re-exported from `discord_gemini`. Both the top-level package and `cogs/gemini/__init__.py` use lazy `__getattr__` exports so `GeminiCog` and `Conversation` can be imported without eagerly pulling in the full Discord/runtime graph. Type-only imports keep `pyright src/` aware of those public exports.
 
 ## Package Layout
 
@@ -73,6 +73,8 @@ ruff format src/ tests/
 pyright src/
 pytest -q
 ```
+
+- The repo pre-commit hook prefers a repo-local `.venv` Ruff binary when available and falls back to `PATH`.
 
 ## Provider Notes
 

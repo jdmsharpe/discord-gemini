@@ -4,7 +4,7 @@ import logging
 
 from discord import Bot, Intents
 
-from . import GeminiCog
+from .cogs.gemini.cog import GeminiCog
 from .config.auth import BOT_TOKEN, validate_required_config
 
 
