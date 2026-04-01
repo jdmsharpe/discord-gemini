@@ -1,5 +1,19 @@
 # Discord Gemini Bot - Developer Reference
 
+## Environment Setup
+
+Copy `.env.example` to `.env` and fill in the values:
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `BOT_TOKEN` | **Yes** | — | Discord bot token |
+| `GUILD_IDS` | **Yes** | — | Comma-separated Discord server IDs |
+| `GEMINI_API_KEY` | **Yes** | — | Google Gemini API key |
+| `GEMINI_API_VERSION` | No | SDK default (beta) | Override API version (`v1` for stable, `v1alpha` for preview) |
+| `GEMINI_FILE_SEARCH_STORE_IDS` | No | `""` | Comma-separated file search store IDs |
+| `ENABLE_CUSTOM_TOOLS` | No | `true` | Enable custom function tool calling in `/gemini chat` |
+| `SHOW_COST_EMBEDS` | No | `true` | Show per-request cost embeds in supported responses |
+
 ## Supported Entry Points
 
 - Launcher: `python src/bot.py` remains supported and delegates to `discord_gemini.bot.main`.
@@ -55,8 +69,8 @@ Only `src/bot.py` remains at the repo root; code imports should target `discord_
 ## Testing And Patch Targets
 
 - `pytest` runs with `pythonpath = ["src"]`.
-- The test suite is organized into module-aligned files such as `tests/test_gemini_models.py`, `tests/test_gemini_responses.py`, `tests/test_gemini_attachments.py`, `tests/test_gemini_music.py`, `tests/test_gemini_video.py`, `tests/test_tools.py`, `tests/test_config_auth.py`, and `tests/test_tool_registry.py`.
-- `tests/test_package_import.py` is the package import smoke test, and `tests/support.py` holds shared Gemini test helpers.
+- The test suite uses module-aligned files (`test_gemini_<module>.py`); `tests/test_package_import.py` is the import smoke test and `tests/support.py` holds shared helpers.
+- `pytest` runs with `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` decorator needed on async test functions.
 - New tests and patches should target real owners under `discord_gemini...`.
 - Examples:
   - `discord_gemini.cogs.gemini.tooling.GEMINI_FILE_SEARCH_STORE_IDS`
@@ -72,9 +86,12 @@ ruff check src/ tests/
 ruff format src/ tests/
 pyright src/
 pytest -q
+
+# Run the bot via Docker (uses .env for config):
+docker compose up
 ```
 
-- The repo pre-commit hook prefers a repo-local `.venv` Ruff binary when available and falls back to `PATH`.
+- The pre-commit hook auto-formats staged `src/`+`tests/` Python files with `ruff format` and re-stages them before the lint check — committed code may differ from what you wrote if formatting was needed. Prefers `.venv/bin/ruff` over `PATH`.
 
 ## Provider Notes
 
