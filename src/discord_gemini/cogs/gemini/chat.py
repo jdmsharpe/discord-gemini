@@ -11,11 +11,6 @@ from google.genai import types
 from ...config.auth import ENABLE_CUSTOM_TOOLS, SHOW_COST_EMBEDS
 from ...util import (
     MAX_AGENTIC_ITERATIONS,
-    TOOL_CODE_EXECUTION,
-    TOOL_FILE_SEARCH,
-    TOOL_GOOGLE_MAPS,
-    TOOL_GOOGLE_SEARCH,
-    TOOL_URL_CONTEXT,
     TYPING_INDICATOR_INTERVAL,
     AgenticResult,
     ChatCompletionParameters,
@@ -31,6 +26,7 @@ from ...util import (
 )
 from . import attachments, cache, embeds, responses, state, tooling, usage
 from .models import Conversation
+from .tool_registry import build_runtime_tool_config, iter_tool_registry
 from .views import ButtonView
 
 if TYPE_CHECKING:
@@ -126,9 +122,7 @@ def _add_custom_function_tools(config_args: dict[str, Any], custom_functions_ena
     tool_list = list(config_args.get("tools", []))
     tool_list.extend(callables)
     config_args["tools"] = tool_list
-    config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(
-        disable=True
-    )
+    config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
 
 
 def _configure_tool_context_circulation(
@@ -236,7 +230,9 @@ async def handle_new_message_in_conversation(
             return
 
         _add_custom_function_tools(config_args, params.custom_functions_enabled)
-        _configure_tool_context_circulation(config_args, params.model, params.custom_functions_enabled)
+        _configure_tool_context_circulation(
+            config_args, params.model, params.custom_functions_enabled
+        )
 
         history_start = params.cached_history_length if params.cache_name else 0
         contents = [
@@ -488,14 +484,14 @@ async def chat_command(
         parts.append({"text": prompt})
 
         selected_tool_names = {
-            "google_search": (google_search, TOOL_GOOGLE_SEARCH),
-            "code_execution": (code_execution, TOOL_CODE_EXECUTION),
-            "google_maps": (google_maps, TOOL_GOOGLE_MAPS),
-            "url_context": (url_context, TOOL_URL_CONTEXT),
-            "file_search": (file_search, TOOL_FILE_SEARCH),
+            "google_search": google_search,
+            "code_execution": code_execution,
+            "google_maps": google_maps,
+            "url_context": url_context,
+            "file_search": file_search,
         }
 
-        enabled_names = {name for name, (enabled, _) in selected_tool_names.items() if enabled}
+        enabled_names = {name for name, enabled in selected_tool_names.items() if enabled}
         exclusive_error = check_mutually_exclusive_tools(enabled_names)
         if exclusive_error:
             await ctx.send_followup(embed=embeds.build_error_embed(exclusive_error))
@@ -505,8 +501,9 @@ async def chat_command(
 
         requested_tools = [
             deepcopy(tool_config)
-            for enabled, tool_config in selected_tool_names.values()
-            if enabled
+            for tool in iter_tool_registry(include_custom_functions=False)
+            if selected_tool_names.get(tool.canonical_id, False)
+            if (tool_config := build_runtime_tool_config(tool.canonical_id)) is not None
         ]
         tools, unsupported_tools = filter_supported_tools_for_model(model, requested_tools)
         tools, incompatible_tools = filter_file_search_incompatible_tools(tools)
