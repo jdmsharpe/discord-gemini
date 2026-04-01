@@ -11,17 +11,36 @@ if [ -z "$PYTHON_FILES" ]; then
     exit 0
 fi
 
-# Check if ruff is available
-if ! command -v ruff &>/dev/null; then
-    echo "WARNING: ruff not found — skipping Python format/lint checks"
+resolve_ruff() {
+    if [ -f ".venv/bin/ruff" ]; then
+        printf '%s\n' ".venv/bin/ruff"
+        return 0
+    fi
+    if [ -f ".venv/Scripts/ruff.exe" ] && ! grep -qi microsoft /proc/version 2>/dev/null; then
+        printf '%s\n' ".venv/Scripts/ruff.exe"
+        return 0
+    fi
+    if [ -f ".venv/Scripts/ruff" ] && ! grep -qi microsoft /proc/version 2>/dev/null; then
+        printf '%s\n' ".venv/Scripts/ruff"
+        return 0
+    fi
+    if command -v ruff &>/dev/null; then
+        command -v ruff
+        return 0
+    fi
+    return 1
+}
+
+if ! RUFF=$(resolve_ruff); then
+    echo "WARNING: ruff not found in .venv or PATH — skipping Python format/lint checks"
     exit 0
 fi
 
 # Auto-format staged files and re-stage
 echo "Running ruff format..."
-echo "$PYTHON_FILES" | xargs ruff format
+echo "$PYTHON_FILES" | xargs "$RUFF" format
 echo "$PYTHON_FILES" | xargs git add
 
 # Lint check (strict — blocks commit on failure)
 echo "Running ruff check..."
-echo "$PYTHON_FILES" | xargs ruff check
+echo "$PYTHON_FILES" | xargs "$RUFF" check

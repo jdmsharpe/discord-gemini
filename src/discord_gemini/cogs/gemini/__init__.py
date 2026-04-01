@@ -1,6 +1,12 @@
 """Gemini cog package."""
 
-__all__ = ["GeminiCog", "Conversation"]  # pyright: ignore[reportUnsupportedDunderAll]
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .cog import GeminiCog
+    from .models import Conversation
+
+__all__ = ["GeminiCog", "Conversation"]
 
 
 def __getattr__(name: str):

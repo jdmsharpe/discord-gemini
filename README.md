@@ -167,6 +167,7 @@ Try these prompts with `/gemini music`:
 Tests use pytest with pytest-asyncio (`asyncio_mode = "auto"`). All tests are mocked — no real API calls.
 The suite is organized around the refactored package layout, with focused files such as `tests/test_gemini_models.py`, `tests/test_gemini_responses.py`, `tests/test_gemini_attachments.py`, `tests/test_gemini_music.py`, `tests/test_gemini_video.py`, `tests/test_tools.py`, `tests/test_config_auth.py`, and `tests/test_tool_registry.py`.
 `tests/test_package_import.py` is the package import smoke test, and `tests/support.py` holds shared Gemini test helpers. `tests/test_tools.py` and `tests/test_tool_registry.py` cover provider routing, namespaced tool execution, and registry metadata.
+The lazy package exports are paired with type-only imports so `pyright src/` can validate public namespaced imports without eagerly importing the full cog modules at runtime.
 Import from `discord_gemini` directly; legacy top-level shim modules are no longer part of the supported workflow.
 GitHub Actions runs the test suite against Python 3.10, 3.11, 3.12, and 3.13.
 
@@ -189,6 +190,7 @@ pyright src/
 ```
 
 After cloning, run `git config core.hooksPath .githooks` to enable the pre-commit hook.
+The pre-commit hook prefers a repo-local `.venv` Ruff binary when available and falls back to `PATH`.
 
 ## Troubleshooting
 
