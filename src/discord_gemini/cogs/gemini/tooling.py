@@ -23,7 +23,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from ...config.auth import GEMINI_FILE_SEARCH_STORE_IDS
@@ -37,6 +37,7 @@ from ...util import (
 )
 
 logger = logging.getLogger(__name__)
+TOOL_NAMESPACE_SEPARATOR = "."
 
 _TOOL_REGISTRY: dict[str, "ToolEntry"] = {}
 
@@ -49,6 +50,111 @@ class ToolEntry:
     name: str
     description: str
     is_async: bool
+
+
+class ToolProvider(Protocol):
+    """Abstraction for sources of Gemini tools (local, built-in, MCP)."""
+
+    provider_id: str
+
+    def list_declarations(self, model: str) -> list[Any]:
+        """Return Gemini tool declarations/configs compatible with the model."""
+        ...
+
+    async def execute(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Execute one tool by its local name (without provider namespace)."""
+        ...
+
+    def supports(self, model: str) -> bool:
+        """Return whether this provider is available for the given model."""
+        ...
+
+
+class LocalFunctionProvider:
+    """Provider for locally-registered @tool Python functions."""
+
+    provider_id = "local"
+
+    def supports(self, model: str) -> bool:
+        return True
+
+    def list_declarations(self, model: str) -> list[Any]:
+        """Return registered tool callables; the SDK generates schemas from type hints."""
+        return [entry.func for entry in _TOOL_REGISTRY.values()]
+
+    async def execute(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        entry = _TOOL_REGISTRY.get(name)
+        if entry is None:
+            return {"error": f"Unknown tool: {name}"}
+
+        try:
+            if entry.is_async:
+                result = await entry.func(**(args or {}))
+            else:
+                result = await asyncio.to_thread(entry.func, **(args or {}))
+        except Exception as e:
+            logger.warning("Tool %s raised %s: %s", name, type(e).__name__, e)
+            return {"error": f"{type(e).__name__}: {e}"}
+
+        if isinstance(result, str):
+            return {"result": result}
+        try:
+            json.dumps(result)
+            return {"result": result}
+        except (TypeError, ValueError):
+            return {"result": str(result)}
+
+
+class BuiltinGeminiToolProvider:
+    """Provider for Gemini server-side built-in tools."""
+
+    provider_id = "builtin"
+
+    def supports(self, model: str) -> bool:
+        return True
+
+    def list_declarations(self, model: str) -> list[dict[str, Any]]:
+        requested = [deepcopy(tool_config) for tool_config in AVAILABLE_TOOLS.values()]
+        supported_tools, _ = filter_supported_tools_for_model(model, requested)
+        return supported_tools
+
+    async def execute(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        return {"error": f"Tool {name} is server-side and cannot be executed locally."}
+
+
+class McpToolProvider:
+    """Stub provider for future MCP-hosted tools."""
+
+    provider_id = "mcp"
+
+    def supports(self, model: str) -> bool:
+        return False
+
+    def list_declarations(self, model: str) -> list[Any]:
+        return []
+
+    async def execute(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        return {"error": "MCP tool provider is not configured."}
+
+
+def get_tool_providers() -> list[ToolProvider]:
+    """Return default provider instances in dispatch priority order."""
+    return [LocalFunctionProvider(), BuiltinGeminiToolProvider(), McpToolProvider()]
+
+
+def namespace_tool_name(provider_id: str, tool_name: str) -> str:
+    """Build a namespaced tool name to avoid collisions across providers."""
+    return f"{provider_id}{TOOL_NAMESPACE_SEPARATOR}{tool_name}"
+
+
+def split_namespaced_tool_name(name: str) -> tuple[str, str] | None:
+    """Split provider and tool name from `provider_id.tool_name`."""
+    if TOOL_NAMESPACE_SEPARATOR not in name:
+        return None
+    provider_id, tool_name = name.split(TOOL_NAMESPACE_SEPARATOR, 1)
+    if not provider_id or not tool_name:
+        return None
+    return provider_id, tool_name
 
 
 def tool(func: Callable) -> Callable:
@@ -82,33 +188,26 @@ def get_tool_callables() -> list[Callable]:
     return [entry.func for entry in _TOOL_REGISTRY.values()]
 
 
-async def execute_tool_call(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+async def execute_tool_call(
+    name: str,
+    args: dict[str, Any] | None = None,
+    providers: list[ToolProvider] | None = None,
+) -> dict[str, Any]:
     """Execute a registered tool by name with the given arguments.
 
     Returns a dict suitable for FunctionResponse output:
       {"result": ...} on success, {"error": ...} on failure.
     """
-    entry = _TOOL_REGISTRY.get(name)
-    if entry is None:
-        return {"error": f"Unknown tool: {name}"}
+    active_providers = providers or get_tool_providers()
+    if parsed := split_namespaced_tool_name(name):
+        provider_id, local_name = parsed
+        for provider in active_providers:
+            if provider.provider_id == provider_id:
+                return await provider.execute(local_name, args or {})
+        return {"error": f"Unknown tool provider: {provider_id}"}
 
-    try:
-        if entry.is_async:
-            result = await entry.func(**(args or {}))
-        else:
-            result = await asyncio.to_thread(entry.func, **(args or {}))
-    except Exception as e:
-        logger.warning("Tool %s raised %s: %s", name, type(e).__name__, e)
-        return {"error": f"{type(e).__name__}: {e}"}
-
-    # Ensure the result is JSON-serializable
-    if isinstance(result, str):
-        return {"result": result}
-    try:
-        json.dumps(result)
-        return {"result": result}
-    except (TypeError, ValueError):
-        return {"result": str(result)}
+    local_provider = LocalFunctionProvider()
+    return await local_provider.execute(name, args or {})
 
 
 def clear_registry() -> None:
@@ -144,10 +243,19 @@ def _resolve_tools_for_view(
     if exclusive_error:
         return set(), exclusive_error
 
-    requested_tools = [deepcopy(AVAILABLE_TOOLS[name]) for name in selected_values]
+    builtin_provider = BuiltinGeminiToolProvider()
+    available_tools = {
+        resolve_tool_name(tool): tool
+        for tool in builtin_provider.list_declarations(conversation.params.model)
+    }
+    prefiltered_unsupported = [name for name in selected_values if name not in available_tools]
+    requested_tools = [
+        deepcopy(available_tools[name]) for name in selected_values if name in available_tools
+    ]
     supported_tools, unsupported_tools = filter_supported_tools_for_model(
         conversation.params.model, requested_tools
     )
+    unsupported_tools = [*prefiltered_unsupported, *unsupported_tools]
     supported_tools, incompatible_tools = filter_file_search_incompatible_tools(supported_tools)
 
     enrich_error = enrich_file_search_tools(supported_tools)
@@ -226,11 +334,18 @@ def roll_dice(sides: int = 6, count: int = 1) -> str:
 
 __all__ = [
     "ToolEntry",
+    "ToolProvider",
     "_resolve_tools_for_view",
+    "BuiltinGeminiToolProvider",
     "clear_registry",
     "enrich_file_search_tools",
     "execute_tool_call",
+    "get_tool_providers",
     "get_registered_tools",
     "get_tool_callables",
+    "LocalFunctionProvider",
+    "McpToolProvider",
+    "namespace_tool_name",
+    "split_namespaced_tool_name",
     "tool",
 ]

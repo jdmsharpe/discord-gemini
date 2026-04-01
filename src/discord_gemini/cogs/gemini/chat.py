@@ -109,20 +109,46 @@ async def keep_typing(cog: "GeminiCog", channel: Any) -> None:
         raise
 
 
-def _add_custom_function_tools(config_args: dict[str, Any], custom_functions_enabled: bool) -> None:
+def _add_custom_function_tools(
+    config_args: dict[str, Any],
+    model: str = "",
+    custom_functions_enabled: bool = False,
+    providers: list[tooling.ToolProvider] | None = None,
+) -> None:
     """Attach Python callable tools and keep execution in the manual tool loop."""
 
     if not (custom_functions_enabled and ENABLE_CUSTOM_TOOLS):
         return
 
-    callables = tooling.get_tool_callables()
-    if not callables:
+    if not model and providers is None:
+        callables = tooling.get_tool_callables()
+        if not callables:
+            return
+        tool_list = list(config_args.get("tools", []))
+        tool_list.extend(callables)
+        config_args["tools"] = tool_list
+        config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(
+            disable=True
+        )
         return
 
-    tool_list = list(config_args.get("tools", []))
-    tool_list.extend(callables)
-    config_args["tools"] = tool_list
-    config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
+    active_providers = providers or tooling.get_tool_providers()
+    initial_tools = list(config_args.get("tools", []))
+    tool_list = list(initial_tools)
+    for provider in active_providers:
+        if provider.provider_id != "local" or not provider.supports(model):
+            continue
+        declarations = provider.list_declarations(model)
+        if declarations:
+            tool_list.extend(declarations)
+    if tool_list != initial_tools:
+        config_args["tools"] = tool_list
+    if any(
+        callable(t) or (isinstance(t, dict) and "function_declarations" in t) for t in tool_list
+    ):
+        config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(
+            disable=True
+        )
 
 
 def _configure_tool_context_circulation(
@@ -229,7 +255,7 @@ async def handle_new_message_in_conversation(
             await message.reply(embed=embeds.build_error_embed(combination_error))
             return
 
-        _add_custom_function_tools(config_args, params.custom_functions_enabled)
+        _add_custom_function_tools(config_args, params.model, params.custom_functions_enabled)
         _configure_tool_context_circulation(
             config_args, params.model, params.custom_functions_enabled
         )
@@ -548,7 +574,7 @@ async def chat_command(
                 typing_task.cancel()
             return
 
-        _add_custom_function_tools(config_args, custom_functions_enabled)
+        _add_custom_function_tools(config_args, model, custom_functions_enabled)
         _configure_tool_context_circulation(config_args, model, custom_functions_enabled)
 
         generation_config = types.GenerateContentConfig(**config_args) if config_args else None
