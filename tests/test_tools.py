@@ -1,11 +1,16 @@
 import pytest
 
 from discord_gemini.cogs.gemini.tooling import (
+    BuiltinGeminiToolProvider,
+    McpToolProvider,
     ToolEntry,
     clear_registry,
     execute_tool_call,
+    get_tool_providers,
     get_registered_tools,
     get_tool_callables,
+    namespace_tool_name,
+    split_namespaced_tool_name,
     tool,
 )
 
@@ -144,6 +149,91 @@ class TestExecuteToolCall:
         result = await execute_tool_call("returns_set", {})
         assert "result" in result
         assert isinstance(result["result"], str)
+
+    async def test_execute_namespaced_tool_call_routes_to_provider(self):
+        class FakeProvider:
+            provider_id = "fake"
+
+            def list_declarations(self, model: str) -> list[object]:
+                return []
+
+            async def execute(self, name: str, args: dict[str, object]) -> dict[str, object]:
+                return {"provider": self.provider_id, "name": name, "args": args}
+
+            def supports(self, model: str) -> bool:
+                return True
+
+        result = await execute_tool_call(
+            namespace_tool_name("fake", "lookup"),
+            {"query": "time"},
+            providers=[FakeProvider()],
+        )
+
+        assert result == {"provider": "fake", "name": "lookup", "args": {"query": "time"}}
+
+    async def test_execute_namespaced_tool_call_unknown_provider_error(self):
+        result = await execute_tool_call(namespace_tool_name("missing", "lookup"), {}, providers=[])
+
+        assert result == {"error": "Unknown tool provider: missing"}
+
+    async def test_execute_namespaced_tool_call_prefers_provider_namespace(self):
+        @tool
+        def lookup() -> str:
+            """Local lookup tool."""
+            return "local"
+
+        class FakeProvider:
+            provider_id = "fake"
+
+            def list_declarations(self, model: str) -> list[object]:
+                return []
+
+            async def execute(self, name: str, args: dict[str, object]) -> dict[str, object]:
+                return {"result": f"provider:{name}"}
+
+            def supports(self, model: str) -> bool:
+                return True
+
+        result = await execute_tool_call(
+            namespace_tool_name("fake", "lookup"),
+            {},
+            providers=[FakeProvider()],
+        )
+
+        assert result == {"result": "provider:lookup"}
+
+
+class TestToolProviders:
+    def test_get_tool_providers_returns_expected_order(self):
+        provider_ids = [provider.provider_id for provider in get_tool_providers()]
+
+        assert provider_ids == ["local", "builtin", "mcp"]
+
+    @pytest.mark.asyncio
+    async def test_builtin_provider_execute_returns_server_side_error(self):
+        provider = BuiltinGeminiToolProvider()
+
+        result = await provider.execute("google_search", {})
+
+        assert "server-side" in result["error"]
+
+    def test_mcp_provider_is_disabled_stub(self):
+        provider = McpToolProvider()
+
+        assert provider.supports("gemini-2.5-pro") is False
+
+
+class TestNamespacedToolHelpers:
+    def test_namespace_tool_name_round_trips(self):
+        namespaced = namespace_tool_name("local", "roll_dice")
+
+        assert namespaced == "local.roll_dice"
+        assert split_namespaced_tool_name(namespaced) == ("local", "roll_dice")
+
+    def test_split_namespaced_tool_name_rejects_invalid_values(self):
+        assert split_namespaced_tool_name("missing_separator") is None
+        assert split_namespaced_tool_name(".tool") is None
+        assert split_namespaced_tool_name("provider.") is None
 
 
 class TestStarterTools:

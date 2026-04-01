@@ -11,7 +11,8 @@
   bot.add_cog(GeminiCog(bot=bot))
   ```
 
-- Compatibility export: `Conversation` remains re-exported from `discord_gemini`. Both `GeminiCog` and `Conversation` are lazily resolved via `__getattr__` in `cogs/gemini/__init__.py` to avoid import cycles (util.py imports from cogs/gemini/tool_registry).
+- `discord_gemini.bot.main()` now calls `validate_required_config()` before connecting, so missing or blank `BOT_TOKEN` and `GEMINI_API_KEY` values fail fast at startup.
+- Compatibility export: `Conversation` remains re-exported from `discord_gemini`. Both the top-level package and `cogs/gemini/__init__.py` use lazy `__getattr__` exports so `GeminiCog` and `Conversation` can be imported without eagerly pulling in the full Discord/runtime graph.
 
 ## Package Layout
 
@@ -54,7 +55,7 @@ Only `src/bot.py` remains at the repo root; code imports should target `discord_
 ## Testing And Patch Targets
 
 - `pytest` runs with `pythonpath = ["src"]`.
-- The test suite is organized into module-aligned files such as `tests/test_gemini_models.py`, `tests/test_gemini_responses.py`, `tests/test_gemini_attachments.py`, `tests/test_gemini_music.py`, and `tests/test_gemini_video.py`.
+- The test suite is organized into module-aligned files such as `tests/test_gemini_models.py`, `tests/test_gemini_responses.py`, `tests/test_gemini_attachments.py`, `tests/test_gemini_music.py`, `tests/test_gemini_video.py`, `tests/test_tools.py`, `tests/test_config_auth.py`, and `tests/test_tool_registry.py`.
 - `tests/test_package_import.py` is the package import smoke test, and `tests/support.py` holds shared Gemini test helpers.
 - New tests and patches should target real owners under `discord_gemini...`.
 - Examples:
