@@ -49,6 +49,9 @@ Convert text to high-quality WAV speech audio (24kHz, 16-bit). Features 25+ voic
 ### `/gemini research`
 Run autonomous deep research tasks (takes 2-10 minutes) using the `deep-research-pro-preview-12-2025` agent. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`.
 
+### `/gemini check_permissions`
+Check if the bot has the necessary permissions in the current channel.
+
 ## Setup & Installation
 
 ### Prerequisites
