@@ -11,7 +11,7 @@
   bot.add_cog(GeminiCog(bot=bot))
   ```
 
-- Compatibility export: `Conversation` remains re-exported from `discord_gemini` during this refactor pass.
+- Compatibility export: `Conversation` remains re-exported from `discord_gemini`. Both `GeminiCog` and `Conversation` are lazily resolved via `__getattr__` in `cogs/gemini/__init__.py` to avoid import cycles (util.py imports from cogs/gemini/tool_registry).
 
 ## Package Layout
 
@@ -76,6 +76,7 @@ pytest -q
 ## Provider Notes
 
 - Preserve the current cache/file-search/maps/tool compatibility behavior when refactoring further.
+- Custom tool dispatch uses a `ToolProvider` protocol in `discord_gemini.cogs.gemini.tooling`. `LocalFunctionProvider` wraps `@tool` callables, `BuiltinGeminiToolProvider` surfaces model-supported server-side tools, and `McpToolProvider` is a stub for future MCP transport. `execute_tool_call` routes namespaced names (`provider_id.tool_name`) to the correct provider and falls back to local lookup for un-namespaced names.
 - `GEMINI_FILE_SEARCH_STORE_IDS` is the runtime gate for file-search-enabled flows.
 - Gemini chat now supports built-in + custom tool combinations only on Gemini 3 chat models.
 - When a request combines Gemini server-side tools with custom functions, `discord_gemini.cogs.gemini.chat` must enable `tool_config.include_server_side_tool_invocations = True`.
