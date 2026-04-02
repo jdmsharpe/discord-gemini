@@ -1,5 +1,5 @@
 aiohttp~=3.13
-google-genai~=1.69
+google-genai~=1.70
 Pillow~=12.1
 py-cord~=2.7
 pytest~=9.0
