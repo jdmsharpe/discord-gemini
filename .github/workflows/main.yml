@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -77,13 +78,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Generate Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ secrets.DOCKER_HUB_USERNAME }}/discord-gemini
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
       - name: Build and push release image
         uses: docker/build-push-action@v7
         with:
           push: true
           context: .
           file: ./Dockerfile
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/discord-gemini:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             PYTHON_VERSION=3.13
           cache-from: type=gha
