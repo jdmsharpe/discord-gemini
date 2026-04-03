@@ -4,9 +4,12 @@ import asyncio
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
 from discord import Attachment, Colour, Embed
+from discord import HTTPException as DiscordHTTPException
 from discord.commands import ApplicationContext
 from google.genai import types
+from google.genai.errors import APIError
 
 from ...config.auth import ENABLE_CUSTOM_TOOLS, SHOW_COST_EMBEDS
 from ...util import (
@@ -32,6 +35,9 @@ from .views import ButtonView
 if TYPE_CHECKING:
     from .cog import GeminiCog
     from .models import Conversation
+
+
+CACHED_REQUEST_RETRY_EXCEPTIONS = (APIError, aiohttp.ClientError, TimeoutError)
 
 
 async def _run_agentic_loop(
@@ -269,7 +275,7 @@ async def handle_new_message_in_conversation(
         pre_loop_len = len(contents)
         try:
             result = await _run_agentic_loop(cog, params.model, contents, generation_config)
-        except Exception as cache_error:
+        except CACHED_REQUEST_RETRY_EXCEPTIONS as cache_error:
             if not params.cache_name:
                 raise
             cog.logger.warning("Cached request failed, retrying without cache: %s", cache_error)
@@ -356,7 +362,7 @@ async def handle_new_message_in_conversation(
         if response_embeds:
             try:
                 reply_message = await message.reply(embeds=response_embeds, view=view)
-            except Exception as embed_error:
+            except DiscordHTTPException as embed_error:
                 cog.logger.warning("Embed failed, sending as text: %s", embed_error)
                 safe_response_text = response_text or "No response text available"
                 reply_message = await message.reply(
@@ -375,14 +381,12 @@ async def handle_new_message_in_conversation(
             )
 
     except Exception as error:
-        description = str(error)
+        description = embeds.error_to_user_description(error)
         cog.logger.error(
             "Error in handle_new_message_in_conversation: %s",
             description,
             exc_info=True,
         )
-        if len(description) > 4000:
-            description = description[:4000] + "\n\n... (error message truncated)"
         await message.reply(embed=embeds.build_error_embed(description))
         await cache._delete_conversation_cache(cog, conversation_wrapper.params)
         await attachments._cleanup_uploaded_files(cog, conversation_wrapper.params)

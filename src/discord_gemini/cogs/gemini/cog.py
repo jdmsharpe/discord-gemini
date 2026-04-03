@@ -55,7 +55,7 @@ from . import (
 from . import (
     video as video_flow,
 )
-from .embeds import build_error_embed
+from .embeds import build_error_embed, error_to_user_description
 from .models import Conversation, PermissionAwareChannel
 
 
@@ -133,10 +133,8 @@ class GeminiCog(commands.Cog):
         error: Exception,
         command_name: str,
     ) -> None:
-        description = str(error)
+        description = error_to_user_description(error)
         self.logger.error("Error in %s: %s", command_name, description, exc_info=True)
-        if len(description) > 4000:
-            description = description[:4000] + "\n\n... (error message truncated)"
         try:
             await ctx.send_followup(embed=build_error_embed(description))
         except Exception as followup_error:
@@ -144,6 +142,7 @@ class GeminiCog(commands.Cog):
                 "Failed to send error followup for %s: %s",
                 command_name,
                 followup_error,
+                exc_info=True,
             )
 
     async def _get_http_session(self) -> aiohttp.ClientSession:

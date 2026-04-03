@@ -1,14 +1,19 @@
 """Explicit cache lifecycle helpers for Gemini conversations."""
 
+import aiohttp
 from typing import TYPE_CHECKING, Any, cast
 
 from google.genai import types
+from google.genai.errors import APIError
 
 from ...util import CACHE_MIN_TOKEN_COUNT, CACHE_TTL
 from . import usage
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
+
+
+CACHE_API_EXCEPTIONS = (APIError, aiohttp.ClientError, TimeoutError)
 
 
 async def _maybe_create_cache(
@@ -59,7 +64,7 @@ async def _maybe_create_cache(
             params.conversation_id,
             prompt_tokens,
         )
-    except Exception as error:
+    except CACHE_API_EXCEPTIONS as error:
         cog.logger.warning("Failed to create cache: %s", error)
 
 
@@ -93,14 +98,14 @@ async def _recache(
             prompt_tokens,
             uncached_tokens,
         )
-    except Exception as error:
+    except CACHE_API_EXCEPTIONS as error:
         cog.logger.warning("Failed to re-cache: %s", error)
         return
 
     if old_cache_name is not None:
         try:
             await cog.client.aio.caches.delete(name=old_cache_name)
-        except Exception as error:
+        except CACHE_API_EXCEPTIONS as error:
             cog.logger.warning("Failed to delete old cache %s: %s", old_cache_name, error)
 
 
@@ -116,7 +121,7 @@ async def _refresh_cache_ttl(cog: "GeminiCog", params: Any) -> None:
             name=cache_name,
             config=types.UpdateCachedContentConfig(ttl=CACHE_TTL),
         )
-    except Exception as error:
+    except CACHE_API_EXCEPTIONS as error:
         cog.logger.warning("Failed to refresh cache TTL for %s: %s", params.cache_name, error)
 
 
@@ -129,7 +134,7 @@ async def _delete_conversation_cache(cog: "GeminiCog", params: Any) -> None:
     try:
         await cog.client.aio.caches.delete(name=params.cache_name)
         cog.logger.info("Deleted cache %s", params.cache_name)
-    except Exception as error:
+    except CACHE_API_EXCEPTIONS as error:
         cog.logger.warning("Failed to delete cache %s: %s", params.cache_name, error)
     params.cache_name = None
     params.cached_history_length = 0

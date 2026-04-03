@@ -6,12 +6,26 @@ from ...util import calculate_cost, chunk_text, truncate_text
 from .models import ToolInfo
 
 GEMINI_BLUE = Colour(0x4285F4)
+ERROR_TRUNCATION_SUFFIX = "\n\n... (error message truncated)"
 
 
 def build_error_embed(description: str) -> Embed:
     """Create a red error embed."""
 
     return Embed(title="Error", description=description, color=Colour.red())
+
+
+def error_to_user_description(error: BaseException | str, max_length: int = 4000) -> str:
+    """Normalize an error into safe embed description text."""
+
+    description = error if isinstance(error, str) else str(error)
+    if not description:
+        return "An unexpected error occurred."
+    if len(description) <= max_length:
+        return description
+    if max_length <= len(ERROR_TRUNCATION_SUFFIX):
+        return ERROR_TRUNCATION_SUFFIX[:max_length]
+    return description[: max_length - len(ERROR_TRUNCATION_SUFFIX)] + ERROR_TRUNCATION_SUFFIX
 
 
 def append_response_embeds(embeds: list[Embed], response_text: str) -> None:
@@ -102,6 +116,7 @@ def append_pricing_embed(
 
 __all__ = [
     "GEMINI_BLUE",
+    "error_to_user_description",
     "append_pricing_embed",
     "append_response_embeds",
     "append_sources_embed",

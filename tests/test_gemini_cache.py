@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from google.genai.errors import APIError
 
 from tests.support import AsyncGeminiCogTestCase
 
@@ -90,7 +91,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
                 cached_content_token_count=1200,
             )
         )
-        self.cog.client.aio.caches.update.side_effect = Exception("TTL error")
+        self.cog.client.aio.caches.update.side_effect = APIError(500, {})
 
         await self.cog._maybe_create_cache(params, [], response)
 
@@ -142,7 +143,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
                 cached_content_token_count=2000,
             )
         )
-        self.cog.client.aio.caches.create.side_effect = Exception("Create failed")
+        self.cog.client.aio.caches.create.side_effect = APIError(500, {})
 
         await self.cog._maybe_create_cache(params, history, response)
 
@@ -217,7 +218,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         ]
         response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=2000))
 
-        self.cog.client.aio.caches.create.side_effect = Exception("API error")
+        self.cog.client.aio.caches.create.side_effect = APIError(500, {})
 
         await self.cog._maybe_create_cache(params, history, response)
 
@@ -260,7 +261,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
             cached_history_length=2,
         )
 
-        self.cog.client.aio.caches.delete.side_effect = Exception("Not found")
+        self.cog.client.aio.caches.delete.side_effect = APIError(404, {})
 
         await self.cog._delete_conversation_cache(params)
 
