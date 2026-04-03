@@ -67,10 +67,6 @@ class GeminiCog(commands.Cog):
     def __init__(self, bot: Any):
         self.bot = bot
         self._client = None
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
         self.logger = logging.getLogger(__name__)
         self.conversations: dict[int, Conversation] = {}
         self.message_to_conversation_id: dict[int, int] = {}
