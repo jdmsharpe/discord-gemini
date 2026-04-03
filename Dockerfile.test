@@ -1,10 +1,8 @@
 ARG PYTHON_VERSION=3.13
 FROM python:${PYTHON_VERSION}-slim
 WORKDIR /app
-COPY requirements.txt .
-COPY requirements-dev.txt .
-RUN pip install --no-cache-dir -r requirements-dev.txt
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
+RUN python -m pip install --no-cache-dir ".[dev]"
 COPY tests/ ./tests/
 CMD ["python", "-m", "pytest", "-v"]
