@@ -17,7 +17,9 @@ class TestGeminiClientBuilders:
 
     def test_build_gemini_client_with_api_version(self):
         with (
-            patch.object(gemini_client.types, "HttpOptions", return_value="http-options") as http_opts,
+            patch.object(
+                gemini_client.types, "HttpOptions", return_value="http-options"
+            ) as http_opts,
             patch.object(gemini_client.genai, "Client") as mock_client,
             patch.object(gemini_client, "GEMINI_API_VERSION", "v1"),
         ):

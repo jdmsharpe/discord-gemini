@@ -1,7 +1,5 @@
 """Thin bot launcher inside the namespaced package."""
 
-import logging
-
 from discord import Bot, Intents
 
 from .cogs.gemini.cog import GeminiCog
@@ -20,10 +18,6 @@ def build_bot() -> Bot:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
     validate_required_config()
     bot = build_bot()
     bot.run(BOT_TOKEN)
