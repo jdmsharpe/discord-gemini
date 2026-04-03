@@ -584,6 +584,10 @@ def truncate_text(text: str | None, max_length: int, suffix: str = "...") -> str
     """
     if text is None:
         return None
+    if max_length <= 0:
+        return ""
     if len(text) <= max_length:
         return text
-    return text[:max_length] + suffix
+    if len(suffix) >= max_length:
+        return suffix[:max_length]
+    return text[: max_length - len(suffix)] + suffix

@@ -784,9 +784,9 @@ class TestTruncateText:
 
         text = "A" * 100
         result = truncate_text(text, 50)
-        assert len(result) == 53  # 50 + "..."
+        assert len(result) == 50
         assert result.endswith("...")
-        assert result == "A" * 50 + "..."
+        assert result == "A" * 47 + "..."
 
     def test_truncate_text_at_limit(self):
         """Test that text exactly at limit is not truncated."""
@@ -803,7 +803,8 @@ class TestTruncateText:
 
         text = "Hello, world!"
         result = truncate_text(text, 5, suffix="[...]")
-        assert result == "Hello[...]"
+        assert result == "[...]"
+        assert len(result) == 5
 
     def test_truncate_text_none(self):
         """Test that None input returns None."""
@@ -834,7 +835,7 @@ class TestTruncateText:
 
         long_prompt = "A" * 3000
         result = truncate_text(long_prompt, 2000)
-        assert len(result) == 2003  # 2000 + "..."
+        assert len(result) == 2000
         assert result.endswith("...")
 
     def test_truncate_text_response_limit(self):
@@ -843,8 +844,24 @@ class TestTruncateText:
 
         long_response = "B" * 5000
         result = truncate_text(long_response, 3500)
-        assert len(result) == 3503  # 3500 + "..."
+        assert len(result) == 3500
         assert result.endswith("...")
+
+    def test_truncate_text_max_length_zero_or_negative(self):
+        """Test that non-positive max_length returns empty string."""
+        from discord_gemini.util import truncate_text
+
+        assert truncate_text("Hello", 0) == ""
+        assert truncate_text("Hello", -1) == ""
+
+    def test_truncate_text_suffix_longer_than_limit(self):
+        """Test truncation when suffix is longer than max_length."""
+        from discord_gemini.util import truncate_text
+
+        text = "A" * 100
+        result = truncate_text(text, 2, suffix="[...]")
+        assert result == "[."
+        assert len(result) == 2
 
 
 class TestCacheConstants:
