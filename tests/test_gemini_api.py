@@ -1,11 +1,13 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from discord_gemini.cogs.gemini.cog import GeminiCog
 from discord_gemini.cogs.gemini import research as gemini_research
-from tests.support import AsyncGeminiCogTestCase
+from tests.support import AsyncGeminiCogTestCase, build_mock_bot
 
 
 class TestGeminiCog(AsyncGeminiCogTestCase):
@@ -69,6 +71,14 @@ class TestGeminiCog(AsyncGeminiCogTestCase):
         await asyncio.sleep(0)
 
         assert self.cog._http_session is None
+
+
+def test_cog_init_does_not_configure_root_logger():
+    """GeminiCog initialization should not mutate global logging config."""
+    with patch.object(logging, "basicConfig") as mock_basic_config:
+        GeminiCog(bot=build_mock_bot())
+
+    mock_basic_config.assert_not_called()
 
 
 class TestGeminiImageResponseText:
