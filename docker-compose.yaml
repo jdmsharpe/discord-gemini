@@ -3,5 +3,4 @@ services:
     build: .
     env_file:
       - .env
-    container_name: discord-gemini
-    command: python src/bot.py
+    restart: unless-stopped

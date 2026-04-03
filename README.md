@@ -79,7 +79,7 @@ Check if the bot has the necessary permissions in the current channel.
    ```
 
 ### Contributor Setup
-Install both runtime and development tooling for tests, linting, and type checking:
+Install development tooling for tests, linting, and type checking:
 ```bash
 python -m pip install -e ".[dev]"
 ```
@@ -101,6 +101,11 @@ python -m pip install -e ".[dev]"
 python src/bot.py
 ```
 *(Note: `src/bot.py` is a thin launcher that delegates to `discord_gemini.bot.main`)*
+
+**With Docker:**
+```bash
+docker compose up -d --build
+```
 
 **Using as a Cog:**
 To compose this repo into a larger bot, import the namespaced package:
