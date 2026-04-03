@@ -64,11 +64,16 @@ Check if the bot has the necessary permissions in the current channel.
 
 ### Installation
 1. Clone the repository and navigate to the project directory.
-2. Install runtime dependencies:
+2. Create and activate a virtual environment:
    ```bash
-   pip install -r requirements.txt
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
-3. Copy the environment example file:
+3. Install the package and its runtime dependencies:
+   ```bash
+   python -m pip install .
+   ```
+4. Copy the environment example file:
    ```bash
    cp .env.example .env
    ```
@@ -76,12 +81,7 @@ Check if the bot has the necessary permissions in the current channel.
 ### Contributor Setup
 Install both runtime and development tooling for tests, linting, and type checking:
 ```bash
-pip install -r requirements-dev.txt
-```
-
-Or, using the package metadata in `pyproject.toml`:
-```bash
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
 
 ### Configuration (`.env`)
@@ -139,9 +139,11 @@ Try these prompts with `/gemini music`:
 ### Testing
 Tests use `pytest` with `pytest-asyncio` (`asyncio_mode = "auto"`). All tests are mocked (no real API calls).
 ```bash
+# Install developer tooling if you have not already
+python -m pip install -e ".[dev]"
+
 # Run tests locally
-.venv/Scripts/python.exe -m pytest -q    # Windows
-.venv/bin/python -m pytest -q            # Unix
+python -m pytest -q
 
 # Run tests in Docker
 docker build --build-arg PYTHON_VERSION=3.10 -f Dockerfile.test -t discord-gemini-test:3.10 .
