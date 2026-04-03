@@ -56,7 +56,7 @@ Check if the bot has the necessary permissions in the current channel.
 
 ### Prerequisites
 - Python 3.10+
-- `google-genai` ~1.69
+- `google-genai` ~1.70
 - `py-cord` ~2.7
 - `Pillow` ~12.1
 - `aiohttp` ~3.13
@@ -64,7 +64,7 @@ Check if the bot has the necessary permissions in the current channel.
 
 ### Installation
 1. Clone the repository and navigate to the project directory.
-2. Install dependencies:
+2. Install runtime dependencies:
    ```bash
    pip install -r requirements.txt
    ```
@@ -72,6 +72,17 @@ Check if the bot has the necessary permissions in the current channel.
    ```bash
    cp .env.example .env
    ```
+
+### Contributor Setup
+Install both runtime and development tooling for tests, linting, and type checking:
+```bash
+pip install -r requirements-dev.txt
+```
+
+Or, using the package metadata in `pyproject.toml`:
+```bash
+pip install -e ".[dev]"
+```
 
 ### Configuration (`.env`)
 | Variable | Required | Description |
