@@ -1,8 +1,8 @@
 """Explicit cache lifecycle helpers for Gemini conversations."""
 
-import aiohttp
 from typing import TYPE_CHECKING, Any, cast
 
+import aiohttp
 from google.genai import types
 from google.genai.errors import APIError
 

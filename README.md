@@ -152,14 +152,17 @@ python -m pytest -q
 
 # Run tests in Docker
 docker build --build-arg PYTHON_VERSION=3.10 -f Dockerfile.test -t discord-gemini-test:3.10 .
-docker run --rm discord-gemini-test:3.10
+docker run --rm discord-gemini-test:3.10 python -m pytest -q
+
+# Run linting and type checks in Docker
+docker run --rm discord-gemini-test:3.10 sh -lc 'ruff check src tests && ruff format --check src tests && pyright'
 ```
 
 ### Linting & Type Checking
 ```bash
-ruff check src/ tests/
-ruff format src/ tests/
-pyright src/
+ruff check src tests
+ruff format --check src tests
+pyright
 ```
 *Run `git config core.hooksPath .githooks` after cloning to enable the pre-commit hook.*
 

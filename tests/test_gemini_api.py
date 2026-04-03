@@ -5,8 +5,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from discord_gemini.cogs.gemini.cog import GeminiCog
 from discord_gemini.cogs.gemini import research as gemini_research
+from discord_gemini.cogs.gemini.cog import GeminiCog
+from discord_gemini.cogs.gemini.command_options import (
+    CHAT_MODEL_CHOICES,
+    IMAGE_MODEL_CHOICES,
+    MUSIC_MODEL_CHOICES,
+    PERSON_GENERATION_CHOICES,
+    THINKING_LEVEL_CHOICES,
+    TTS_MODEL_CHOICES,
+    TTS_VOICE_CHOICES,
+    VIDEO_MODEL_CHOICES,
+)
 from tests.support import AsyncGeminiCogTestCase, build_mock_bot
 
 
@@ -79,6 +89,25 @@ def test_cog_init_does_not_configure_root_logger():
         GeminiCog(bot=build_mock_bot())
 
     mock_basic_config.assert_not_called()
+
+
+def test_critical_choice_values_present():
+    assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
+    assert any(choice.value == "gemini-3.1-flash-image-preview" for choice in IMAGE_MODEL_CHOICES)
+    assert any(choice.value == "veo-3.1-generate-preview" for choice in VIDEO_MODEL_CHOICES)
+    assert any(choice.value == "gemini-2.5-flash-preview-tts" for choice in TTS_MODEL_CHOICES)
+    assert any(choice.value == "Kore" for choice in TTS_VOICE_CHOICES)
+    assert any(choice.value == "lyria-3-clip-preview" for choice in MUSIC_MODEL_CHOICES)
+
+
+def test_thinking_level_choice_set():
+    values = {choice.value for choice in THINKING_LEVEL_CHOICES}
+    assert values == {"minimal", "low", "medium", "high"}
+
+
+def test_person_generation_choice_set():
+    values = {choice.value for choice in PERSON_GENERATION_CHOICES}
+    assert values == {"dont_allow", "allow_adult", "allow_all"}
 
 
 class TestGeminiImageResponseText:
