@@ -4,6 +4,7 @@ from discord_gemini.cogs.gemini.embeds import (
     append_pricing_embed,
     append_response_embeds,
     append_thinking_embeds,
+    error_to_user_description,
 )
 
 
@@ -149,3 +150,13 @@ class TestGeminiThinkingEmbeds:
         )
         assert len(embeds) == 1
         assert "Maps" not in embeds[0].description
+
+
+class TestErrorToUserDescription:
+    def test_error_to_user_description_uses_default_for_empty(self):
+        assert error_to_user_description("") == "An unexpected error occurred."
+
+    def test_error_to_user_description_truncates_within_max_length(self):
+        output = error_to_user_description("x" * 5000, max_length=40)
+        assert len(output) == 40
+        assert output.endswith("truncated)")

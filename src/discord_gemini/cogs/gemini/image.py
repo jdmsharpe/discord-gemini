@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 from discord import Attachment, Colour, Embed, File
 from discord.commands import ApplicationContext
 from google.genai import types
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import ImageGenerationParameters, calculate_image_cost, truncate_text
@@ -37,7 +37,7 @@ async def _generate_image_with_gemini(
         if image_data:
             try:
                 image = Image.open(BytesIO(image_data))
-            except Exception as error:
+            except (UnidentifiedImageError, OSError, ValueError) as error:
                 cog.logger.warning("Failed to open attachment for image generation: %s", error)
             else:
                 contents = [prompt, image]
@@ -115,7 +115,7 @@ async def _generate_image_with_imagen(
                 if hasattr(image_obj, "image_bytes") and image_obj.image_bytes:
                     try:
                         generated_images.append(Image.open(BytesIO(image_obj.image_bytes)))
-                    except Exception as error:
+                    except (UnidentifiedImageError, OSError, ValueError) as error:
                         cog.logger.error("Failed to convert image_bytes to PIL Image: %s", error)
                 else:
                     cog.logger.error(
@@ -142,7 +142,7 @@ async def _create_image_response_embed(
             image.save(image_bytes, format="PNG")
             image_bytes.seek(0)
             files.append(File(image_bytes, filename=f"generated_image_{index + 1}.png"))
-        except Exception as error:
+        except (OSError, ValueError) as error:
             cog.logger.error("Failed to save image %d: %s", index + 1, error)
 
     truncated_prompt = truncate_text(image_params.prompt, 2000)

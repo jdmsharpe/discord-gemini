@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from google.genai.errors import APIError
+
 from discord_gemini.cogs.gemini.attachments import (
     _guess_attachment_mime_type,
     _guess_url_mime_type,
@@ -149,7 +151,7 @@ class TestGeminiAttachmentHelpers(AsyncGeminiCogTestCase):
         mock_session.get = MagicMock(return_value=mock_context)
         self.cog._http_session = mock_session
 
-        self.cog.client.aio.files.upload = AsyncMock(side_effect=Exception("Upload failed"))
+        self.cog.client.aio.files.upload = AsyncMock(side_effect=APIError(500, {}))
 
         result = await self.cog._prepare_attachment_part(attachment)
 
@@ -203,7 +205,7 @@ class TestGeminiAttachmentHelpers(AsyncGeminiCogTestCase):
             uploaded_file_names=["files/abc", "files/def"],
         )
 
-        self.cog.client.aio.files.delete = AsyncMock(side_effect=Exception("Not found"))
+        self.cog.client.aio.files.delete = AsyncMock(side_effect=APIError(404, {}))
 
         await self.cog._cleanup_uploaded_files(params)
 

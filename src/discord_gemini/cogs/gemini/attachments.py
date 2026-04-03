@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from discord import Attachment
+from google.genai.errors import APIError
 
 from ...util import ATTACHMENT_FILE_API_MAX_SIZE, ATTACHMENT_FILE_API_THRESHOLD
 
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
     from .cog import GeminiCog
 
 _YOUTUBE_URL_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:youtube\.com/|youtu\.be/)", re.IGNORECASE)
+FILE_API_UPLOAD_EXCEPTIONS = (APIError, aiohttp.ClientError, OSError, TimeoutError, ValueError)
+FILE_API_DELETE_EXCEPTIONS = (APIError, aiohttp.ClientError, TimeoutError)
 
 
 def _guess_url_mime_type(url: str) -> str:
@@ -101,7 +104,7 @@ async def _upload_attachment_to_file_api(
             len(data),
         )
         return uploaded_file
-    except Exception as error:
+    except FILE_API_UPLOAD_EXCEPTIONS as error:
         cog.logger.warning("Failed to upload %s to File API: %s", filename, error)
         return None
     finally:
@@ -152,7 +155,7 @@ async def _cleanup_uploaded_files(cog: "GeminiCog", params: Any) -> None:
         try:
             await cog.client.aio.files.delete(name=file_name)
             cog.logger.info("Deleted uploaded file %s", file_name)
-        except Exception as error:
+        except FILE_API_DELETE_EXCEPTIONS as error:
             cog.logger.warning("Failed to delete uploaded file %s: %s", file_name, error)
     params.uploaded_file_names.clear()
 
