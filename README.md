@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 
 ## Overview
-A Discord bot built on Pycord that integrates Google's Gemini API, providing a unified interface for text and multi-turn conversations, image creation, video generation, text-to-speech, music generation, and deep research—all grouped cleanly under the `/gemini` namespace.
+A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing a unified interface for text and multi-turn conversations, image creation, video generation, text-to-speech, music generation, and deep research—all grouped cleanly under the `/gemini` namespace.
 
 ## Features
 - **Multi-turn Conversations:** Persistent conversation history with interactive button controls and explicit context caching for long conversations.
