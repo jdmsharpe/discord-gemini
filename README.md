@@ -1,7 +1,9 @@
 # Discord Gemini Bot
 
 ![Hits](https://hitscounter.dev/api/hit?url=https%3A%2F%2Fgithub.com%2Fjdmsharpe%2Fdiscord-gemini&label=discord-gemini&icon=github&color=%23198754&message=&style=flat&tz=UTC)
-[![Workflow](https://github.com/jdmsharpe/discord-gemini/actions/workflows/main.yml/badge.svg)](https://hub.docker.com/r/jsgreen152/discord-gemini)
+[![Version](https://img.shields.io/github/v/tag/jdmsharpe/discord-gemini?sort=semver&label=version)](https://github.com/jdmsharpe/discord-gemini/tags)
+[![License](https://img.shields.io/github/license/jdmsharpe/discord-gemini?label=license)](./LICENSE)
+[![CI](https://github.com/jdmsharpe/discord-gemini/actions/workflows/main.yml/badge.svg)](https://hub.docker.com/r/jsgreen152/discord-gemini)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 
 ## Overview
