@@ -29,6 +29,14 @@ def _make_view(
     )
 
 
+def test_init_without_running_event_loop():
+    """ButtonView should be constructible in sync tests."""
+    view = _make_view(conversation_starter=MagicMock())
+
+    tool_select = next(item for item in view.children if isinstance(item, Select))
+    assert tool_select.max_values == 6
+
+
 class TestButtonView:
     @pytest.fixture(autouse=True)
     async def setup(self):
