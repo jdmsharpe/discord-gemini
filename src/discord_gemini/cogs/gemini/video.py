@@ -22,6 +22,76 @@ from . import attachments, embeds, state
 if TYPE_CHECKING:
     from .cog import GeminiCog
 
+VEO_3_1_MODELS = frozenset(
+    {
+        "veo-3.1-lite-generate-preview",
+        "veo-3.1-generate-preview",
+        "veo-3.1-fast-generate-preview",
+    }
+)
+VEO_3_MODELS = frozenset(
+    {
+        "veo-3.0-generate-001",
+        "veo-3.0-fast-generate-001",
+    }
+)
+VEO_2_MODEL = "veo-2.0-generate-001"
+VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
+    "veo-3.1-lite-generate-preview": frozenset({"720p", "1080p"}),
+    "veo-3.1-generate-preview": frozenset({"720p", "1080p", "4k"}),
+    "veo-3.1-fast-generate-preview": frozenset({"720p", "1080p", "4k"}),
+    "veo-3.0-generate-001": frozenset({"720p", "1080p", "4k"}),
+    "veo-3.0-fast-generate-001": frozenset({"720p", "1080p", "4k"}),
+    VEO_2_MODEL: frozenset(),
+}
+
+
+def _validate_video_request(
+    *,
+    model: str,
+    aspect_ratio: str,
+    resolution: str | None,
+    number_of_videos: int,
+    duration_seconds: int | None,
+    has_last_frame: bool,
+) -> str | None:
+    """Validate request combinations against the current Veo model limits."""
+    if has_last_frame and model not in VEO_3_1_MODELS:
+        return "The `last_frame` parameter is only supported on Veo 3.1 models."
+
+    if model != VEO_2_MODEL and number_of_videos != 1:
+        return "The `number_of_videos` parameter only supports `1` on Veo 3.x and Veo 3.1 models. Use Veo 2 for up to 2 videos per request."
+
+    if model == VEO_2_MODEL:
+        if resolution is not None:
+            return "The `resolution` parameter is not supported on Veo 2."
+        if duration_seconds is not None and duration_seconds not in {5, 6, 8}:
+            return "Veo 2 only supports 5, 6, or 8 second videos."
+        return None
+
+    if duration_seconds is not None and duration_seconds not in {4, 6, 8}:
+        return "This Veo model only supports 4, 6, or 8 second videos."
+
+    if resolution is not None:
+        supported_resolutions = VIDEO_SUPPORTED_RESOLUTIONS.get(model, frozenset())
+        if resolution not in supported_resolutions:
+            supported_list = ", ".join(sorted(supported_resolutions)) or "no explicit resolution values"
+            return f"The `{resolution}` resolution is not supported on `{model}`. Supported values: {supported_list}."
+
+        if resolution == "4k" and aspect_ratio != "16:9":
+            return "4k output is only supported with a `16:9` aspect ratio."
+
+        if model in VEO_3_MODELS and resolution == "1080p" and aspect_ratio != "16:9":
+            return "Veo 3 and Veo 3 Fast only support `1080p` with a `16:9` aspect ratio."
+
+        if resolution in {"1080p", "4k"} and duration_seconds not in (None, 8):
+            return f"The `{resolution}` resolution only supports 8 second videos."
+
+    if has_last_frame and duration_seconds not in (None, 8):
+        return "Interpolation with `last_frame` only supports 8 second videos on Veo 3.1 models."
+
+    return None
+
 
 async def _generate_video_with_veo(
     cog: "GeminiCog",
@@ -118,6 +188,8 @@ async def _create_video_response_embed(
         description += f" (requested: {video_params.number_of_videos})"
     if video_params.aspect_ratio:
         description += f"\n**Aspect Ratio:** {video_params.aspect_ratio}"
+    if video_params.resolution:
+        description += f"\n**Resolution:** {video_params.resolution}"
     if video_params.person_generation and video_params.person_generation != "allow_adult":
         description += f"\n**Person Generation:** {video_params.person_generation}"
     if video_params.duration_seconds:
@@ -141,6 +213,7 @@ async def video_command(
     prompt: str,
     model: str,
     aspect_ratio: str,
+    resolution: str | None,
     person_generation: str,
     attachment: Attachment | None,
     last_frame: Attachment | None,
@@ -160,11 +233,17 @@ async def video_command(
                     await ctx.send_followup(embed=embeds.build_error_embed(validation_error))
                     return
 
-        if last_frame and "veo-3.1" not in model:
+        validation_error = _validate_video_request(
+            model=model,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            number_of_videos=number_of_videos,
+            duration_seconds=duration_seconds,
+            has_last_frame=last_frame is not None,
+        )
+        if validation_error:
             await ctx.send_followup(
-                embed=embeds.build_error_embed(
-                    "The `last_frame` parameter is only supported on Veo 3.1 models."
-                )
+                embed=embeds.build_error_embed(validation_error)
             )
             return
 
@@ -172,6 +251,7 @@ async def video_command(
             prompt=prompt,
             model=model,
             aspect_ratio=aspect_ratio,
+            resolution=resolution,
             person_generation=person_generation,
             negative_prompt=negative_prompt,
             number_of_videos=number_of_videos,
@@ -190,7 +270,12 @@ async def video_command(
         if generated_videos:
             num_videos = len(generated_videos)
             est_duration = video_params.duration_seconds or 8
-            cost = calculate_video_cost(model, est_duration, num_videos)
+            cost = calculate_video_cost(
+                model,
+                est_duration,
+                num_videos,
+                resolution=video_params.resolution,
+            )
             daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
             cog._log_cost(
                 "video",
@@ -200,6 +285,7 @@ async def video_command(
                 daily_cost,
                 videos=num_videos,
                 duration_seconds=est_duration,
+                resolution=video_params.resolution or "model_default",
             )
 
             embed, files = await _create_video_response_embed(
@@ -214,6 +300,11 @@ async def video_command(
                     f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
                     f"× {est_duration}s · daily ${daily_cost:.2f}"
                 )
+                if video_params.resolution:
+                    pricing_desc = (
+                        f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
+                        f"× {est_duration}s · {video_params.resolution} · daily ${daily_cost:.2f}"
+                    )
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 
             await ctx.send_followup(embeds=response_embeds, files=files)
@@ -237,5 +328,6 @@ async def video_command(
 __all__ = [
     "_create_video_response_embed",
     "_generate_video_with_veo",
+    "_validate_video_request",
     "video_command",
 ]

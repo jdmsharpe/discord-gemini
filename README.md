@@ -46,7 +46,8 @@ Generate images from text prompts or edit using reference images.
 Generate videos from text prompts or image inputs.
 
 - **Models:** Veo 3.1 Lite Preview (default), Veo 3.1 Preview, Veo 3.1 Fast Preview, Veo 3, Veo 3 Fast, Veo 2.
-- **Options:** Customizable duration (5-8 seconds), aspect ratio, first-frame image input, optional `last_frame` interpolation on Veo 3.1 models, negative prompts, and prompt enhancement control.
+- **Options:** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation on Veo 3.1 models, negative prompts, and prompt enhancement control.
+- **Validation:** Veo 3.x models support 4/6/8-second outputs, Veo 2 supports 5/6/8-second outputs, `1080p` and `4k` require 8 seconds, `4k` is unavailable on Veo 3.1 Lite, Veo 2 does not expose explicit resolution control, and requesting 2 videos is only supported on Veo 2.
 
 ### `/gemini music`
 

@@ -68,6 +68,12 @@ VIDEO_ASPECT_RATIO_CHOICES = [
     OptionChoice(name="Portrait (9:16)", value="9:16"),
 ]
 
+VIDEO_RESOLUTION_CHOICES = [
+    OptionChoice(name="720p", value="720p"),
+    OptionChoice(name="1080p", value="1080p"),
+    OptionChoice(name="4K", value="4k"),
+]
+
 TTS_MODEL_CHOICES = [
     OptionChoice(name="Gemini 2.5 Flash Preview TTS", value="gemini-2.5-flash-preview-tts"),
     OptionChoice(name="Gemini 2.5 Pro Preview TTS", value="gemini-2.5-pro-preview-tts"),
@@ -136,4 +142,5 @@ __all__ = [
     "TTS_VOICE_CHOICES",
     "VIDEO_ASPECT_RATIO_CHOICES",
     "VIDEO_MODEL_CHOICES",
+    "VIDEO_RESOLUTION_CHOICES",
 ]

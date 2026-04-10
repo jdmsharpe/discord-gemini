@@ -450,10 +450,12 @@ class TestVideoGenerationParameters:
             prompt="A cat playing piano",
             model="veo-2.0-generate-001",
             aspect_ratio="16:9",
+            resolution="720p",
             number_of_videos=2,
         )
         result = params.to_dict()
         assert result["aspect_ratio"] == "16:9"
+        assert result["resolution"] == "720p"
         assert result["number_of_videos"] == 2
 
     def test_to_dict_with_duration(self):
@@ -519,6 +521,7 @@ class TestVideoGenerationParameters:
         )
         result = params.to_dict()
         assert "aspect_ratio" not in result
+        assert "resolution" not in result
         assert "negative_prompt" not in result
         assert "number_of_videos" not in result
         assert "duration_seconds" not in result
@@ -1144,31 +1147,45 @@ class TestVideoPricing:
 
     def test_pricing_values_are_positive(self):
         """Test that all per-second rates are positive."""
-        for model, rate in VIDEO_PRICING.items():
-            assert rate > 0, f"{model} rate should be positive"
+        for model, resolution_prices in VIDEO_PRICING.items():
+            for resolution, rate in resolution_prices.items():
+                assert rate > 0, f"{model} {resolution} rate should be positive"
 
     def test_fast_models_cheaper_than_standard(self):
         """Test that fast variants are cheaper than standard."""
         assert (
-            VIDEO_PRICING["veo-3.1-lite-generate-preview"]
-            < VIDEO_PRICING["veo-3.1-fast-generate-preview"]
+            VIDEO_PRICING["veo-3.1-lite-generate-preview"]["720p"]
+            < VIDEO_PRICING["veo-3.1-fast-generate-preview"]["720p"]
         )
         assert (
-            VIDEO_PRICING["veo-3.1-fast-generate-preview"]
-            < VIDEO_PRICING["veo-3.1-generate-preview"]
+            VIDEO_PRICING["veo-3.1-fast-generate-preview"]["720p"]
+            < VIDEO_PRICING["veo-3.1-generate-preview"]["720p"]
         )
-        assert VIDEO_PRICING["veo-3.0-fast-generate-001"] < VIDEO_PRICING["veo-3.0-generate-001"]
+        assert (
+            VIDEO_PRICING["veo-3.0-fast-generate-001"]["720p"]
+            < VIDEO_PRICING["veo-3.0-generate-001"]["720p"]
+        )
 
     def test_calculate_video_cost_lite_default_resolution(self):
         """Test Lite pricing uses the default 720p per-second rate."""
         cost = calculate_video_cost("veo-3.1-lite-generate-preview", duration_seconds=8)
         assert cost == pytest.approx(0.40)
 
+    def test_calculate_video_cost_lite_1080p(self):
+        """Test Lite pricing uses the 1080p rate when requested."""
+        cost = calculate_video_cost("veo-3.1-lite-generate-preview", duration_seconds=8, resolution="1080p")
+        assert cost == pytest.approx(0.64)
+
     def test_calculate_video_cost_basic(self):
         """Test basic video cost calculation."""
         # veo-3.1-generate-preview: $0.40/sec, 8 seconds
         cost = calculate_video_cost("veo-3.1-generate-preview", duration_seconds=8)
         assert cost == pytest.approx(3.20)
+
+    def test_calculate_video_cost_3_1_fast_4k(self):
+        """Test 4k pricing for Veo 3.1 Fast."""
+        cost = calculate_video_cost("veo-3.1-fast-generate-preview", duration_seconds=8, resolution="4k")
+        assert cost == pytest.approx(2.40)
 
     def test_calculate_video_cost_multiple_videos(self):
         """Test cost for multiple videos."""

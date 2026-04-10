@@ -68,6 +68,7 @@ from .command_options import (
     TTS_VOICE_CHOICES,
     VIDEO_ASPECT_RATIO_CHOICES,
     VIDEO_MODEL_CHOICES,
+    VIDEO_RESOLUTION_CHOICES,
 )
 from .embeds import build_error_embed, error_to_user_description
 from .models import Conversation, PermissionAwareChannel
@@ -601,6 +602,13 @@ class GeminiCog(commands.Cog):
         type=str,
     )
     @option(
+        "resolution",
+        description="Output resolution for supported Veo models. (default: model default / usually 720p)",
+        required=False,
+        choices=VIDEO_RESOLUTION_CHOICES,
+        type=str,
+    )
+    @option(
         "person_generation",
         description="Control generation of people in videos. (default: allow_adult)",
         required=False,
@@ -621,7 +629,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "number_of_videos",
-        description="Number of videos to generate, from 1 to 2. (default: 1)",
+        description="Number of videos to generate, from 1 to 2. (2 is only supported on Veo 2.)",
         required=False,
         type=int,
         min_value=1,
@@ -629,10 +637,10 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "duration_seconds",
-        description="Length of each output video in seconds, from 5 to 8 seconds. (default: not set)",
+        description="Length of each output video in seconds, from 4 to 8 seconds. (default: model default)",
         required=False,
         type=int,
-        min_value=5,
+        min_value=4,
         max_value=8,
     )
     @option(
@@ -653,6 +661,7 @@ class GeminiCog(commands.Cog):
         prompt: str,
         model: str = "veo-3.1-lite-generate-preview",
         aspect_ratio: str = "16:9",
+        resolution: str | None = None,
         person_generation: str = "allow_adult",
         attachment: Attachment | None = None,
         last_frame: Attachment | None = None,
@@ -667,6 +676,7 @@ class GeminiCog(commands.Cog):
             prompt,
             model,
             aspect_ratio,
+            resolution,
             person_generation,
             attachment,
             last_frame,

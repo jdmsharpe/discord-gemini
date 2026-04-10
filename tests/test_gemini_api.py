@@ -16,6 +16,7 @@ from discord_gemini.cogs.gemini.command_options import (
     TTS_MODEL_CHOICES,
     TTS_VOICE_CHOICES,
     VIDEO_MODEL_CHOICES,
+    VIDEO_RESOLUTION_CHOICES,
 )
 from tests.support import AsyncGeminiCogTestCase, build_mock_bot
 
@@ -109,6 +110,11 @@ def test_thinking_level_choice_set():
 def test_person_generation_choice_set():
     values = {choice.value for choice in PERSON_GENERATION_CHOICES}
     assert values == {"dont_allow", "allow_adult", "allow_all"}
+
+
+def test_video_resolution_choice_set():
+    values = {choice.value for choice in VIDEO_RESOLUTION_CHOICES}
+    assert values == {"720p", "1080p", "4k"}
 
 
 class TestGeminiImageResponseText:
