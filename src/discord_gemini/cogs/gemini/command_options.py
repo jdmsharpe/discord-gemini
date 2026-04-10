@@ -55,6 +55,7 @@ IMAGE_SIZE_CHOICES = [
 ]
 
 VIDEO_MODEL_CHOICES = [
+    OptionChoice(name="Veo 3.1 Lite Preview", value="veo-3.1-lite-generate-preview"),
     OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
     OptionChoice(name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"),
     OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),

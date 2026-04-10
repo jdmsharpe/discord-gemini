@@ -108,6 +108,8 @@ docker compose up
 - Unsupported built-in + custom tool combinations should fail fast with a user-visible validation error rather than silently falling back.
 - `discord_gemini.cogs.gemini.chat`, `image`, `music`, `research`, `speech`, and `video` now own their respective orchestration flows.
 - Default music model is `lyria-3-clip-preview`; keep `discord_gemini.util.DEFAULT_MUSIC_MODEL`, the `/gemini music` slash-command metadata, and user-facing docs aligned when changing it.
+- Default video model is `veo-3.1-lite-generate-preview`; keep `discord_gemini.util.VIDEO_PRICING`, the `/gemini video` slash-command metadata, and user-facing docs aligned when changing it.
+- Video cost tracking currently assumes Veo 3.1 Lite's default 720p rate because `/gemini video` does not expose an explicit resolution option.
 - `/gemini music` response embeds should show raw model IDs, not friendly-name rewrites.
 - Slash-command `duration` applies only to `lyria-realtime-exp`; Lyria 3 Clip stays fixed at 30 seconds and Lyria 3 Pro should not echo a target duration from the slash option.
 - When Lyria 3 returns long lyrics or structure notes, keep a short embed preview and attach the full text as `music_notes.txt`.
