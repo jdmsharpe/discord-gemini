@@ -725,7 +725,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "attachment",
-        description="(Lyria 3 only) Reference image for multimodal music generation.",
+        description="(Lyria 3 only) Reference image for multimodal music generation. (default: not set)",
         required=False,
         type=Attachment,
     )
@@ -738,7 +738,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "duration",
-        description="Target duration in seconds. Applies to Lyria RealTime only; ignored for Lyria 3.",
+        description="Target duration in seconds. Lyria RealTime only. (default: not set)",
         required=False,
         type=int,
         min_value=5,
@@ -746,7 +746,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "bpm",
-        description="Beats per minute from 60 to 200. Leave empty for model to decide.",
+        description="Beats per minute from 60 to 200. (default: not set)",
         required=False,
         type=int,
         min_value=60,
@@ -754,7 +754,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "scale",
-        description="Scale/key for the music.",
+        description="Scale/key for the music. (default: not set)",
         required=False,
         choices=MUSIC_SCALE_CHOICES,
         type=str,
