@@ -94,6 +94,7 @@ def test_cog_init_does_not_configure_root_logger():
 def test_critical_choice_values_present():
     assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-image-preview" for choice in IMAGE_MODEL_CHOICES)
+    assert any(choice.value == "veo-3.1-lite-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "gemini-2.5-flash-preview-tts" for choice in TTS_MODEL_CHOICES)
     assert any(choice.value == "Kore" for choice in TTS_VOICE_CHOICES)

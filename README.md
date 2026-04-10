@@ -20,7 +20,7 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
 - **Media Generation:**
   - **Images:** High-quality image generation and editing using Imagen 4 and Gemini Flash/Pro Image models.
-  - **Video:** Text-to-video and image-to-video generation powered by Google's Veo models (Veo 3.1, 3, 2).
+  - **Video:** Text-to-video, image-to-video, and Veo 3.1 last-frame-constrained generation powered by Google's Veo models.
   - **Music:** Music generation using Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
   - **Text-to-Speech:** Lifelike speech conversion with 25+ voice options.
 - **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
@@ -45,8 +45,8 @@ Generate images from text prompts or edit using reference images.
 
 Generate videos from text prompts or image inputs.
 
-- **Models:** Veo 3.1 / 3.1 Fast, Veo 3 / 3 Fast, Veo 2.
-- **Options:** Customizable duration (5-8 seconds), aspect ratio, and resolution (720p/1080p).
+- **Models:** Veo 3.1 Lite Preview (default), Veo 3.1 Preview, Veo 3.1 Fast Preview, Veo 3, Veo 3 Fast, Veo 2.
+- **Options:** Customizable duration (5-8 seconds), aspect ratio, first-frame image input, optional `last_frame` interpolation on Veo 3.1 models, negative prompts, and prompt enhancement control.
 
 ### `/gemini music`
 

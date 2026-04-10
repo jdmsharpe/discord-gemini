@@ -67,6 +67,7 @@ IMAGE_PRICING: dict[str, tuple[float, dict[str | None, float]]] = {
 
 # Per-second pricing for video generation models
 VIDEO_PRICING: dict[str, float] = {
+    "veo-3.1-lite-generate-preview": 0.05,
     "veo-3.1-generate-preview": 0.40,
     "veo-3.1-fast-generate-preview": 0.15,
     "veo-3.0-generate-001": 0.40,

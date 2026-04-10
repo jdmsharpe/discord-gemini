@@ -588,7 +588,7 @@ class GeminiCog(commands.Cog):
     @option("prompt", description="Prompt for video generation", required=True, type=str)
     @option(
         "model",
-        description="Choose Veo model for video generation. (default: Veo 3.1 Preview)",
+        description="Choose Veo model for video generation. (default: Veo 3.1 Lite Preview)",
         required=False,
         choices=VIDEO_MODEL_CHOICES,
         type=str,
@@ -651,7 +651,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "veo-3.1-generate-preview",
+        model: str = "veo-3.1-lite-generate-preview",
         aspect_ratio: str = "16:9",
         person_generation: str = "allow_adult",
         attachment: Attachment | None = None,

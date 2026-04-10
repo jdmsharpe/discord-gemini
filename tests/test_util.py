@@ -1132,6 +1132,7 @@ class TestVideoPricing:
     def test_pricing_contains_all_video_models(self):
         """Test that VIDEO_PRICING includes all video generation models."""
         expected_models = [
+            "veo-3.1-lite-generate-preview",
             "veo-3.1-generate-preview",
             "veo-3.1-fast-generate-preview",
             "veo-3.0-generate-001",
@@ -1149,10 +1150,19 @@ class TestVideoPricing:
     def test_fast_models_cheaper_than_standard(self):
         """Test that fast variants are cheaper than standard."""
         assert (
+            VIDEO_PRICING["veo-3.1-lite-generate-preview"]
+            < VIDEO_PRICING["veo-3.1-fast-generate-preview"]
+        )
+        assert (
             VIDEO_PRICING["veo-3.1-fast-generate-preview"]
             < VIDEO_PRICING["veo-3.1-generate-preview"]
         )
         assert VIDEO_PRICING["veo-3.0-fast-generate-001"] < VIDEO_PRICING["veo-3.0-generate-001"]
+
+    def test_calculate_video_cost_lite_default_resolution(self):
+        """Test Lite pricing uses the default 720p per-second rate."""
+        cost = calculate_video_cost("veo-3.1-lite-generate-preview", duration_seconds=8)
+        assert cost == pytest.approx(0.40)
 
     def test_calculate_video_cost_basic(self):
         """Test basic video cost calculation."""
