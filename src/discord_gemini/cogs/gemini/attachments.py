@@ -4,6 +4,7 @@ import mimetypes
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import aiohttp
 from discord import Attachment
@@ -17,6 +18,34 @@ if TYPE_CHECKING:
 _YOUTUBE_URL_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:youtube\.com/|youtu\.be/)", re.IGNORECASE)
 FILE_API_UPLOAD_EXCEPTIONS = (APIError, aiohttp.ClientError, OSError, TimeoutError, ValueError)
 FILE_API_DELETE_EXCEPTIONS = (APIError, aiohttp.ClientError, TimeoutError)
+_GENERIC_MIME_TYPES = {"application/octet-stream"}
+_SUPPORTED_AUDIO_EXTENSION_MIME_TYPES = {
+    ".opus": "audio/opus",
+    ".alaw": "audio/alaw",
+    ".mulaw": "audio/mulaw",
+}
+
+
+def _guess_filename_mime_type(name: str) -> str | None:
+    """Guess a MIME type from a filename, including SDK-supported audio extensions."""
+
+    suffix = Path(name).suffix.lower()
+    if suffix in _SUPPORTED_AUDIO_EXTENSION_MIME_TYPES:
+        return _SUPPORTED_AUDIO_EXTENSION_MIME_TYPES[suffix]
+
+    mime_type, _ = mimetypes.guess_type(name)
+    return mime_type
+
+
+def _normalize_mime_type_for_name(mime_type: str | None, name: str) -> str:
+    """Prefer filename-derived MIME types for supported formats and generic metadata."""
+
+    guessed_mime_type = _guess_filename_mime_type(name)
+    if guessed_mime_type in _SUPPORTED_AUDIO_EXTENSION_MIME_TYPES.values():
+        return guessed_mime_type
+    if mime_type and mime_type not in _GENERIC_MIME_TYPES:
+        return mime_type
+    return guessed_mime_type if guessed_mime_type is not None else "application/octet-stream"
 
 
 def _guess_url_mime_type(url: str) -> str:
@@ -24,17 +53,14 @@ def _guess_url_mime_type(url: str) -> str:
 
     if _YOUTUBE_URL_RE.match(url):
         return "video/mp4"
-    mime_type, _ = mimetypes.guess_type(url)
-    return mime_type if mime_type is not None else "application/octet-stream"
+    parsed_url = urlparse(url)
+    return _normalize_mime_type_for_name(None, parsed_url.path or url)
 
 
 def _guess_attachment_mime_type(attachment: Attachment) -> str:
-    """Guess MIME type for a Discord attachment when content_type is absent."""
+    """Guess MIME type for a Discord attachment from metadata and filename."""
 
-    if attachment.content_type:
-        return attachment.content_type
-    mime_type, _ = mimetypes.guess_type(attachment.filename)
-    return mime_type if mime_type is not None else "application/octet-stream"
+    return _normalize_mime_type_for_name(attachment.content_type, attachment.filename)
 
 
 async def _get_http_session(cog: "GeminiCog") -> aiohttp.ClientSession:
@@ -118,7 +144,7 @@ async def _prepare_attachment_part(
 ) -> dict[str, dict[str, Any]] | None:
     """Prepare an attachment as either inline data or File API data."""
 
-    content_type = attachment.content_type or "application/octet-stream"
+    content_type = _guess_attachment_mime_type(attachment)
     use_file_api = attachment.size > ATTACHMENT_FILE_API_THRESHOLD
 
     attachment_data = await _fetch_attachment_bytes(cog, attachment)

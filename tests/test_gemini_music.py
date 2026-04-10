@@ -57,6 +57,10 @@ class TestLyriaHelpers:
     def test_music_file_suffix_for_mime_type(self):
         assert _music_file_suffix_for_mime_type("audio/mpeg") == "mp3"
         assert _music_file_suffix_for_mime_type("audio/wav") == "wav"
+        assert _music_file_suffix_for_mime_type("audio/opus") == "opus"
+        assert _music_file_suffix_for_mime_type("audio/ogg") == "ogg"
+        assert _music_file_suffix_for_mime_type("audio/alaw") == "alaw"
+        assert _music_file_suffix_for_mime_type("audio/mulaw") == "mulaw"
         assert _music_file_suffix_for_mime_type(None) == "mp3"
 
     def test_build_music_notes_file_returns_none_when_short(self):

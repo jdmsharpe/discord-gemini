@@ -98,6 +98,30 @@ class TestGeminiAttachmentHelpers(AsyncGeminiCogTestCase):
         assert result["inline_data"]["mime_type"] == "image/png"
         assert result["inline_data"]["data"] == b"image data"
 
+    async def test_prepare_attachment_part_normalizes_opus_mime_type(self):
+        """Test that opus attachments use the SDK-supported audio MIME type."""
+        attachment = MagicMock()
+        attachment.size = 1 * 1024 * 1024
+        attachment.content_type = "audio/ogg"
+        attachment.url = "https://cdn.example.com/audio.opus"
+        attachment.filename = "audio.opus"
+
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"opus data")
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_context)
+        self.cog._http_session = mock_session
+
+        result = await self.cog._prepare_attachment_part(attachment)
+
+        assert result is not None
+        assert result["inline_data"]["mime_type"] == "audio/opus"
+
     async def test_prepare_attachment_part_file_api_large_file(self):
         """Test that large files use the File API."""
         attachment = MagicMock()
@@ -251,6 +275,18 @@ class TestGuessUrlMimeType:
         result = _guess_url_mime_type("https://example.com/doc.pdf")
         assert result == "application/pdf"
 
+    def test_opus_url_prefers_supported_audio_mime_type(self):
+        result = _guess_url_mime_type("https://example.com/audio.opus?download=1")
+        assert result == "audio/opus"
+
+    def test_alaw_url_maps_supported_audio_mime_type(self):
+        result = _guess_url_mime_type("https://example.com/audio.alaw")
+        assert result == "audio/alaw"
+
+    def test_mulaw_url_maps_supported_audio_mime_type(self):
+        result = _guess_url_mime_type("https://example.com/audio.mulaw")
+        assert result == "audio/mulaw"
+
     def test_unknown_url_fallback(self):
         result = _guess_url_mime_type("https://example.com/api/data")
         assert result == "application/octet-stream"
@@ -270,3 +306,24 @@ class TestGuessAttachmentMimeType:
         attachment.filename = "cover.png"
 
         assert _guess_attachment_mime_type(attachment) == "image/png"
+
+    def test_prefers_supported_opus_mime_type_for_opus_filename(self):
+        attachment = MagicMock()
+        attachment.content_type = "audio/ogg"
+        attachment.filename = "clip.opus"
+
+        assert _guess_attachment_mime_type(attachment) == "audio/opus"
+
+    def test_falls_back_to_supported_alaw_mime_type(self):
+        attachment = MagicMock()
+        attachment.content_type = None
+        attachment.filename = "clip.alaw"
+
+        assert _guess_attachment_mime_type(attachment) == "audio/alaw"
+
+    def test_falls_back_to_supported_mulaw_mime_type_when_content_type_is_generic(self):
+        attachment = MagicMock()
+        attachment.content_type = "application/octet-stream"
+        attachment.filename = "clip.mulaw"
+
+        assert _guess_attachment_mime_type(attachment) == "audio/mulaw"

@@ -70,6 +70,14 @@ def _music_file_suffix_for_mime_type(mime_type: str | None) -> str:
 
     if mime_type in {"audio/wav", "audio/wave", "audio/x-wav"}:
         return "wav"
+    if mime_type == "audio/opus":
+        return "opus"
+    if mime_type == "audio/ogg":
+        return "ogg"
+    if mime_type == "audio/alaw":
+        return "alaw"
+    if mime_type == "audio/mulaw":
+        return "mulaw"
     return "mp3"
 
 

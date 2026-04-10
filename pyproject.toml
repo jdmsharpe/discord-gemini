@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
   "aiohttp~=3.13",
-  "google-genai~=1.71",
+  "google-genai~=1.72",
   "Pillow~=12.1",
   "py-cord~=2.7",
   "python-dotenv~=1.2",
