@@ -9,7 +9,7 @@ Copy `.env.example` to `.env` and fill in the values:
 | `BOT_TOKEN` | **Yes** | — | Discord bot token |
 | `GUILD_IDS` | **Yes** | — | Comma-separated Discord server IDs |
 | `GEMINI_API_KEY` | **Yes** | — | Google Gemini API key |
-| `GEMINI_API_VERSION` | No | SDK default (beta) | Override API version (`v1` for stable, `v1alpha` for preview) |
+| `GEMINI_API_VERSION` | No | SDK default (`v1beta`) | Override API version (`v1` for stable, `v1alpha` for preview) |
 | `GEMINI_FILE_SEARCH_STORE_IDS` | No | `""` | Comma-separated file search store IDs |
 | `ENABLE_CUSTOM_TOOLS` | No | `true` | Enable custom function tool calling in `/gemini chat` |
 | `SHOW_COST_EMBEDS` | No | `true` | Show per-request cost embeds in supported responses |
@@ -49,6 +49,7 @@ src/
             ├── chat.py
             ├── client.py
             ├── cog.py
+            ├── command_options.py
             ├── embeds.py
             ├── image.py
             ├── music.py
@@ -59,6 +60,7 @@ src/
             ├── state.py
             ├── tool_registry.py
             ├── tooling.py
+            ├── usage.py
             ├── video.py
             └── views.py
 ```
@@ -95,6 +97,7 @@ docker compose up
 
 ## Provider Notes
 
+- Dependency baseline is `google-genai~=1.72`.
 - Preserve the current cache/file-search/maps/tool compatibility behavior when refactoring further.
 - Custom tool dispatch uses a `ToolProvider` protocol in `discord_gemini.cogs.gemini.tooling`. `LocalFunctionProvider` wraps `@tool` callables, `BuiltinGeminiToolProvider` surfaces model-supported server-side tools, and `McpToolProvider` is a stub for future MCP transport. `execute_tool_call` routes namespaced names (`provider_id.tool_name`) to the correct provider and falls back to local lookup for un-namespaced names.
 - `GEMINI_FILE_SEARCH_STORE_IDS` is the runtime gate for file-search-enabled flows.
@@ -108,3 +111,4 @@ docker compose up
 - `/gemini music` response embeds should show raw model IDs, not friendly-name rewrites.
 - Slash-command `duration` applies only to `lyria-realtime-exp`; Lyria 3 Clip stays fixed at 30 seconds and Lyria 3 Pro should not echo a target duration from the slash option.
 - When Lyria 3 returns long lyrics or structure notes, keep a short embed preview and attach the full text as `music_notes.txt`.
+- Attachment MIME handling explicitly normalizes `.opus`, `.alaw`, and `.mulaw` inputs to `audio/opus`, `audio/alaw`, and `audio/mulaw` for both Discord attachments and URL-based file inputs.
