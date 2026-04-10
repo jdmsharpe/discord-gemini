@@ -65,14 +65,41 @@ IMAGE_PRICING: dict[str, tuple[float, dict[str | None, float]]] = {
     "imagen-4.0-fast-generate-001": (0.0, {None: 0.02}),
 }
 
-# Per-second pricing for video generation models
-VIDEO_PRICING: dict[str, float] = {
-    "veo-3.1-lite-generate-preview": 0.05,
-    "veo-3.1-generate-preview": 0.40,
-    "veo-3.1-fast-generate-preview": 0.15,
-    "veo-3.0-generate-001": 0.40,
-    "veo-3.0-fast-generate-001": 0.15,
-    "veo-2.0-generate-001": 0.35,
+# Per-second pricing for video generation models.
+# Resolution-specific rates are included where Google publishes distinct prices.
+VIDEO_PRICING: dict[str, dict[str, float]] = {
+    "veo-3.1-lite-generate-preview": {
+        "default": 0.05,
+        "720p": 0.05,
+        "1080p": 0.08,
+    },
+    "veo-3.1-generate-preview": {
+        "default": 0.40,
+        "720p": 0.40,
+        "1080p": 0.40,
+        "4k": 0.60,
+    },
+    "veo-3.1-fast-generate-preview": {
+        "default": 0.10,
+        "720p": 0.10,
+        "1080p": 0.12,
+        "4k": 0.30,
+    },
+    "veo-3.0-generate-001": {
+        "default": 0.40,
+        "720p": 0.40,
+        "1080p": 0.40,
+        "4k": 0.40,
+    },
+    "veo-3.0-fast-generate-001": {
+        "default": 0.10,
+        "720p": 0.10,
+        "1080p": 0.12,
+        "4k": 0.30,
+    },
+    "veo-2.0-generate-001": {
+        "default": 0.35,
+    },
 }
 
 # Per-million-token pricing for TTS models: (input_cost, output_cost)
@@ -134,9 +161,16 @@ def calculate_image_cost(
     return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost
 
 
-def calculate_video_cost(model: str, duration_seconds: int, num_videos: int = 1) -> float:
-    """Calculate the cost for video generation (per-second pricing)."""
-    price_per_second = VIDEO_PRICING.get(model, 0.35)
+def calculate_video_cost(
+    model: str,
+    duration_seconds: int,
+    num_videos: int = 1,
+    resolution: str | None = None,
+) -> float:
+    """Calculate the cost for video generation using model and optional resolution."""
+    resolution_prices = VIDEO_PRICING.get(model, {"default": 0.35})
+    price_key = resolution.lower() if resolution else "default"
+    price_per_second = resolution_prices.get(price_key, resolution_prices.get("default", 0.35))
     return duration_seconds * num_videos * price_per_second
 
 
@@ -278,6 +312,7 @@ class VideoGenerationParameters:
     prompt: str
     model: str
     aspect_ratio: str | None = None
+    resolution: str | None = None
     person_generation: str | None = None
     negative_prompt: str | None = None
     number_of_videos: int | None = None
@@ -291,6 +326,8 @@ class VideoGenerationParameters:
 
         if self.aspect_ratio is not None:
             config_dict["aspect_ratio"] = self.aspect_ratio
+        if self.resolution is not None:
+            config_dict["resolution"] = self.resolution
         if self.negative_prompt is not None:
             config_dict["negative_prompt"] = self.negative_prompt
         if self.number_of_videos is not None:
