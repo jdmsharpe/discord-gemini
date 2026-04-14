@@ -12,6 +12,7 @@ from discord_gemini.cogs.gemini.command_options import (
     IMAGE_MODEL_CHOICES,
     MUSIC_MODEL_CHOICES,
     PERSON_GENERATION_CHOICES,
+    RESEARCH_THINKING_SUMMARY_CHOICES,
     THINKING_LEVEL_CHOICES,
     TTS_MODEL_CHOICES,
     TTS_VOICE_CHOICES,
@@ -110,6 +111,11 @@ def test_thinking_level_choice_set():
 def test_person_generation_choice_set():
     values = {choice.value for choice in PERSON_GENERATION_CHOICES}
     assert values == {"dont_allow", "allow_adult", "allow_all"}
+
+
+def test_research_thinking_summary_choice_set():
+    values = {choice.value for choice in RESEARCH_THINKING_SUMMARY_CHOICES}
+    assert values == {"auto", "none"}
 
 
 def test_video_resolution_choice_set():
@@ -433,6 +439,37 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
             background=True,
         )
 
+    async def test_run_deep_research_with_thinking_summaries(self):
+        """Test _run_deep_research passes agent_config when thinking summaries are requested."""
+        from discord_gemini.util import ResearchParameters
+
+        params = ResearchParameters(prompt="Research AI safety", thinking_summaries="none")
+
+        interaction_done = SimpleNamespace(
+            id="interaction-thinking",
+            status="completed",
+            outputs=[SimpleNamespace(text="Concise report")],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
+            ),
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
+            report_text, _, _, _ = await self.cog._run_deep_research(params)
+
+        assert report_text == "Concise report"
+        self.cog.client.aio.interactions.create.assert_called_once_with(
+            input="Research AI safety",
+            agent="deep-research-pro-preview-12-2025",
+            agent_config={
+                "type": "deep-research",
+                "thinking_summaries": "none",
+            },
+            background=True,
+        )
+
     async def test_run_deep_research_with_file_search(self):
         """Test _run_deep_research passes file_search tools when enabled."""
         from discord_gemini.util import ResearchParameters
@@ -489,6 +526,26 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
             patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock),
             pytest.raises(Exception, match="failed"),
         ):
+            await self.cog._run_deep_research(params)
+
+    async def test_run_deep_research_requires_action(self):
+        """Test _run_deep_research raises a clear message when the agent requires confirmation."""
+        from discord_gemini.util import ResearchParameters
+
+        params = ResearchParameters(prompt="test", collaborative_planning=True)
+
+        interaction_requires_action = SimpleNamespace(
+            id="interaction-5",
+            status="requires_action",
+            outputs=[SimpleNamespace(text="1. Search the topic\n2. Review findings")],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=20, total_thought_tokens=0
+            ),
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_requires_action
+
+        with pytest.raises(Exception, match="requires confirmation"):
             await self.cog._run_deep_research(params)
 
     async def test_run_deep_research_no_output(self):

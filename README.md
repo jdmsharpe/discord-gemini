@@ -62,7 +62,7 @@ Convert text to high-quality WAV speech audio (24kHz, 16-bit). Features 25+ voic
 
 ### `/gemini research`
 
-Run autonomous deep research tasks (takes 2-10 minutes) using the `deep-research-pro-preview-12-2025` agent. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`.
+Run autonomous deep research tasks (takes 2-10 minutes) using the `deep-research-pro-preview-12-2025` agent. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries.
 
 ### `/gemini check_permissions`
 
@@ -73,7 +73,7 @@ Check if the bot has the necessary permissions in the current channel.
 ### Prerequisites
 
 - Python 3.10+
-- `google-genai` ~1.72
+- `google-genai` ~1.73
 - `py-cord` ~2.7
 - `Pillow` ~12.1
 - `aiohttp` ~3.13

@@ -63,6 +63,7 @@ from .command_options import (
     MUSIC_MODEL_CHOICES,
     MUSIC_SCALE_CHOICES,
     PERSON_GENERATION_CHOICES,
+    RESEARCH_THINKING_SUMMARY_CHOICES,
     THINKING_LEVEL_CHOICES,
     TTS_MODEL_CHOICES,
     TTS_VOICE_CHOICES,
@@ -842,14 +843,29 @@ class GeminiCog(commands.Cog):
         required=False,
         type=bool,
     )
+    @option(
+        "thinking_summaries",
+        description="Include or suppress deep-research thought summaries in the response. (default: agent default)",
+        required=False,
+        choices=RESEARCH_THINKING_SUMMARY_CHOICES,
+        type=str,
+    )
     async def research(
         self,
         ctx: ApplicationContext,
         prompt: str,
         file_search: bool = False,
         google_maps: bool = False,
+        thinking_summaries: str | None = None,
     ) -> None:
-        await research_flow.research_command(self, ctx, prompt, file_search, google_maps)
+        await research_flow.research_command(
+            self,
+            ctx,
+            prompt,
+            file_search,
+            google_maps,
+            thinking_summaries,
+        )
 
     async def _generate_image_with_gemini(
         self,

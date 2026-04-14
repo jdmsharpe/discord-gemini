@@ -1,6 +1,6 @@
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from discord import Member, User
 
@@ -458,6 +458,9 @@ class ResearchParameters:
     agent: str = "deep-research-pro-preview-12-2025"
     file_search: bool = False
     google_maps: bool = False
+    collaborative_planning: bool = False
+    thinking_summaries: Literal["auto", "none"] | None = None
+    visualization: Literal["auto", "off"] | None = None
 
 
 @dataclass
