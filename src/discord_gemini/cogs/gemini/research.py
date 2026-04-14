@@ -3,7 +3,7 @@
 import asyncio
 import time
 from io import BytesIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from discord import Colour, Embed, File
 from discord.commands import ApplicationContext
@@ -150,7 +150,7 @@ async def research_command(
     prompt: str,
     file_search: bool = False,
     google_maps: bool = False,
-    thinking_summaries: str | None = None,
+    thinking_summaries: Literal["auto", "none"] | None = None,
 ) -> None:
     """Run the `/gemini research` command."""
 

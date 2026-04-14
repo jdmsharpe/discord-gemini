@@ -41,7 +41,10 @@ def _normalize_mime_type_for_name(mime_type: str | None, name: str) -> str:
     """Prefer filename-derived MIME types for supported formats and generic metadata."""
 
     guessed_mime_type = _guess_filename_mime_type(name)
-    if guessed_mime_type in _SUPPORTED_AUDIO_EXTENSION_MIME_TYPES.values():
+    if (
+        guessed_mime_type is not None
+        and guessed_mime_type in _SUPPORTED_AUDIO_EXTENSION_MIME_TYPES.values()
+    ):
         return guessed_mime_type
     if mime_type and mime_type not in _GENERIC_MIME_TYPES:
         return mime_type

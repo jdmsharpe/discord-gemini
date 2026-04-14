@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import aiohttp
 import discord
@@ -856,7 +856,7 @@ class GeminiCog(commands.Cog):
         prompt: str,
         file_search: bool = False,
         google_maps: bool = False,
-        thinking_summaries: str | None = None,
+        thinking_summaries: Literal["auto", "none"] | None = None,
     ) -> None:
         await research_flow.research_command(
             self,
