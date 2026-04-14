@@ -17,6 +17,38 @@ if TYPE_CHECKING:
     from .cog import GeminiCog
 
 
+def _build_deep_research_agent_config(
+    research_params: ResearchParameters,
+) -> dict[str, Any] | None:
+    """Build an agent_config payload for deep research when advanced options are set."""
+
+    agent_config: dict[str, Any] = {"type": "deep-research"}
+    has_custom_config = False
+
+    if research_params.collaborative_planning:
+        agent_config["collaborative_planning"] = True
+        has_custom_config = True
+    if research_params.thinking_summaries is not None:
+        agent_config["thinking_summaries"] = research_params.thinking_summaries
+        has_custom_config = True
+    if research_params.visualization is not None:
+        agent_config["visualization"] = research_params.visualization
+        has_custom_config = True
+
+    return agent_config if has_custom_config else None
+
+
+def _extract_interaction_text(interaction: Any) -> str | None:
+    """Return the newest text output emitted by an interaction, if any."""
+
+    outputs = getattr(interaction, "outputs", None) or []
+    for output in reversed(outputs):
+        text = getattr(output, "text", None)
+        if text:
+            return str(text)
+    return None
+
+
 async def _run_deep_research(
     cog: "GeminiCog",
     research_params: ResearchParameters,
@@ -28,6 +60,9 @@ async def _run_deep_research(
         "agent": research_params.agent,
         "background": True,
     }
+    agent_config = _build_deep_research_agent_config(research_params)
+    if agent_config is not None:
+        kwargs["agent_config"] = agent_config
     tools: list[dict[str, Any]] = []
 
     if research_params.file_search:
@@ -52,7 +87,7 @@ async def _run_deep_research(
     max_wait_time = 1200
     start_time = time.time()
     poll_interval = 15
-    while interaction.status not in ("completed", "failed", "cancelled"):
+    while interaction.status not in ("completed", "failed", "cancelled", "requires_action"):
         if time.time() - start_time > max_wait_time:
             raise TimeoutError("Deep research timed out after 20 minutes")
         await asyncio.sleep(poll_interval)
@@ -63,17 +98,24 @@ async def _run_deep_research(
         raise APICallError(f"Research failed: {interaction.status}")
     if interaction.status == "cancelled":
         raise APICallError("Research was cancelled")
+    if interaction.status == "requires_action":
+        plan_preview = truncate_text(_extract_interaction_text(interaction), 600)
+        message = (
+            "Deep research returned a plan that requires confirmation before it can continue. "
+            "This bot does not yet support confirming research plans in Discord."
+        )
+        if plan_preview:
+            message += f"\n\nPlan preview:\n{plan_preview}"
+        raise ValidationError(message)
 
     usage_counts = usage.extract_usage_counts(interaction)
     input_tokens = usage_counts.input_tokens
     output_tokens = usage_counts.output_tokens
     thinking_tokens = usage_counts.thinking_tokens
 
-    if interaction.outputs:
-        for output in reversed(interaction.outputs):
-            text = getattr(output, "text", None)
-            if text:
-                return text, input_tokens, output_tokens, thinking_tokens
+    report_text = _extract_interaction_text(interaction)
+    if report_text:
+        return report_text, input_tokens, output_tokens, thinking_tokens
 
     return None, input_tokens, output_tokens, thinking_tokens
 
@@ -87,6 +129,12 @@ def _create_research_response_embeds(research_params: ResearchParameters) -> lis
         description += "**File Search:** Enabled\n"
     if research_params.google_maps:
         description += "**Google Maps:** Enabled\n"
+    if research_params.thinking_summaries is not None:
+        description += f"**Thinking Summaries:** {research_params.thinking_summaries}\n"
+    if research_params.collaborative_planning:
+        description += "**Collaborative Planning:** Enabled\n"
+    if research_params.visualization is not None:
+        description += f"**Visualization:** {research_params.visualization}\n"
     return [
         Embed(
             title="Deep Research",
@@ -102,6 +150,7 @@ async def research_command(
     prompt: str,
     file_search: bool = False,
     google_maps: bool = False,
+    thinking_summaries: str | None = None,
 ) -> None:
     """Run the `/gemini research` command."""
 
@@ -111,6 +160,7 @@ async def research_command(
             prompt=prompt,
             file_search=file_search,
             google_maps=google_maps,
+            thinking_summaries=thinking_summaries,
         )
         report_text, input_tokens, output_tokens, thinking_tokens = await _run_deep_research(
             cog,

@@ -26,6 +26,11 @@ THINKING_LEVEL_CHOICES = [
     OptionChoice(name="High", value="high"),
 ]
 
+RESEARCH_THINKING_SUMMARY_CHOICES = [
+    OptionChoice(name="Auto", value="auto"),
+    OptionChoice(name="None", value="none"),
+]
+
 IMAGE_MODEL_CHOICES = [
     OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"),
     OptionChoice(name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"),
@@ -137,6 +142,7 @@ __all__ = [
     "MUSIC_MODEL_CHOICES",
     "MUSIC_SCALE_CHOICES",
     "PERSON_GENERATION_CHOICES",
+    "RESEARCH_THINKING_SUMMARY_CHOICES",
     "THINKING_LEVEL_CHOICES",
     "TTS_MODEL_CHOICES",
     "TTS_VOICE_CHOICES",
