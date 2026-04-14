@@ -75,7 +75,9 @@ def _validate_video_request(
     if resolution is not None:
         supported_resolutions = VIDEO_SUPPORTED_RESOLUTIONS.get(model, frozenset())
         if resolution not in supported_resolutions:
-            supported_list = ", ".join(sorted(supported_resolutions)) or "no explicit resolution values"
+            supported_list = (
+                ", ".join(sorted(supported_resolutions)) or "no explicit resolution values"
+            )
             return f"The `{resolution}` resolution is not supported on `{model}`. Supported values: {supported_list}."
 
         if resolution == "4k" and aspect_ratio != "16:9":
@@ -242,9 +244,7 @@ async def video_command(
             has_last_frame=last_frame is not None,
         )
         if validation_error:
-            await ctx.send_followup(
-                embed=embeds.build_error_embed(validation_error)
-            )
+            await ctx.send_followup(embed=embeds.build_error_embed(validation_error))
             return
 
         video_params = VideoGenerationParameters(

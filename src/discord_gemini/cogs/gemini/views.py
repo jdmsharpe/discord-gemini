@@ -32,7 +32,7 @@ async def _build_view_on_running_loop(view: View, *, timeout: float | None) -> N
     View.__init__(view, timeout=timeout)
 
 
-def _initialize_view(view: View, *, timeout: float | None) -> None:
+def _initialize_view(view: View, *, timeout: float | None) -> ConcurrentFuture[bool] | None:
     """Build a discord View even when tests construct it outside a running loop."""
     try:
         asyncio.get_running_loop()
@@ -42,9 +42,10 @@ def _initialize_view(view: View, *, timeout: float | None) -> None:
             loop.run_until_complete(_build_view_on_running_loop(view, timeout=timeout))
         finally:
             loop.close()
-        view._stopped = ConcurrentFuture()
+        return ConcurrentFuture()
     else:
         View.__init__(view, timeout=timeout)
+        return None
 
 
 class ButtonView(View):
@@ -63,7 +64,7 @@ class ButtonView(View):
         """
         Initialize the ButtonView class.
         """
-        _initialize_view(self, timeout=None)
+        self._offline_stopped = _initialize_view(self, timeout=None)
         self.conversation_starter = conversation_starter
         self.conversation_id = conversation_id
         self._get_conversation = get_conversation
@@ -74,8 +75,8 @@ class ButtonView(View):
 
     async def wait(self) -> bool:
         """Support wait() even when the view was constructed outside a running loop."""
-        if isinstance(self._stopped, ConcurrentFuture):
-            return await asyncio.wrap_future(self._stopped)
+        if self._offline_stopped is not None:
+            return await asyncio.wrap_future(self._offline_stopped)
         return await super().wait()
 
     def _add_tool_select(

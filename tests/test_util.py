@@ -1173,7 +1173,9 @@ class TestVideoPricing:
 
     def test_calculate_video_cost_lite_1080p(self):
         """Test Lite pricing uses the 1080p rate when requested."""
-        cost = calculate_video_cost("veo-3.1-lite-generate-preview", duration_seconds=8, resolution="1080p")
+        cost = calculate_video_cost(
+            "veo-3.1-lite-generate-preview", duration_seconds=8, resolution="1080p"
+        )
         assert cost == pytest.approx(0.64)
 
     def test_calculate_video_cost_basic(self):
@@ -1184,7 +1186,9 @@ class TestVideoPricing:
 
     def test_calculate_video_cost_3_1_fast_4k(self):
         """Test 4k pricing for Veo 3.1 Fast."""
-        cost = calculate_video_cost("veo-3.1-fast-generate-preview", duration_seconds=8, resolution="4k")
+        cost = calculate_video_cost(
+            "veo-3.1-fast-generate-preview", duration_seconds=8, resolution="4k"
+        )
         assert cost == pytest.approx(2.40)
 
     def test_calculate_video_cost_multiple_videos(self):

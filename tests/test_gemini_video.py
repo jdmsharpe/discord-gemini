@@ -3,7 +3,6 @@ import tempfile
 from unittest.mock import MagicMock
 
 from discord_gemini.cogs.gemini.video import _validate_video_request
-
 from tests.support import AsyncGeminiCogTestCase
 
 
