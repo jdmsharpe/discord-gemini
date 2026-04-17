@@ -2,16 +2,18 @@
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Literal, cast
 
 import aiohttp
 import discord
 from discord import Attachment, Embed, Member, User
 from discord.commands import ApplicationContext, SlashCommandGroup, option
-from discord.ext import commands
+from discord.ext import commands, tasks
 from PIL import Image
 
 from ...config.auth import GUILD_IDS
+from ...logging_setup import bind_request_id
 from ...util import (
     DEFAULT_MUSIC_MODEL,
     ChatCompletionParameters,
@@ -88,7 +90,7 @@ class GeminiCog(commands.Cog):
         self.message_to_conversation_id: dict[int, int] = {}
         self.views: dict[Member | User, Any] = {}
         self.last_view_messages: dict[Member | User, discord.Message] = {}
-        self.daily_costs: dict[tuple[int, str], float] = {}
+        self.daily_costs: dict[tuple[int, str], tuple[float, datetime]] = {}
         self._http_session: aiohttp.ClientSession | None = None
         self._session_lock = asyncio.Lock()
 
@@ -226,7 +228,20 @@ class GeminiCog(commands.Cog):
     async def _run_agentic_loop(self, model: str, contents: list[Any], config: Any):
         return await chat_flow._run_agentic_loop(self, model, contents, config)
 
+    async def _prune_runtime_state(self) -> None:
+        await state_helpers._prune_runtime_state(self)
+
+    @tasks.loop(minutes=15)
+    async def _runtime_cleanup_task(self) -> None:
+        await self._prune_runtime_state()
+
+    @_runtime_cleanup_task.before_loop
+    async def _before_runtime_cleanup_task(self) -> None:
+        await self.bot.wait_until_ready()
+
     def cog_unload(self) -> None:
+        if self._runtime_cleanup_task.is_running():
+            self._runtime_cleanup_task.cancel()
         loop = getattr(self.bot, "loop", None)
         client = self._client
 
@@ -272,10 +287,16 @@ class GeminiCog(commands.Cog):
     async def keep_typing(self, channel: Any) -> None:
         await chat_flow.keep_typing(self, channel)
 
+    async def cog_before_invoke(self, ctx) -> None:
+        """Bind a fresh request id on every slash-command entry into this cog."""
+        bind_request_id()
+
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         self.logger.info("Logged in as %s (ID: %s)", self.bot.user, self.bot.owner_id)
         self.logger.info("Attempting to sync commands for guilds: %s", GUILD_IDS)
+        if not self._runtime_cleanup_task.is_running():
+            self._runtime_cleanup_task.start()
         try:
             await self.bot.sync_commands()
             self.logger.info("Commands synchronized successfully.")
@@ -284,6 +305,7 @@ class GeminiCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: Any) -> None:
+        bind_request_id()
         await chat_flow.handle_on_message(self, message)
 
     @commands.Cog.listener()

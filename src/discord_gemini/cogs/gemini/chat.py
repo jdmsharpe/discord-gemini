@@ -309,6 +309,7 @@ async def handle_new_message_in_conversation(
 
         response_parts = responses._get_response_content_parts(response)
         history.append({"role": "model", "parts": response_parts or [{"text": response_text}]})
+        conversation_wrapper.touch()
 
         await cache._maybe_create_cache(cog, params, history, response)
 

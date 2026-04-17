@@ -4,6 +4,7 @@ from discord import Bot, Intents
 
 from .cogs.gemini.cog import GeminiCog
 from .config.auth import BOT_TOKEN, validate_required_config
+from .logging_setup import configure_logging
 
 
 def build_bot() -> Bot:
@@ -19,6 +20,7 @@ def build_bot() -> Bot:
 
 def main() -> None:
     validate_required_config()
+    configure_logging()
     bot = build_bot()
     bot.run(BOT_TOKEN)
 
