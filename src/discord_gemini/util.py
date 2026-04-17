@@ -8,6 +8,18 @@ from .cogs.gemini.tool_registry import (
     build_runtime_tool_config,
     get_tool_registry,
 )
+from .config.pricing import (  # noqa: F401 — re-exported for callers
+    IMAGE_PRICING,
+    MAPS_GROUNDING_COST_PER_REQUEST,
+    MODEL_PRICING,
+    TTS_PRICING,
+    UNKNOWN_CHAT_MODEL_PRICING,
+    UNKNOWN_IMAGE_MODEL_INPUT_RATE,
+    UNKNOWN_IMAGE_PER_IMAGE,
+    UNKNOWN_TTS_MODEL_PRICING,
+    UNKNOWN_VIDEO_PER_SECOND,
+    VIDEO_PRICING,
+)
 
 TOOL_GOOGLE_SEARCH = build_runtime_tool_config("google_search") or {"google_search": {}}
 TOOL_CODE_EXECUTION = build_runtime_tool_config("code_execution") or {"code_execution": {}}
@@ -15,98 +27,6 @@ TOOL_GOOGLE_MAPS = build_runtime_tool_config("google_maps") or {"google_maps": {
 TOOL_URL_CONTEXT = build_runtime_tool_config("url_context") or {"url_context": {}}
 TOOL_FILE_SEARCH = build_runtime_tool_config("file_search") or {"file_search": {}}
 TOOL_CUSTOM_FUNCTIONS = {"_custom_functions": True}  # Sentinel for ButtonView toggle
-
-# Per-million-token pricing for chat models: (input_cost, output_cost)
-# Note: Some models (gemini-2.5-pro, gemini-3.1-pro-preview) have tiered
-# pricing for prompts >200K tokens. We use the lower-tier rate as an
-# approximation; actual cost may be higher for very long conversations.
-MODEL_PRICING: dict[str, tuple[float, float]] = {
-    "gemini-3.1-pro-preview": (2.0, 12.0),
-    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
-    "gemini-3-flash-preview": (0.50, 3.0),
-    "gemini-2.5-pro": (1.25, 10.0),
-    "gemini-2.5-flash": (0.30, 2.50),
-    "gemini-2.5-flash-lite": (0.10, 0.40),
-    "gemini-2.0-flash": (0.10, 0.40),
-    "gemini-2.0-flash-lite": (0.075, 0.30),
-}
-
-# Per-image pricing for image generation models:
-#   (input_per_M_tokens, {image_size: cost_per_image})
-# Gemini image models: input is token-based, output is per-image with resolution tiers.
-# Imagen models: flat per-image pricing (no input token cost, no resolution tiers).
-IMAGE_PRICING: dict[str, tuple[float, dict[str | None, float]]] = {
-    "gemini-3.1-flash-image-preview": (
-        0.50,
-        {
-            None: 0.067,
-            "1k": 0.067,
-            "2k": 0.101,
-        },
-    ),
-    "gemini-3-pro-image-preview": (
-        2.00,
-        {
-            None: 0.134,
-            "1k": 0.134,
-            "2k": 0.134,
-        },
-    ),
-    "gemini-2.5-flash-image": (
-        0.30,
-        {
-            None: 0.039,
-            "1k": 0.039,
-            "2k": 0.039,
-        },
-    ),
-    "imagen-4.0-generate-001": (0.0, {None: 0.04}),
-    "imagen-4.0-ultra-generate-001": (0.0, {None: 0.06}),
-    "imagen-4.0-fast-generate-001": (0.0, {None: 0.02}),
-}
-
-# Per-second pricing for video generation models.
-# Resolution-specific rates are included where Google publishes distinct prices.
-VIDEO_PRICING: dict[str, dict[str, float]] = {
-    "veo-3.1-lite-generate-preview": {
-        "default": 0.05,
-        "720p": 0.05,
-        "1080p": 0.08,
-    },
-    "veo-3.1-generate-preview": {
-        "default": 0.40,
-        "720p": 0.40,
-        "1080p": 0.40,
-        "4k": 0.60,
-    },
-    "veo-3.1-fast-generate-preview": {
-        "default": 0.10,
-        "720p": 0.10,
-        "1080p": 0.12,
-        "4k": 0.30,
-    },
-    "veo-3.0-generate-001": {
-        "default": 0.40,
-        "720p": 0.40,
-        "1080p": 0.40,
-        "4k": 0.40,
-    },
-    "veo-3.0-fast-generate-001": {
-        "default": 0.10,
-        "720p": 0.10,
-        "1080p": 0.12,
-        "4k": 0.30,
-    },
-    "veo-2.0-generate-001": {
-        "default": 0.35,
-    },
-}
-
-# Per-million-token pricing for TTS models: (input_cost, output_cost)
-TTS_PRICING: dict[str, tuple[float, float]] = {
-    "gemini-2.5-flash-preview-tts": (0.50, 10.00),
-    "gemini-2.5-pro-preview-tts": (1.00, 20.00),
-}
 
 DEFAULT_MUSIC_MODEL = "lyria-3-clip-preview"
 LYRIA_REALTIME_MODEL = "lyria-realtime-exp"
@@ -116,8 +36,6 @@ LYRIA_3_MODELS = frozenset(
         "lyria-3-clip-preview",
     }
 )
-
-MAPS_GROUNDING_COST_PER_REQUEST = 0.025  # $25 per 1K grounded prompts
 
 
 def calculate_cost(
@@ -132,7 +50,7 @@ def calculate_cost(
     Thinking tokens are billed at the output token rate.
     When google_maps_grounded is True, adds the per-request Maps surcharge ($0.025).
     """
-    input_price, output_price = MODEL_PRICING.get(model, (2.0, 12.0))
+    input_price, output_price = MODEL_PRICING.get(model, UNKNOWN_CHAT_MODEL_PRICING)
     cost = (input_tokens / 1_000_000) * input_price + (
         (output_tokens + thinking_tokens) / 1_000_000
     ) * output_price
@@ -153,11 +71,13 @@ def calculate_image_cost(
     at the requested resolution (image_size). Falls back to default (1K) rate.
     For Imagen models, uses flat per-image pricing only.
     """
-    default_sizes: dict[str | None, float] = {None: 0.067}
-    input_rate, size_prices = IMAGE_PRICING.get(model, (0.50, default_sizes))
+    default_sizes: dict[str | None, float] = {None: UNKNOWN_IMAGE_PER_IMAGE}
+    input_rate, size_prices = IMAGE_PRICING.get(
+        model, (UNKNOWN_IMAGE_MODEL_INPUT_RATE, default_sizes)
+    )
     # Normalize image_size to lowercase for lookup
     key = image_size.lower() if image_size else None
-    per_image_cost = size_prices.get(key, size_prices.get(None, 0.067))
+    per_image_cost = size_prices.get(key, size_prices.get(None, UNKNOWN_IMAGE_PER_IMAGE))
     return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost
 
 
@@ -168,15 +88,17 @@ def calculate_video_cost(
     resolution: str | None = None,
 ) -> float:
     """Calculate the cost for video generation using model and optional resolution."""
-    resolution_prices = VIDEO_PRICING.get(model, {"default": 0.35})
+    resolution_prices = VIDEO_PRICING.get(model, {"default": UNKNOWN_VIDEO_PER_SECOND})
     price_key = resolution.lower() if resolution else "default"
-    price_per_second = resolution_prices.get(price_key, resolution_prices.get("default", 0.35))
+    price_per_second = resolution_prices.get(
+        price_key, resolution_prices.get("default", UNKNOWN_VIDEO_PER_SECOND)
+    )
     return duration_seconds * num_videos * price_per_second
 
 
 def calculate_tts_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Calculate the cost for text-to-speech generation."""
-    input_price, output_price = TTS_PRICING.get(model, (0.50, 10.00))
+    input_price, output_price = TTS_PRICING.get(model, UNKNOWN_TTS_MODEL_PRICING)
     return (input_tokens / 1_000_000) * input_price + (output_tokens / 1_000_000) * output_price
 
 

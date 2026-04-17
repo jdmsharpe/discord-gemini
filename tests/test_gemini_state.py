@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -126,3 +127,106 @@ class TestGeminiCostTracking(GeminiCogTestCase):
         self.cog.logger.info.assert_called_once()
         call_args = self.cog.logger.info.call_args
         assert "images=2" in str(call_args)
+
+
+class TestGeminiPruneRuntimeState(AsyncGeminiCogTestCase):
+    """Tests for _prune_runtime_state — TTL, overflow cap, cascade cleanup."""
+
+    def _make_conversation(self, *, starter=None, age: timedelta = timedelta(0)):
+        from discord_gemini.cogs.gemini.models import Conversation
+        from discord_gemini.util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-2.0-flash",
+            conversation_starter=starter,
+        )
+        conversation = Conversation(params=params, history=[])
+        conversation.updated_at = datetime.now(timezone.utc) - age
+        return conversation
+
+    async def test_drops_conversations_older_than_ttl(self):
+        from discord_gemini.cogs.gemini.state import (
+            CONVERSATION_TTL,
+            _prune_runtime_state,
+        )
+
+        user = MagicMock(spec=["id"])
+        user.id = 42
+        self.cog._delete_conversation_cache = AsyncMock()
+        self.cog._cleanup_uploaded_files = AsyncMock()
+        self.cog.conversations[1] = self._make_conversation(starter=user, age=CONVERSATION_TTL * 2)
+        self.cog.conversations[2] = self._make_conversation(starter=user, age=timedelta(minutes=5))
+
+        await _prune_runtime_state(self.cog)
+
+        assert 1 not in self.cog.conversations
+        assert 2 in self.cog.conversations
+
+    async def test_overflow_cap_drops_oldest(self, monkeypatch):
+        from discord_gemini.cogs.gemini import state as state_mod
+        from discord_gemini.cogs.gemini.state import _prune_runtime_state
+
+        monkeypatch.setattr(state_mod, "MAX_ACTIVE_CONVERSATIONS", 2)
+        self.cog._delete_conversation_cache = AsyncMock()
+        self.cog._cleanup_uploaded_files = AsyncMock()
+        for i in range(4):
+            self.cog.conversations[i] = self._make_conversation(age=timedelta(minutes=i))
+
+        await _prune_runtime_state(self.cog)
+
+        assert len(self.cog.conversations) == 2
+        assert {0, 1} == set(self.cog.conversations)
+
+    async def test_cascades_orphaned_message_map_entries(self):
+        from discord_gemini.cogs.gemini.state import (
+            CONVERSATION_TTL,
+            _prune_runtime_state,
+        )
+
+        user = MagicMock(spec=["id"])
+        user.id = 99
+        self.cog._delete_conversation_cache = AsyncMock()
+        self.cog._cleanup_uploaded_files = AsyncMock()
+        self.cog.conversations[7] = self._make_conversation(starter=user, age=CONVERSATION_TTL * 2)
+        self.cog.message_to_conversation_id[500] = 7
+        self.cog.message_to_conversation_id[501] = 7
+
+        await _prune_runtime_state(self.cog)
+
+        assert 500 not in self.cog.message_to_conversation_id
+        assert 501 not in self.cog.message_to_conversation_id
+
+    async def test_prunes_old_daily_costs(self):
+        from discord_gemini.cogs.gemini.state import (
+            DAILY_COST_RETENTION_DAYS,
+            _prune_runtime_state,
+        )
+
+        self.cog._delete_conversation_cache = AsyncMock()
+        self.cog._cleanup_uploaded_files = AsyncMock()
+        old_date = (
+            datetime.now(timezone.utc) - timedelta(days=DAILY_COST_RETENTION_DAYS + 2)
+        ).date()
+        fresh_date = datetime.now(timezone.utc).date()
+        self.cog.daily_costs[(1, old_date.isoformat())] = (10.0, datetime.now(timezone.utc))
+        self.cog.daily_costs[(1, fresh_date.isoformat())] = (5.0, datetime.now(timezone.utc))
+
+        await _prune_runtime_state(self.cog)
+
+        assert (1, old_date.isoformat()) not in self.cog.daily_costs
+        assert (1, fresh_date.isoformat()) in self.cog.daily_costs
+
+
+class TestConversationTouch:
+    def test_touch_advances_updated_at(self):
+        from discord_gemini.cogs.gemini.models import Conversation
+        from discord_gemini.util import ChatCompletionParameters
+
+        conv = Conversation(
+            params=ChatCompletionParameters(model="gemini-2.0-flash"),
+            history=[],
+        )
+        original = conv.updated_at
+        conv.updated_at = original - timedelta(hours=1)
+        conv.touch()
+        assert conv.updated_at > original - timedelta(seconds=1)

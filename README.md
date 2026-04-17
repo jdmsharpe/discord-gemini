@@ -120,6 +120,8 @@ python -m pip install -e ".[dev]"
 | `GEMINI_FILE_SEARCH_STORE_IDS` | No | Comma-separated File Search store IDs for RAG |
 | `SHOW_COST_EMBEDS` | No | Show per-request cost embeds in supported responses (Default: `true`) |
 | `ENABLE_CUSTOM_TOOLS` | No | Enable custom function tool calling in chat (Default: `true`) |
+| `GEMINI_PRICING_PATH` | No | Path to a pricing YAML that overrides the bundled `src/discord_gemini/config/pricing.yaml` |
+| `LOG_FORMAT` | No | `text` (default) for human-readable logs, or `json` for structured JSON-lines output with per-request IDs |
 
 ### Running the Bot
 

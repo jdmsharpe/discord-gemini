@@ -21,3 +21,7 @@ music_output_*.mp3
 # Ignore system files
 .DS_Store
 Thumbs.db
+# Tool/editor artifacts
+*.egg-info/
+.serena/
+.codex/

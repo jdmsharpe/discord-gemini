@@ -13,6 +13,10 @@ Copy `.env.example` to `.env` and fill in the values:
 | `GEMINI_FILE_SEARCH_STORE_IDS` | No | `""` | Comma-separated file search store IDs |
 | `ENABLE_CUSTOM_TOOLS` | No | `true` | Enable custom function tool calling in `/gemini chat` |
 | `SHOW_COST_EMBEDS` | No | `true` | Show per-request cost embeds in supported responses |
+| `GEMINI_PRICING_PATH` | No | bundled | Override the bundled `src/discord_gemini/config/pricing.yaml` |
+| `LOG_FORMAT` | No | `text` | Set to `json` for structured JSON-lines output |
+| `GEMINI_PRICING_PATH` | No | (bundled YAML) | Override the bundled `src/discord_gemini/config/pricing.yaml` |
+| `LOG_FORMAT` | No | `text` | `text` (default) or `json` for structured JSON-lines output |
 
 ## Supported Entry Points
 
@@ -36,10 +40,13 @@ src/
 └── discord_gemini/
     ├── __init__.py
     ├── bot.py
+    ├── logging_setup.py             # Structured logging + request-id ContextVar
     ├── util.py
     ├── config/
     │   ├── __init__.py
-    │   └── auth.py
+    │   ├── auth.py
+    │   ├── pricing.py                # YAML loader exposing MODEL_PRICING, IMAGE_PRICING, VIDEO_PRICING, etc.
+    │   └── pricing.yaml              # Canonical pricing data (override via GEMINI_PRICING_PATH)
     └── cogs/
         ├── __init__.py
         └── gemini/
@@ -93,7 +100,7 @@ pytest -q
 docker compose up
 ```
 
-- The pre-commit hook auto-formats staged `src/`+`tests/` Python files with `ruff format` and re-stages them before the lint check — committed code may differ from what you wrote if formatting was needed. Prefers `.venv/bin/ruff` over `PATH`.
+- The repo pre-commit hook (`.githooks/pre-commit`) runs `ruff format` (auto-applied + re-staged), then `ruff check` (blocking), then `pyright` and `pytest --collect-only` as warning-only smoke tests. Resolves tools from `.venv/bin` or `.venv/Scripts` first, then `PATH`. Committed code may differ from what you wrote if formatting was needed.
 
 ## Provider Notes
 
@@ -114,3 +121,10 @@ docker compose up
 - Slash-command `duration` applies only to `lyria-realtime-exp`; Lyria 3 Clip stays fixed at 30 seconds and Lyria 3 Pro should not echo a target duration from the slash option.
 - When Lyria 3 returns long lyrics or structure notes, keep a short embed preview and attach the full text as `music_notes.txt`.
 - Attachment MIME handling explicitly normalizes `.opus`, `.alaw`, and `.mulaw` inputs to `audio/opus`, `audio/alaw`, and `audio/mulaw` for both Discord attachments and URL-based file inputs.
+
+## Runtime Conventions (Cross-Project)
+
+- **Pricing** is loaded from `src/discord_gemini/config/pricing.yaml` by `config/pricing.py` at import time. Supports nested image/video size-tier pricing. Override via `GEMINI_PRICING_PATH`. Cross-referenced against [genai-prices/google.yml](https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml).
+- **Retry**: the `genai.Client` is built with `HttpRetryOptions(attempts=5, initial_delay=0.5, max_delay=60.0, http_status_codes=[429, 500, 502, 503, 504])` in `client.py` — the SDK handles backoff internally.
+- **Conversation TTL**: `_prune_runtime_state` in `cogs/gemini/state.py` evicts conversations older than `CONVERSATION_TTL` (12h) every 15 minutes via `@tasks.loop`. Also cascade-cleans orphaned entries in `message_to_conversation_id`. Daily costs retained for `DAILY_COST_RETENTION_DAYS` (30).
+- **Request IDs**: `cog_before_invoke` (and `on_message`) bind a fresh 8-char hex id via `discord_gemini.logging_setup.bind_request_id`. All downstream `logger.info`/`warning`/`error` calls automatically include the id. Set `LOG_FORMAT=json` for JSON-lines output.
