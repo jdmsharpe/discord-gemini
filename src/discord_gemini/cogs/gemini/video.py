@@ -18,6 +18,7 @@ from ...util import (
     truncate_text,
 )
 from . import attachments, embeds, state
+from .embed_delivery import send_embed_batches
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
@@ -232,7 +233,11 @@ async def video_command(
             if current_attachment:
                 validation_error = attachments._validate_attachment_size(current_attachment)
                 if validation_error:
-                    await ctx.send_followup(embed=embeds.build_error_embed(validation_error))
+                    await send_embed_batches(
+                        ctx.send_followup,
+                        embed=embeds.build_error_embed(validation_error),
+                        logger=cog.logger,
+                    )
                     return
 
         validation_error = _validate_video_request(
@@ -244,7 +249,11 @@ async def video_command(
             has_last_frame=last_frame is not None,
         )
         if validation_error:
-            await ctx.send_followup(embed=embeds.build_error_embed(validation_error))
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=embeds.build_error_embed(validation_error),
+                logger=cog.logger,
+            )
             return
 
         video_params = VideoGenerationParameters(
@@ -307,10 +316,16 @@ async def video_command(
                     )
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 
-            await ctx.send_followup(embeds=response_embeds, files=files)
+            await send_embed_batches(
+                ctx.send_followup,
+                embeds=response_embeds,
+                files=files,
+                logger=cog.logger,
+            )
             return
 
-        await ctx.send_followup(
+        await send_embed_batches(
+            ctx.send_followup,
             embed=Embed(
                 title="No Videos Generated",
                 description=(
@@ -319,7 +334,8 @@ async def video_command(
                     "or parameters."
                 ),
                 color=Colour.orange(),
-            )
+            ),
+            logger=cog.logger,
         )
     except Exception as error:
         await cog._send_error_followup(ctx, error, "video")

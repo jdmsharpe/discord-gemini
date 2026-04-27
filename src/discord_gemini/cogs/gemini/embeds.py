@@ -31,11 +31,6 @@ def error_to_user_description(error: BaseException | str, max_length: int = 4000
 def append_response_embeds(embeds: list[Embed], response_text: str) -> None:
     """Append response chunks while respecting Discord embed limits."""
 
-    used = sum(len(embed.title or "") + len(embed.description or "") for embed in embeds)
-    available = max(500, 5500 - used)
-    if len(response_text) > available:
-        response_text = response_text[: available - 40] + "\n\n... [Response truncated]"
-
     for index, chunk in enumerate(chunk_text(response_text, 3500), start=1):
         title = "Response" if index == 1 else f"Response (Part {index})"
         embeds.append(Embed(title=title, description=chunk, color=GEMINI_BLUE))

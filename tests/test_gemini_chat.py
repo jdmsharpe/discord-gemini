@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from google.genai import types
 
@@ -69,6 +69,51 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
         function_response = second_call_contents[-1]["parts"][0].function_response
         assert function_response is not None
         assert function_response.id == "call-123"
+
+    async def test_chat_long_response_with_sidecars_uses_embed_batches(self):
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.channel = MagicMock()
+        ctx.channel.id = 222
+        ctx.interaction = MagicMock()
+        ctx.interaction.id = 333
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock(return_value=SimpleNamespace(id=444))
+        response = SimpleNamespace(
+            text="R" * 8000,
+            function_calls=[],
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))],
+        )
+        result = SimpleNamespace(
+            response=response,
+            tool_calls_made=[],
+            total_input_tokens=10,
+            total_output_tokens=20,
+            total_thinking_tokens=0,
+        )
+
+        with (
+            patch(
+                "discord_gemini.cogs.gemini.chat.keep_typing",
+                AsyncMock(),
+            ),
+            patch(
+                "discord_gemini.cogs.gemini.chat._run_agentic_loop",
+                AsyncMock(return_value=result),
+            ),
+        ):
+            await self.cog.chat.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="hello",
+                model="gemini-2.5-flash",
+            )
+
+        assert ctx.send_followup.await_count > 1
+        for call in ctx.send_followup.await_args_list:
+            assert "embeds" in call.kwargs
+            assert not str(call.kwargs.get("content", "")).startswith("**Response:**")
 
 
 class TestGeminiToolCombinationConfig:
