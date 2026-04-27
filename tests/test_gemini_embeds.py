@@ -27,12 +27,13 @@ class TestAppendResponseEmbeds:
         assert embeds[1].title == "Response (Part 2)"
 
     def test_append_response_embeds_very_long(self):
-        """Test append_response_embeds truncates very long text."""
+        """Test append_response_embeds preserves very long text for delivery batching."""
         embeds = []
         very_long_text = "B" * 25000
         append_response_embeds(embeds, very_long_text)
         total_length = sum(len(embed.description) for embed in embeds)
-        assert total_length < 21000
+        assert total_length == len(very_long_text)
+        assert "".join(embed.description for embed in embeds) == very_long_text
 
 
 class TestGeminiThinkingEmbeds:

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from discord import Attachment, Colour, Embed
-from discord import HTTPException as DiscordHTTPException
 from discord.commands import ApplicationContext
 from google.genai import types
 from google.genai.errors import APIError
@@ -28,6 +27,7 @@ from ...util import (
     validate_builtin_custom_tool_combination,
 )
 from . import attachments, cache, embeds, responses, state, tooling, usage
+from .embed_delivery import send_embed_batches
 from .models import Conversation
 from .tool_registry import build_runtime_tool_config, iter_tool_registry
 from .views import ButtonView
@@ -205,7 +205,11 @@ async def handle_new_message_in_conversation(
             for attachment in message.attachments:
                 validation_error = attachments._validate_attachment_size(attachment)
                 if validation_error:
-                    await message.reply(embed=embeds.build_error_embed(validation_error))
+                    await send_embed_batches(
+                        message.reply,
+                        embed=embeds.build_error_embed(validation_error),
+                        logger=cog.logger,
+                    )
                     return
 
                 attachment_part = await attachments._prepare_attachment_part(
@@ -258,7 +262,11 @@ async def handle_new_message_in_conversation(
             params.custom_functions_enabled,
         )
         if combination_error:
-            await message.reply(embed=embeds.build_error_embed(combination_error))
+            await send_embed_batches(
+                message.reply,
+                embed=embeds.build_error_embed(combination_error),
+                logger=cog.logger,
+            )
             return
 
         _add_custom_function_tools(config_args, params.model, params.custom_functions_enabled)
@@ -361,18 +369,12 @@ async def handle_new_message_in_conversation(
         await state._strip_previous_view(cog, message.author)
 
         if response_embeds:
-            try:
-                reply_message = await message.reply(embeds=response_embeds, view=view)
-            except DiscordHTTPException as embed_error:
-                cog.logger.warning("Embed failed, sending as text: %s", embed_error)
-                safe_response_text = response_text or "No response text available"
-                reply_message = await message.reply(
-                    content=(
-                        f"**Response:**\n{safe_response_text[:1900]}"
-                        f"{'...' if len(safe_response_text) > 1900 else ''}"
-                    ),
-                    view=view,
-                )
+            reply_message = await send_embed_batches(
+                message.reply,
+                embeds=response_embeds,
+                view=view,
+                logger=cog.logger,
+            )
             cog.message_to_conversation_id[reply_message.id] = main_conversation_id
             cog.last_view_messages[message.author] = reply_message
         else:
@@ -388,7 +390,11 @@ async def handle_new_message_in_conversation(
             description,
             exc_info=True,
         )
-        await message.reply(embed=embeds.build_error_embed(description))
+        await send_embed_batches(
+            message.reply,
+            embed=embeds.build_error_embed(description),
+            logger=cog.logger,
+        )
         await cache._delete_conversation_cache(cog, conversation_wrapper.params)
         await attachments._cleanup_uploaded_files(cog, conversation_wrapper.params)
         conv_id = conversation_wrapper.params.conversation_id
@@ -459,8 +465,10 @@ async def chat_command(
     channel = ctx.channel
     channel_id = getattr(channel, "id", None)
     if channel is None or channel_id is None:
-        await ctx.send_followup(
-            embed=embeds.build_error_embed("Unable to determine the channel for this conversation.")
+        await send_embed_batches(
+            ctx.send_followup,
+            embed=embeds.build_error_embed("Unable to determine the channel for this conversation."),
+            logger=cog.logger,
         )
         return
 
@@ -469,7 +477,8 @@ async def chat_command(
             conversation_wrapper.params.conversation_starter == ctx.author
             and conversation_wrapper.params.channel_id == channel_id
         ):
-            await ctx.send_followup(
+            await send_embed_batches(
+                ctx.send_followup,
                 embed=Embed(
                     title="Error",
                     description=(
@@ -477,7 +486,8 @@ async def chat_command(
                         "Please finish it before starting a new one."
                     ),
                     color=Colour.red(),
-                )
+                ),
+                logger=cog.logger,
             )
             return
 
@@ -489,7 +499,11 @@ async def chat_command(
         if attachment:
             validation_error = attachments._validate_attachment_size(attachment)
             if validation_error:
-                await ctx.send_followup(embed=embeds.build_error_embed(validation_error))
+                await send_embed_batches(
+                    ctx.send_followup,
+                    embed=embeds.build_error_embed(validation_error),
+                    logger=cog.logger,
+                )
                 if typing_task:
                     typing_task.cancel()
                 return
@@ -525,7 +539,11 @@ async def chat_command(
         enabled_names = {name for name, enabled in selected_tool_names.items() if enabled}
         exclusive_error = check_mutually_exclusive_tools(enabled_names)
         if exclusive_error:
-            await ctx.send_followup(embed=embeds.build_error_embed(exclusive_error))
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=embeds.build_error_embed(exclusive_error),
+                logger=cog.logger,
+            )
             if typing_task:
                 typing_task.cancel()
             return
@@ -541,7 +559,11 @@ async def chat_command(
 
         enrich_error = tooling.enrich_file_search_tools(tools)
         if enrich_error:
-            await ctx.send_followup(embed=embeds.build_error_embed(enrich_error))
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=embeds.build_error_embed(enrich_error),
+                logger=cog.logger,
+            )
             if typing_task:
                 typing_task.cancel()
             return
@@ -574,7 +596,11 @@ async def chat_command(
             custom_functions_enabled,
         )
         if combination_error:
-            await ctx.send_followup(embed=embeds.build_error_embed(combination_error))
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=embeds.build_error_embed(combination_error),
+                logger=cog.logger,
+            )
             if typing_task:
                 typing_task.cancel()
             return
@@ -693,10 +719,12 @@ async def chat_command(
 
         interaction = ctx.interaction
         if interaction is None:
-            await ctx.send_followup(
+            await send_embed_batches(
+                ctx.send_followup,
                 embed=embeds.build_error_embed(
                     "Unable to determine interaction context for this conversation."
-                )
+                ),
+                logger=cog.logger,
             )
             return
 
@@ -726,7 +754,12 @@ async def chat_command(
 
         await state._strip_previous_view(cog, ctx.author)
 
-        message = await ctx.send_followup(embeds=response_embeds, view=view)
+        message = await send_embed_batches(
+            ctx.send_followup,
+            embeds=response_embeds,
+            view=view,
+            logger=cog.logger,
+        )
         cog.message_to_conversation_id[message.id] = main_conversation_id
         cog.last_view_messages[ctx.author] = message
 

@@ -11,6 +11,7 @@ from PIL import Image, UnidentifiedImageError
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import ImageGenerationParameters, calculate_image_cost, truncate_text
 from . import attachments, embeds, state, usage
+from .embed_delivery import send_embed_batches
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
@@ -222,7 +223,11 @@ async def image_command(
         if attachment:
             validation_error = attachments._validate_attachment_size(attachment)
             if validation_error:
-                await ctx.send_followup(embed=embeds.build_error_embed(validation_error))
+                await send_embed_batches(
+                    ctx.send_followup,
+                    embed=embeds.build_error_embed(validation_error),
+                    logger=cog.logger,
+                )
                 return
 
         image_params = ImageGenerationParameters(
@@ -251,7 +256,8 @@ async def image_command(
             )
         else:
             if attachment:
-                await ctx.send_followup(
+                await send_embed_batches(
+                    ctx.send_followup,
                     embed=Embed(
                         title="Not Supported",
                         description=(
@@ -259,7 +265,8 @@ async def image_command(
                             "Please use a Gemini model for image editing."
                         ),
                         color=Colour.orange(),
-                    )
+                    ),
+                    logger=cog.logger,
                 )
                 return
             generated_images = await _generate_image_with_imagen(cog, image_params)
@@ -292,7 +299,12 @@ async def image_command(
                     pricing_desc += f" · {input_tokens:,} input tokens"
                 pricing_desc += f" · daily ${daily_cost:.2f}"
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
-            await ctx.send_followup(embeds=response_embeds, files=files)
+            await send_embed_batches(
+                ctx.send_followup,
+                embeds=response_embeds,
+                files=files,
+                logger=cog.logger,
+            )
             return
 
         embed_description = "The model did not generate any images.\n"
@@ -333,7 +345,7 @@ async def image_command(
                 pricing_desc += f" · {input_tokens:,} input tokens"
             pricing_desc += f" · daily ${daily_cost:.2f}"
             response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
-        await ctx.send_followup(embeds=response_embeds)
+        await send_embed_batches(ctx.send_followup, embeds=response_embeds, logger=cog.logger)
     except Exception as error:
         await cog._send_error_followup(ctx, error, "image")
 

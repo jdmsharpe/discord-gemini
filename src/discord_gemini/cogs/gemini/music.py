@@ -23,6 +23,7 @@ from ...util import (
 )
 from . import attachments, embeds, state
 from .client import build_lyria_realtime_client
+from .embed_delivery import send_embed_batches
 from .responses import MusicGenerationError, _get_response_content_parts
 
 if TYPE_CHECKING:
@@ -298,7 +299,11 @@ async def music_command(
         if attachment:
             validation_error = _validate_music_attachment(cog, model, attachment)
             if validation_error:
-                await ctx.send_followup(embed=embeds.build_error_embed(validation_error))
+                await send_embed_batches(
+                    ctx.send_followup,
+                    embed=embeds.build_error_embed(validation_error),
+                    logger=cog.logger,
+                )
                 return
 
         music_params = MusicGenerationParameters(
@@ -330,7 +335,8 @@ async def music_command(
         cog._log_cost("music", ctx.author.id, model, 0.0, daily_cost, **log_details)
 
         if not audio_data:
-            await ctx.send_followup(
+            await send_embed_batches(
+                ctx.send_followup,
                 embed=Embed(
                     title="No Music Generated",
                     description=(
@@ -338,7 +344,8 @@ async def music_command(
                         "different prompt or parameters."
                     ),
                     color=Colour.orange(),
-                )
+                ),
+                logger=cog.logger,
             )
             return
 
@@ -398,11 +405,13 @@ async def music_command(
         if notes_file is not None:
             files.append(notes_file)
 
-        await ctx.send_followup(
+        await send_embed_batches(
+            ctx.send_followup,
             embed=Embed(
                 title="Music Generation", description=description, color=embeds.GEMINI_BLUE
             ),
             files=files,
+            logger=cog.logger,
         )
         audio_file_path.unlink(missing_ok=True)
     except MusicGenerationError as error:
@@ -410,12 +419,14 @@ async def music_command(
         description = str(error)
         if len(description) > 4000:
             description = description[:4000] + "\n\n... (error message truncated)"
-        await ctx.send_followup(
+        await send_embed_batches(
+            ctx.send_followup,
             embed=Embed(
                 title="Music Generation Error",
                 description=description,
                 color=Colour.orange(),
-            )
+            ),
+            logger=cog.logger,
         )
     except Exception as error:
         await cog._send_error_followup(ctx, error, "music")

@@ -11,6 +11,7 @@ from google.genai import types
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import SpeechGenerationParameters, calculate_tts_cost
 from . import embeds, state, usage
+from .embed_delivery import send_embed_batches
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
@@ -83,7 +84,8 @@ async def tts_command(
         )
 
         if not audio_data:
-            await ctx.send_followup(
+            await send_embed_batches(
+                ctx.send_followup,
                 embed=Embed(
                     title="No Audio Generated",
                     description=(
@@ -91,7 +93,8 @@ async def tts_command(
                         "text or parameters."
                     ),
                     color=Colour.orange(),
-                )
+                ),
+                logger=cog.logger,
             )
             return
 
@@ -123,7 +126,12 @@ async def tts_command(
             )
             response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 
-        await ctx.send_followup(embeds=response_embeds, file=File(audio_file_path))
+        await send_embed_batches(
+            ctx.send_followup,
+            embeds=response_embeds,
+            file=File(audio_file_path),
+            logger=cog.logger,
+        )
         audio_file_path.unlink(missing_ok=True)
     except Exception as error:
         await cog._send_error_followup(ctx, error, "tts")

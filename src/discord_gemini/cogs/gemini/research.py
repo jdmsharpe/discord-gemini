@@ -11,6 +11,7 @@ from discord.commands import ApplicationContext
 from ...config.auth import GEMINI_FILE_SEARCH_STORE_IDS, SHOW_COST_EMBEDS
 from ...util import ResearchParameters, calculate_cost, truncate_text
 from . import embeds, state, usage
+from .embed_delivery import send_embed_batches
 from .responses import APICallError, ValidationError
 
 if TYPE_CHECKING:
@@ -199,10 +200,16 @@ async def research_command(
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 
             report_file = File(BytesIO(report_text.encode("utf-8")), filename="research_report.md")
-            await ctx.send_followup(embeds=response_embeds, file=report_file)
+            await send_embed_batches(
+                ctx.send_followup,
+                embeds=response_embeds,
+                file=report_file,
+                logger=cog.logger,
+            )
             return
 
-        await ctx.send_followup(
+        await send_embed_batches(
+            ctx.send_followup,
             embed=Embed(
                 title="No Research Results",
                 description=(
@@ -210,7 +217,8 @@ async def research_command(
                     "different prompt."
                 ),
                 color=Colour.orange(),
-            )
+            ),
+            logger=cog.logger,
         )
     except Exception as error:
         await cog._send_error_followup(ctx, error, "research")

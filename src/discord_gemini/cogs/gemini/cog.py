@@ -74,6 +74,7 @@ from .command_options import (
     VIDEO_RESOLUTION_CHOICES,
 )
 from .embeds import build_error_embed, error_to_user_description
+from .embed_delivery import send_embed_batches
 from .models import Conversation, PermissionAwareChannel
 
 
@@ -154,7 +155,11 @@ class GeminiCog(commands.Cog):
         description = error_to_user_description(error)
         self.logger.error("Error in %s: %s", command_name, description, exc_info=True)
         try:
-            await ctx.send_followup(embed=build_error_embed(description))
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=build_error_embed(description),
+                logger=self.logger,
+            )
         except Exception as followup_error:
             self.logger.error(
                 "Failed to send error followup for %s: %s",
