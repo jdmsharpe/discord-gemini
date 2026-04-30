@@ -241,6 +241,7 @@ class VideoGenerationParameters:
     duration_seconds: int | None = None
     enhance_prompt: bool | None = None
     has_last_frame: bool = False
+    image_resize_mode: str | None = None
 
     def to_dict(self):
         """Convert to dictionary for API calls, filtering out None values and handling special cases."""
@@ -258,6 +259,8 @@ class VideoGenerationParameters:
             config_dict["duration_seconds"] = self.duration_seconds
         if self.enhance_prompt is not None:
             config_dict["enhance_prompt"] = self.enhance_prompt
+        if self.image_resize_mode is not None:
+            config_dict["image_resize_mode"] = self.image_resize_mode
 
         # Handle person_generation mapping for Veo models
         if self.person_generation and self.person_generation != "allow_adult":

@@ -2,7 +2,7 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-04-17
+# Last-verified: 2026-04-29
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
 # the output-token rate. Video and image generation use per-unit (second or
@@ -73,7 +73,9 @@ video_generation:
     per_second_by_resolution: { default: 0.35 }
 
 # TTS models — tokenized input/output like chat models.
+# Audio output tokens correspond to ~25 tokens per second of audio.
 text_to_speech:
+  gemini-3.1-flash-tts-preview: { input_per_million: 1.00, output_per_million: 20.00 }
   gemini-2.5-flash-preview-tts: { input_per_million: 0.50, output_per_million: 10.00 }
   gemini-2.5-pro-preview-tts:   { input_per_million: 1.00, output_per_million: 20.00 }
 

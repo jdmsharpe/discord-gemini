@@ -422,17 +422,12 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         self.cog.client.aio.interactions.get.return_value = interaction_done
 
         with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
-            (
-                report_text,
-                input_tokens,
-                output_tokens,
-                thinking_tokens,
-            ) = await self.cog._run_deep_research(params)
+            result = await self.cog._run_deep_research(params)
 
-        assert report_text == "# AI Safety Report\n\nDetailed findings..."
-        assert input_tokens == 250_000
-        assert output_tokens == 60_000
-        assert thinking_tokens == 5_000
+        assert result.report_text == "# AI Safety Report\n\nDetailed findings..."
+        assert result.input_tokens == 250_000
+        assert result.output_tokens == 60_000
+        assert result.thinking_tokens == 5_000
         self.cog.client.aio.interactions.create.assert_called_once_with(
             input="Research AI safety",
             agent="deep-research-pro-preview-12-2025",
@@ -457,9 +452,9 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
         with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
-            report_text, _, _, _ = await self.cog._run_deep_research(params)
+            result = await self.cog._run_deep_research(params)
 
-        assert report_text == "Concise report"
+        assert result.report_text == "Concise report"
         self.cog.client.aio.interactions.create.assert_called_once_with(
             input="Research AI safety",
             agent="deep-research-pro-preview-12-2025",
@@ -488,7 +483,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
         with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
-            report_text, _, _, _ = await self.cog._run_deep_research(params)
+            await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
         assert "tools" in call_kwargs.kwargs
@@ -566,15 +561,10 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
         with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
-            (
-                report_text,
-                input_tokens,
-                output_tokens,
-                thinking_tokens,
-            ) = await self.cog._run_deep_research(params)
+            result = await self.cog._run_deep_research(params)
 
-        assert report_text is None
-        assert input_tokens == 100
+        assert result.report_text is None
+        assert result.input_tokens == 100
 
     async def test_create_research_response_embeds(self):
         """Test _create_research_response_embeds creates header embed only."""
@@ -618,7 +608,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         self.cog.client.aio.interactions.create.return_value = interaction_done
 
         with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
-            report_text, _, _, _ = await self.cog._run_deep_research(params)
+            await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
         assert "tools" in call_kwargs.kwargs

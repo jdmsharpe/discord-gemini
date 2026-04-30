@@ -65,16 +65,18 @@ from .command_options import (
     MUSIC_MODEL_CHOICES,
     MUSIC_SCALE_CHOICES,
     PERSON_GENERATION_CHOICES,
+    RESEARCH_AGENT_CHOICES,
     RESEARCH_THINKING_SUMMARY_CHOICES,
     THINKING_LEVEL_CHOICES,
     TTS_MODEL_CHOICES,
     TTS_VOICE_CHOICES,
     VIDEO_ASPECT_RATIO_CHOICES,
+    VIDEO_IMAGE_RESIZE_MODE_CHOICES,
     VIDEO_MODEL_CHOICES,
     VIDEO_RESOLUTION_CHOICES,
 )
-from .embeds import build_error_embed, error_to_user_description
 from .embed_delivery import send_embed_batches
+from .embeds import build_error_embed, error_to_user_description
 from .models import Conversation, PermissionAwareChannel
 
 
@@ -683,6 +685,13 @@ class GeminiCog(commands.Cog):
         required=False,
         type=bool,
     )
+    @option(
+        "image_resize_mode",
+        description="How to fit `attachment`/`last_frame` images to the target resolution. (default: model default)",
+        required=False,
+        choices=VIDEO_IMAGE_RESIZE_MODE_CHOICES,
+        type=str,
+    )
     async def video(
         self,
         ctx: ApplicationContext,
@@ -697,6 +706,7 @@ class GeminiCog(commands.Cog):
         duration_seconds: int | None = None,
         negative_prompt: str | None = None,
         enhance_prompt: bool | None = None,
+        image_resize_mode: str | None = None,
     ) -> None:
         await video_flow.video_command(
             self,
@@ -712,6 +722,7 @@ class GeminiCog(commands.Cog):
             duration_seconds,
             negative_prompt,
             enhance_prompt,
+            image_resize_mode,
         )
 
     @gemini.command(
@@ -859,6 +870,13 @@ class GeminiCog(commands.Cog):
         type=str,
     )
     @option(
+        "agent",
+        description="Choose deep-research agent. (default: Pro)",
+        required=False,
+        choices=RESEARCH_AGENT_CHOICES,
+        type=str,
+    )
+    @option(
         "file_search",
         description="Also search your uploaded document stores (File Search / RAG). (default: False)",
         required=False,
@@ -881,6 +899,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
+        agent: str = "deep-research-pro-preview-12-2025",
         file_search: bool = False,
         google_maps: bool = False,
         thinking_summaries: Literal["auto", "none"] | None = None,
@@ -889,6 +908,7 @@ class GeminiCog(commands.Cog):
             self,
             ctx,
             prompt,
+            agent,
             file_search,
             google_maps,
             thinking_summaries,
@@ -980,7 +1000,7 @@ class GeminiCog(commands.Cog):
     async def _run_deep_research(
         self,
         research_params: ResearchParameters,
-    ) -> tuple[str | None, int, int, int]:
+    ) -> "research_flow._ResearchResult":
         return await research_flow._run_deep_research(self, research_params)
 
     def _create_research_response_embeds(

@@ -31,6 +31,12 @@ RESEARCH_THINKING_SUMMARY_CHOICES = [
     OptionChoice(name="None", value="none"),
 ]
 
+RESEARCH_AGENT_CHOICES = [
+    OptionChoice(name="Deep Research Pro (Dec 2025)", value="deep-research-pro-preview-12-2025"),
+    OptionChoice(name="Deep Research (Apr 2026)", value="deep-research-preview-04-2026"),
+    OptionChoice(name="Deep Research Max (Apr 2026)", value="deep-research-max-preview-04-2026"),
+]
+
 IMAGE_MODEL_CHOICES = [
     OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"),
     OptionChoice(name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"),
@@ -79,7 +85,13 @@ VIDEO_RESOLUTION_CHOICES = [
     OptionChoice(name="4K", value="4k"),
 ]
 
+VIDEO_IMAGE_RESIZE_MODE_CHOICES = [
+    OptionChoice(name="Crop (fill frame, discard overflow)", value="CROP"),
+    OptionChoice(name="Pad (preserve content, add letterbox)", value="PAD"),
+]
+
 TTS_MODEL_CHOICES = [
+    OptionChoice(name="Gemini 3.1 Flash Preview TTS", value="gemini-3.1-flash-tts-preview"),
     OptionChoice(name="Gemini 2.5 Flash Preview TTS", value="gemini-2.5-flash-preview-tts"),
     OptionChoice(name="Gemini 2.5 Pro Preview TTS", value="gemini-2.5-pro-preview-tts"),
 ]
@@ -142,11 +154,13 @@ __all__ = [
     "MUSIC_MODEL_CHOICES",
     "MUSIC_SCALE_CHOICES",
     "PERSON_GENERATION_CHOICES",
+    "RESEARCH_AGENT_CHOICES",
     "RESEARCH_THINKING_SUMMARY_CHOICES",
     "THINKING_LEVEL_CHOICES",
     "TTS_MODEL_CHOICES",
     "TTS_VOICE_CHOICES",
     "VIDEO_ASPECT_RATIO_CHOICES",
+    "VIDEO_IMAGE_RESIZE_MODE_CHOICES",
     "VIDEO_MODEL_CHOICES",
     "VIDEO_RESOLUTION_CHOICES",
 ]
