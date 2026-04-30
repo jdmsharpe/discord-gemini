@@ -193,6 +193,8 @@ async def _create_video_response_embed(
         description += f"\n**Aspect Ratio:** {video_params.aspect_ratio}"
     if video_params.resolution:
         description += f"\n**Resolution:** {video_params.resolution}"
+    if video_params.image_resize_mode and (attachment or video_params.has_last_frame):
+        description += f"\n**Image Resize Mode:** {video_params.image_resize_mode}"
     if video_params.person_generation and video_params.person_generation != "allow_adult":
         description += f"\n**Person Generation:** {video_params.person_generation}"
     if video_params.duration_seconds:
@@ -224,6 +226,7 @@ async def video_command(
     duration_seconds: int | None,
     negative_prompt: str | None,
     enhance_prompt: bool | None,
+    image_resize_mode: str | None = None,
 ) -> None:
     """Run the `/gemini video` command."""
 
@@ -267,6 +270,7 @@ async def video_command(
             duration_seconds=duration_seconds,
             enhance_prompt=enhance_prompt,
             has_last_frame=last_frame is not None,
+            image_resize_mode=image_resize_mode,
         )
 
         generated_videos = await _generate_video_with_veo(
