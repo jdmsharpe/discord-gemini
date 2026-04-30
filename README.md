@@ -62,7 +62,7 @@ Convert text to high-quality WAV speech audio (24kHz, 16-bit). Features 25+ voic
 
 ### `/gemini research`
 
-Run autonomous deep research tasks (takes 2-10 minutes) using the `deep-research-pro-preview-12-2025` agent. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries.
+Run autonomous deep research tasks (takes 2-10 minutes) using a Gemini Deep Research agent. The default `deep-research-preview-04-2026` (Apr 2026) is tuned for low latency and cost; choose `deep-research-max-preview-04-2026` for higher-quality, more comprehensive reports at the cost of longer runtimes. The legacy `deep-research-pro-preview-12-2025` agent remains selectable for parity with prior runs. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries.
 
 ### `/gemini check_permissions`
 

@@ -871,7 +871,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "agent",
-        description="Choose deep-research agent. (default: Pro)",
+        description="Choose deep-research agent. (default: Deep Research; Max for highest-quality reports)",
         required=False,
         choices=RESEARCH_AGENT_CHOICES,
         type=str,
@@ -899,7 +899,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        agent: str = "deep-research-pro-preview-12-2025",
+        agent: str = "deep-research-preview-04-2026",
         file_search: bool = False,
         google_maps: bool = False,
         thinking_summaries: Literal["auto", "none"] | None = None,

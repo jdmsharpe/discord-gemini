@@ -380,7 +380,7 @@ class ResearchParameters:
     """A dataclass to store the parameters for a deep research task."""
 
     prompt: str
-    agent: str = "deep-research-pro-preview-12-2025"
+    agent: str = "deep-research-preview-04-2026"
     file_search: bool = False
     google_maps: bool = False
     collaborative_planning: bool = False
