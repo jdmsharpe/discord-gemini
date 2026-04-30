@@ -321,7 +321,7 @@ async def research_command(
     cog: "GeminiCog",
     ctx: ApplicationContext,
     prompt: str,
-    agent: str = "deep-research-pro-preview-12-2025",
+    agent: str = "deep-research-preview-04-2026",
     file_search: bool = False,
     google_maps: bool = False,
     thinking_summaries: Literal["auto", "none"] | None = None,

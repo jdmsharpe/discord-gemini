@@ -430,7 +430,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         assert result.thinking_tokens == 5_000
         self.cog.client.aio.interactions.create.assert_called_once_with(
             input="Research AI safety",
-            agent="deep-research-pro-preview-12-2025",
+            agent="deep-research-preview-04-2026",
             background=True,
         )
 
@@ -457,7 +457,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         assert result.report_text == "Concise report"
         self.cog.client.aio.interactions.create.assert_called_once_with(
             input="Research AI safety",
-            agent="deep-research-pro-preview-12-2025",
+            agent="deep-research-preview-04-2026",
             agent_config={
                 "type": "deep-research",
                 "thinking_summaries": "none",
@@ -578,7 +578,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         assert len(embeds) == 1
         assert embeds[0].title == "Deep Research"
         assert "Research quantum computing" in embeds[0].description
-        assert "deep-research-pro-preview-12-2025" in embeds[0].description
+        assert "deep-research-preview-04-2026" in embeds[0].description
 
     async def test_create_research_response_embeds_with_file_search(self):
         """Test _create_research_response_embeds shows file search status."""

@@ -32,9 +32,9 @@ RESEARCH_THINKING_SUMMARY_CHOICES = [
 ]
 
 RESEARCH_AGENT_CHOICES = [
-    OptionChoice(name="Deep Research Pro (Dec 2025)", value="deep-research-pro-preview-12-2025"),
     OptionChoice(name="Deep Research (Apr 2026)", value="deep-research-preview-04-2026"),
     OptionChoice(name="Deep Research Max (Apr 2026)", value="deep-research-max-preview-04-2026"),
+    OptionChoice(name="Deep Research Pro (Dec 2025)", value="deep-research-pro-preview-12-2025"),
 ]
 
 IMAGE_MODEL_CHOICES = [

@@ -713,19 +713,19 @@ class TestResearchParameters:
     def test_defaults(self):
         params = ResearchParameters(prompt="Research quantum computing")
         assert params.prompt == "Research quantum computing"
-        assert params.agent == "deep-research-pro-preview-12-2025"
+        assert params.agent == "deep-research-preview-04-2026"
         assert params.file_search is False
         assert params.google_maps is False
 
     def test_all_parameters(self):
         params = ResearchParameters(
             prompt="Compare EV batteries",
-            agent="deep-research-pro-preview-12-2025",
+            agent="deep-research-max-preview-04-2026",
             file_search=True,
             google_maps=True,
         )
         assert params.prompt == "Compare EV batteries"
-        assert params.agent == "deep-research-pro-preview-12-2025"
+        assert params.agent == "deep-research-max-preview-04-2026"
         assert params.file_search is True
         assert params.google_maps is True
 
