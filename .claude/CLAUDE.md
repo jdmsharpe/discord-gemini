@@ -15,8 +15,6 @@ Copy `.env.example` to `.env` and fill in the values:
 | `SHOW_COST_EMBEDS` | No | `true` | Show per-request cost embeds in supported responses |
 | `GEMINI_PRICING_PATH` | No | bundled | Override the bundled `src/discord_gemini/config/pricing.yaml` |
 | `LOG_FORMAT` | No | `text` | Set to `json` for structured JSON-lines output |
-| `GEMINI_PRICING_PATH` | No | (bundled YAML) | Override the bundled `src/discord_gemini/config/pricing.yaml` |
-| `LOG_FORMAT` | No | `text` | `text` (default) or `json` for structured JSON-lines output |
 
 ## Supported Entry Points
 
@@ -57,6 +55,7 @@ src/
             ├── client.py
             ├── cog.py
             ├── command_options.py
+            ├── embed_delivery.py
             ├── embeds.py
             ├── image.py
             ├── music.py
@@ -104,7 +103,7 @@ docker compose up
 
 ## Provider Notes
 
-- Dependency baseline is `google-genai~=1.72`.
+- Dependency baseline is `google-genai~=1.74`.
 - Preserve the current cache/file-search/maps/tool compatibility behavior when refactoring further.
 - Custom tool dispatch uses a `ToolProvider` protocol in `discord_gemini.cogs.gemini.tooling`. `LocalFunctionProvider` wraps `@tool` callables, `BuiltinGeminiToolProvider` surfaces model-supported server-side tools, and `McpToolProvider` is a stub for future MCP transport. `execute_tool_call` routes namespaced names (`provider_id.tool_name`) to the correct provider and falls back to local lookup for un-namespaced names.
 - `GEMINI_FILE_SEARCH_STORE_IDS` is the runtime gate for file-search-enabled flows.
@@ -121,6 +120,7 @@ docker compose up
 - Slash-command `duration` applies only to `lyria-realtime-exp`; Lyria 3 Clip stays fixed at 30 seconds and Lyria 3 Pro should not echo a target duration from the slash option.
 - When Lyria 3 returns long lyrics or structure notes, keep a short embed preview and attach the full text as `music_notes.txt`.
 - Attachment MIME handling explicitly normalizes `.opus`, `.alaw`, and `.mulaw` inputs to `audio/opus`, `audio/alaw`, and `audio/mulaw` for both Discord attachments and URL-based file inputs.
+- Discord caps message embeds at 10 per message and 6000 total characters; `discord_gemini.cogs.gemini.embed_delivery.pack_embeds` enforces both, and `send_embed_batches` falls back to plain-text chunks if Discord rejects an embed batch.
 
 ## Runtime Conventions (Cross-Project)
 
