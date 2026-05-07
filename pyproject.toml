@@ -46,7 +46,9 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "ASYNC", "PERF", "PTH", "RET", "RUF"]
 ignore = [
-  "E501",  # line too long (formatter handles this)
+  "E501",    # line too long (formatter handles this)
+  "RUF001",  # ambiguous-unicode-character-string (typographic chars are intentional)
+  "RUF002",  # ambiguous-unicode-character-docstring (same)
 ]
 
 [tool.ruff.format]

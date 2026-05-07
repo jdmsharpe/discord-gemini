@@ -28,7 +28,8 @@ async def _send_interaction_error(interaction: Interaction, context: str, error:
         await interaction.response.send_message(msg, ephemeral=True)
 
 
-async def _build_view_on_running_loop(view: View, *, timeout: float | None) -> None:
+async def _build_view_on_running_loop(view: View, *, timeout: float | None) -> None:  # noqa: ASYNC109
+    # `timeout` forwards to py-cord's View.__init__(timeout=...); not user-managed.
     View.__init__(view, timeout=timeout)
 
 

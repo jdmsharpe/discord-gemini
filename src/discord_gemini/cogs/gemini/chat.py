@@ -781,9 +781,7 @@ async def chat_command(
             custom_functions_enabled=custom_functions_enabled,
         )
         response_parts = responses._get_response_content_parts(response)
-        history = [{"role": "user", "parts": parts}]
-        for entry in initial_contents[1:]:
-            history.append(entry)
+        history = [{"role": "user", "parts": parts}, *initial_contents[1:]]
         history.append({"role": "model", "parts": response_parts or [{"text": response_text}]})
         cog.conversations[main_conversation_id] = Conversation(
             params=params,
