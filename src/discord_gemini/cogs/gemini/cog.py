@@ -84,6 +84,16 @@ class GeminiCog(commands.Cog):
     """Discord cog exposing Gemini chat, image, video, speech, music, and research commands."""
 
     gemini = SlashCommandGroup("gemini", "Gemini AI commands", guild_ids=GUILD_IDS)
+    gemini_media = SlashCommandGroup(
+        "gemini-media",
+        "Gemini image and video commands",
+        guild_ids=GUILD_IDS,
+    )
+    gemini_tools = SlashCommandGroup(
+        "gemini-tools",
+        "Gemini speech, music, and research commands",
+        guild_ids=GUILD_IDS,
+    )
 
     def __init__(self, bot: Any):
         self.bot = bot
@@ -511,7 +521,7 @@ class GeminiCog(commands.Cog):
             custom_functions,
         )
 
-    @gemini.command(name="image", description="Generates an image based on a prompt.")
+    @gemini_media.command(name="image", description="Generates an image based on a prompt.")
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
@@ -612,7 +622,7 @@ class GeminiCog(commands.Cog):
             google_image_search,
         )
 
-    @gemini.command(
+    @gemini_media.command(
         name="video",
         description="Generates a video based on a prompt using Veo.",
     )
@@ -725,7 +735,7 @@ class GeminiCog(commands.Cog):
             image_resize_mode,
         )
 
-    @gemini.command(
+    @gemini_tools.command(
         name="tts",
         description="Generates lifelike audio from input text using Gemini text-to-speech.",
     )
@@ -765,7 +775,7 @@ class GeminiCog(commands.Cog):
     ) -> None:
         await speech_flow.tts_command(self, ctx, input_text, model, voice_name, style_prompt)
 
-    @gemini.command(name="music", description="Generate music using Lyria 3 or Lyria RealTime.")
+    @gemini_tools.command(name="music", description="Generate music using Lyria 3 or Lyria RealTime.")
     @option(
         "prompt",
         description="Musical prompt describing genre, mood, instruments, or style.",
@@ -859,7 +869,7 @@ class GeminiCog(commands.Cog):
             guidance,
         )
 
-    @gemini.command(
+    @gemini_tools.command(
         name="research",
         description="Run a deep research task that autonomously searches, reads, and synthesizes a detailed report.",
     )

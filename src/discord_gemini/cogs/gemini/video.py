@@ -228,7 +228,7 @@ async def video_command(
     enhance_prompt: bool | None,
     image_resize_mode: str | None = None,
 ) -> None:
-    """Run the `/gemini video` command."""
+    """Run the `/gemini-media video` command."""
 
     await ctx.defer()
     try:

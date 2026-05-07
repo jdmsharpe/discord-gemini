@@ -335,7 +335,7 @@ async def research_command(
     google_maps: bool = False,
     thinking_summaries: Literal["auto", "none"] | None = None,
 ) -> None:
-    """Run the `/gemini research` command."""
+    """Run the `/gemini-tools research` command."""
 
     await ctx.defer()
     try:

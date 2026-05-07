@@ -56,7 +56,7 @@ async def tts_command(
     voice_name: str,
     style_prompt: str | None,
 ) -> None:
-    """Run the `/gemini tts` command."""
+    """Run the `/gemini-tools tts` command."""
 
     await ctx.defer()
     try:
