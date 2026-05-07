@@ -198,8 +198,9 @@ def _send_text_for_embed(embed: Embed) -> str:
     if footer.get("text"):
         parts.append(str(footer["text"]))
     author = data.get("author") or {}
-    if author.get("name"):
-        parts.append(str(author["name"]))
+    author_name = author.get("name")
+    if author_name:
+        parts.append(str(author_name))
     return "\n\n".join(parts)
 
 
