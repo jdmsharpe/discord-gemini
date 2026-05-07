@@ -42,10 +42,11 @@ def extract_thinking_text(response: Any) -> str:
     if not parts:
         return ""
 
-    thinking_parts = []
-    for part in parts:
-        if getattr(part, "thought", False) and getattr(part, "text", None):
-            thinking_parts.append(part.text)
+    thinking_parts = [
+        part.text
+        for part in parts
+        if getattr(part, "thought", False) and getattr(part, "text", None)
+    ]
     return "\n\n".join(thinking_parts)
 
 

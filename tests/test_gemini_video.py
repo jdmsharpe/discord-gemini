@@ -1,5 +1,5 @@
-import os
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from discord_gemini.cogs.gemini.video import _validate_video_request
@@ -19,7 +19,7 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
             for file in files:
                 file.close()
         finally:
-            os.unlink(video_file.name)
+            Path(video_file.name).unlink()  # noqa: ASYNC240 - tiny test cleanup, sync I/O is fine
         assert expected_mode in embed.description
         assert len(files) == 1
 
@@ -81,7 +81,7 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
             for file in files:
                 file.close()
         finally:
-            os.unlink(video_file.name)
+            Path(video_file.name).unlink()  # noqa: ASYNC240 - tiny test cleanup, sync I/O is fine
 
         assert "**Resolution:** 1080p" in embed.description
 

@@ -295,16 +295,15 @@ class SpeechGenerationParameters:
 
         if self.multi_speaker and self.speaker_configs:
             # Multi-speaker configuration
-            speaker_voice_configs = []
-            for speaker_config in self.speaker_configs:
-                speaker_voice_configs.append(
-                    {
-                        "speaker": speaker_config["speaker"],
-                        "voice_config": {
-                            "prebuilt_voice_config": {"voice_name": speaker_config["voice_name"]}
-                        },
-                    }
-                )
+            speaker_voice_configs = [
+                {
+                    "speaker": speaker_config["speaker"],
+                    "voice_config": {
+                        "prebuilt_voice_config": {"voice_name": speaker_config["voice_name"]}
+                    },
+                }
+                for speaker_config in self.speaker_configs
+            ]
             speech_config["multi_speaker_voice_config"] = {
                 "speaker_voice_configs": speaker_voice_configs
             }

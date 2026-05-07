@@ -1,4 +1,5 @@
 import asyncio
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,7 +20,7 @@ def build_mock_bot() -> MagicMock:
 
 
 class GeminiCogTestCase:
-    file_search_store_ids = ["store-1", "store-2"]
+    file_search_store_ids: ClassVar[list[str]] = ["store-1", "store-2"]
 
     @pytest.fixture(autouse=True)
     def setup(self):
@@ -47,7 +48,7 @@ class GeminiCogTestCase:
 
 
 class AsyncGeminiCogTestCase:
-    file_search_store_ids = ["store-1", "store-2"]
+    file_search_store_ids: ClassVar[list[str]] = ["store-1", "store-2"]
 
     @pytest.fixture(autouse=True)
     async def setup(self):
