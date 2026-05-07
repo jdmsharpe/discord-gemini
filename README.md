@@ -8,7 +8,7 @@
 
 ## Overview
 
-A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing a unified interface for text and multi-turn conversations, image creation, video generation, text-to-speech, music generation, and deep research—all grouped cleanly under the `/gemini` namespace.
+A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing a unified interface for text and multi-turn conversations, image creation, video generation, text-to-speech, music generation, and deep research.
 
 ## Features
 
@@ -34,14 +34,14 @@ Start a conversation with Gemini AI models.
 - Features tool enablement mid-conversation via a dropdown.
 - Incompatible tools are automatically disabled depending on the model (e.g., File Search cannot be combined with Google Search).
 
-### `/gemini image`
+### `/gemini-media image`
 
 Generate images from text prompts or edit using reference images.
 
 - **Models:** Gemini 3.1 Flash Image, 3.0 Pro Image, 2.5 Flash Image, Imagen 4 (Ultra/Fast).
 - **Options:** Multiple aspect ratios, image count (1-4), resolution control (1K, 2K), and Google Image Search grounding.
 
-### `/gemini video`
+### `/gemini-media video`
 
 Generate videos from text prompts or image inputs.
 
@@ -49,18 +49,18 @@ Generate videos from text prompts or image inputs.
 - **Options:** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation on Veo 3.1 models, negative prompts, and prompt enhancement control.
 - **Validation:** Veo 3.x models support 4/6/8-second outputs, Veo 2 supports 5/6/8-second outputs, `1080p` and `4k` require 8 seconds, `4k` is unavailable on Veo 3.1 Lite, Veo 2 does not expose explicit resolution control, and requesting 2 videos is only supported on Veo 2.
 
-### `/gemini music`
+### `/gemini-tools music`
 
 Create music using Google Lyria models.
 
 - **Models:** Lyria 3 Pro Preview, Lyria 3 Clip Preview, Lyria RealTime Experimental.
 - **Options:** Customizable BPM, scale/key, density, brightness, duration (RealTime only), and reference image inputs. Long lyrics or structure notes are previewed and attached as text files.
 
-### `/gemini tts`
+### `/gemini-tools tts`
 
 Convert text to high-quality WAV speech audio (24kHz, 16-bit). Features 25+ voice options with natural language style controls.
 
-### `/gemini research`
+### `/gemini-tools research`
 
 Run autonomous deep research tasks (takes 2-10 minutes) using a Gemini Deep Research agent. The default `deep-research-preview-04-2026` (Apr 2026) is tuned for low latency and cost; choose `deep-research-max-preview-04-2026` for higher-quality, more comprehensive reports at the cost of longer runtimes. The legacy `deep-research-pro-preview-12-2025` agent remains selectable for parity with prior runs. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries.
 
@@ -163,7 +163,7 @@ bot.add_cog(GeminiCog(bot=bot))
 
 ### Music Generation Prompt Examples
 
-Try these prompts with `/gemini music`:
+Try these prompts with `/gemini-tools music`:
 
 - **Genres:** "minimal techno", "jazz fusion", "acoustic folk", "orchestral score"
 - **Instruments:** "piano and strings", "guitar and drums", "electronic synthesizers"

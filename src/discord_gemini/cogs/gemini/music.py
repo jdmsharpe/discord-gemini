@@ -292,7 +292,7 @@ async def music_command(
     brightness: float | None = None,
     guidance: float = 4.0,
 ) -> None:
-    """Run the `/gemini music` command."""
+    """Run the `/gemini-tools music` command."""
 
     await ctx.defer()
     try:

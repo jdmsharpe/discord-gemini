@@ -216,7 +216,7 @@ async def image_command(
     image_size: str | None,
     google_image_search: bool | None,
 ) -> None:
-    """Run the `/gemini image` command."""
+    """Run the `/gemini-media image` command."""
 
     await ctx.defer()
     try:

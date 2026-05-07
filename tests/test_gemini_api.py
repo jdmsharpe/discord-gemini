@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -101,6 +102,65 @@ def test_critical_choice_values_present():
     assert any(choice.value == "gemini-2.5-flash-preview-tts" for choice in TTS_MODEL_CHOICES)
     assert any(choice.value == "Kore" for choice in TTS_VOICE_CHOICES)
     assert any(choice.value == "lyria-3-clip-preview" for choice in MUSIC_MODEL_CHOICES)
+
+
+def _serialize_command_group_payload(group):
+    return {
+        "name": group.name,
+        "description": group.description,
+        "options": [
+            {
+                "name": command.name,
+                "description": command.description,
+                "options": [
+                    option.to_dict()
+                    for option in command.options
+                    if option.input_type is not None
+                ],
+                "type": 1,
+                "nsfw": False,
+            }
+            for command in group.subcommands
+        ],
+        "nsfw": False,
+    }
+
+
+def test_registered_command_groups_fit_discord_size_limit():
+    """Discord rejects any single top-level command payload over 8000 bytes."""
+
+    cog = GeminiCog(bot=build_mock_bot())
+
+    commands_by_name = {command.name: command for command in cog.get_commands()}
+
+    assert set(commands_by_name) == {"gemini", "gemini-media", "gemini-tools"}
+    assert [command.name for command in commands_by_name["gemini"].subcommands] == [
+        "check_permissions",
+        "chat",
+    ]
+    assert [command.name for command in commands_by_name["gemini-media"].subcommands] == [
+        "image",
+        "video",
+    ]
+    assert [command.name for command in commands_by_name["gemini-tools"].subcommands] == [
+        "tts",
+        "music",
+        "research",
+    ]
+
+    payload_sizes = {
+        name: len(
+            json.dumps(
+                _serialize_command_group_payload(command),
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        for name, command in commands_by_name.items()
+    }
+
+    assert payload_sizes["gemini"] < 8000
+    assert payload_sizes["gemini-media"] < 8000
+    assert payload_sizes["gemini-tools"] < 8000
 
 
 def test_thinking_level_choice_set():
