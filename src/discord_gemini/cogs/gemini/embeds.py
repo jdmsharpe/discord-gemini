@@ -111,10 +111,10 @@ def append_pricing_embed(
 
 __all__ = [
     "GEMINI_BLUE",
-    "error_to_user_description",
     "append_pricing_embed",
     "append_response_embeds",
     "append_sources_embed",
     "append_thinking_embeds",
     "build_error_embed",
+    "error_to_user_description",
 ]

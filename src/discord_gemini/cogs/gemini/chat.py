@@ -467,7 +467,9 @@ async def chat_command(
     if channel is None or channel_id is None:
         await send_embed_batches(
             ctx.send_followup,
-            embed=embeds.build_error_embed("Unable to determine the channel for this conversation."),
+            embed=embeds.build_error_embed(
+                "Unable to determine the channel for this conversation."
+            ),
             logger=cog.logger,
         )
         return
