@@ -56,26 +56,35 @@ def _build_deep_research_agent_config(
 def _extract_interaction_text(interaction: Any) -> str | None:
     """Return the newest text output emitted by an interaction, if any."""
 
-    outputs = getattr(interaction, "outputs", None) or []
-    for output in reversed(outputs):
-        text = getattr(output, "text", None)
-        if text:
-            return str(text)
+    steps = getattr(interaction, "steps", None) or []
+    for step in reversed(steps):
+        if getattr(step, "type", None) != "model_output":
+            continue
+        for content in getattr(step, "content", None) or []:
+            if getattr(content, "type", None) == "text":
+                text = getattr(content, "text", None)
+                if text:
+                    return str(text)
     return None
 
 
 def _extract_interaction_annotations(interaction: Any) -> list[Any]:
-    """Collect annotations from every TextContent in the interaction outputs.
+    """Collect annotations from every text content item across model_output steps.
 
-    Annotations are a discriminated union (URLCitation | FileCitation | PlaceCitation)
-    keyed on `.type`. We return them in document order so any future footnote-style
-    rendering can use byte indices into the joined report text.
+    Annotations live on each text content item inside model_output.content[]. They
+    are a discriminated union (URLCitation | FileCitation | PlaceCitation) keyed on
+    `.type`. We return them in document order so any future footnote-style rendering
+    can use byte indices into the joined report text.
     """
 
     collected: list[Any] = []
-    for output in getattr(interaction, "outputs", None) or []:
-        annotations = getattr(output, "annotations", None) or []
-        collected.extend(annotations)
+    for step in getattr(interaction, "steps", None) or []:
+        if getattr(step, "type", None) != "model_output":
+            continue
+        for content in getattr(step, "content", None) or []:
+            if getattr(content, "type", None) != "text":
+                continue
+            collected.extend(getattr(content, "annotations", None) or [])
     return collected
 
 
