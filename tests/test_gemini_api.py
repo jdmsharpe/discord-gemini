@@ -409,12 +409,21 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         )
         # First call returns in_progress, second returns completed
         interaction_started = SimpleNamespace(
-            id="interaction-1", status="in_progress", outputs=None, usage=None
+            id="interaction-1", status="in_progress", steps=None, usage=None
         )
         interaction_done = SimpleNamespace(
             id="interaction-1",
             status="completed",
-            outputs=[SimpleNamespace(text="# AI Safety Report\n\nDetailed findings...")],
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(
+                            type="text", text="# AI Safety Report\n\nDetailed findings..."
+                        )
+                    ],
+                )
+            ],
             usage=mock_usage,
         )
 
@@ -443,7 +452,12 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         interaction_done = SimpleNamespace(
             id="interaction-thinking",
             status="completed",
-            outputs=[SimpleNamespace(text="Concise report")],
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="Concise report")],
+                )
+            ],
             usage=SimpleNamespace(
                 total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
             ),
@@ -474,7 +488,12 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         interaction_done = SimpleNamespace(
             id="interaction-2",
             status="completed",
-            outputs=[SimpleNamespace(text="Report analysis...")],
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="Report analysis...")],
+                )
+            ],
             usage=SimpleNamespace(
                 total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
             ),
@@ -513,7 +532,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
 
         params = ResearchParameters(prompt="test")
 
-        interaction_failed = SimpleNamespace(id="interaction-3", status="failed", outputs=None)
+        interaction_failed = SimpleNamespace(id="interaction-3", status="failed", steps=None)
 
         self.cog.client.aio.interactions.create.return_value = interaction_failed
 
@@ -532,7 +551,14 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         interaction_requires_action = SimpleNamespace(
             id="interaction-5",
             status="requires_action",
-            outputs=[SimpleNamespace(text="1. Search the topic\n2. Review findings")],
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(type="text", text="1. Search the topic\n2. Review findings")
+                    ],
+                )
+            ],
             usage=SimpleNamespace(
                 total_input_tokens=100, total_output_tokens=20, total_thought_tokens=0
             ),
@@ -552,7 +578,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         interaction_done = SimpleNamespace(
             id="interaction-4",
             status="completed",
-            outputs=[],
+            steps=[],
             usage=SimpleNamespace(
                 total_input_tokens=100, total_output_tokens=0, total_thought_tokens=0
             ),
@@ -599,7 +625,12 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         interaction_done = SimpleNamespace(
             id="interaction-maps",
             status="completed",
-            outputs=[SimpleNamespace(text="Tokyo restaurant guide...")],
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="Tokyo restaurant guide...")],
+                )
+            ],
             usage=SimpleNamespace(
                 total_input_tokens=200, total_output_tokens=100, total_thought_tokens=0
             ),
@@ -625,7 +656,12 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         interaction_done = SimpleNamespace(
             id="interaction-both",
             status="completed",
-            outputs=[SimpleNamespace(text="Combined report...")],
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="Combined report...")],
+                )
+            ],
             usage=SimpleNamespace(
                 total_input_tokens=300, total_output_tokens=150, total_thought_tokens=0
             ),
