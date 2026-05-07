@@ -1,5 +1,20 @@
 # Discord Gemini Bot - Developer Reference
 
+## Quick Start
+
+```bash
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+cp .env.example .env                  # then fill in required values
+git config core.hooksPath .githooks   # enable repo pre-commit hook
+python src/bot.py      # or: docker compose up
+```
+
+## Gotchas
+
+- Uses **`py-cord`** (not `discord.py`). The slash-command API differs; don't mix docs between the two.
+- `GUILD_IDS` empty → commands register globally (up to 1-hour propagation delay). Set it to a test guild ID during development for instant updates.
+
 ## Environment Setup
 
 Copy `.env.example` to `.env` and fill in the values:
