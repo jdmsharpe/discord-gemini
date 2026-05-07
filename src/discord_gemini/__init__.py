@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from .cogs.gemini.cog import GeminiCog
     from .cogs.gemini.models import Conversation
 
-__all__ = ["GeminiCog", "Conversation"]
+__all__ = ["Conversation", "GeminiCog"]
 
 
 def __getattr__(name: str):

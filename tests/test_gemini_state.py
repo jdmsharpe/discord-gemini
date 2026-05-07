@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -141,7 +141,7 @@ class TestGeminiPruneRuntimeState(AsyncGeminiCogTestCase):
             conversation_starter=starter,
         )
         conversation = Conversation(params=params, history=[])
-        conversation.updated_at = datetime.now(timezone.utc) - age
+        conversation.updated_at = datetime.now(UTC) - age
         return conversation
 
     async def test_drops_conversations_older_than_ttl(self):
@@ -204,12 +204,10 @@ class TestGeminiPruneRuntimeState(AsyncGeminiCogTestCase):
 
         self.cog._delete_conversation_cache = AsyncMock()
         self.cog._cleanup_uploaded_files = AsyncMock()
-        old_date = (
-            datetime.now(timezone.utc) - timedelta(days=DAILY_COST_RETENTION_DAYS + 2)
-        ).date()
-        fresh_date = datetime.now(timezone.utc).date()
-        self.cog.daily_costs[(1, old_date.isoformat())] = (10.0, datetime.now(timezone.utc))
-        self.cog.daily_costs[(1, fresh_date.isoformat())] = (5.0, datetime.now(timezone.utc))
+        old_date = (datetime.now(UTC) - timedelta(days=DAILY_COST_RETENTION_DAYS + 2)).date()
+        fresh_date = datetime.now(UTC).date()
+        self.cog.daily_costs[(1, old_date.isoformat())] = (10.0, datetime.now(UTC))
+        self.cog.daily_costs[(1, fresh_date.isoformat())] = (5.0, datetime.now(UTC))
 
         await _prune_runtime_state(self.cog)
 

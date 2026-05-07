@@ -1,5 +1,6 @@
 """Attachment helpers for Gemini chat, image, music, and video flows."""
 
+import asyncio
 import mimetypes
 import re
 from pathlib import Path
@@ -121,7 +122,7 @@ async def _upload_attachment_to_file_api(
 
     temp_path = Path(f"temp_upload_{filename}")
     try:
-        temp_path.write_bytes(data)
+        await asyncio.to_thread(temp_path.write_bytes, data)
         uploaded_file = await cog.client.aio.files.upload(
             file=str(temp_path),
             config={"mime_type": mime_type},
@@ -137,7 +138,7 @@ async def _upload_attachment_to_file_api(
         cog.logger.warning("Failed to upload %s to File API: %s", filename, error)
         return None
     finally:
-        temp_path.unlink(missing_ok=True)
+        await asyncio.to_thread(temp_path.unlink, missing_ok=True)
 
 
 async def _prepare_attachment_part(

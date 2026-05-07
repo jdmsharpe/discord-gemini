@@ -362,7 +362,7 @@ async def music_command(
                 wav_file.setframerate(48000)
                 wav_file.writeframes(audio_data)
         else:
-            audio_file_path.write_bytes(audio_data)
+            await asyncio.to_thread(audio_file_path.write_bytes, audio_data)
 
         truncated_prompt = truncate_text(prompt, 2000)
         description = f"**Prompt:** {truncated_prompt}\n"
@@ -413,7 +413,7 @@ async def music_command(
             files=files,
             logger=cog.logger,
         )
-        audio_file_path.unlink(missing_ok=True)
+        await asyncio.to_thread(audio_file_path.unlink, missing_ok=True)
     except MusicGenerationError as error:
         cog.logger.error("Music generation error: %s", error, exc_info=True)
         description = str(error)

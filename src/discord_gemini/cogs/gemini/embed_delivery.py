@@ -79,7 +79,9 @@ async def send_embed_batches(
     batch_refs = [_attachment_filenames_for_embeds(batch) for batch in batches]
     all_refs = set().union(*batch_refs) if batch_refs else set()
     unreferenced_files = [
-        item for item in normalized_files if _file_name(item) is None or _file_name(item) not in all_refs
+        item
+        for item in normalized_files
+        if _file_name(item) is None or _file_name(item) not in all_refs
     ]
     sent_file_ids: set[int] = set()
     final_message = None
@@ -92,10 +94,7 @@ async def send_embed_batches(
             item
             for item in normalized_files
             if id(item) not in sent_file_ids
-            and (
-                _file_name(item) in refs
-                or (is_first and item in unreferenced_files)
-            )
+            and (_file_name(item) in refs or (is_first and item in unreferenced_files))
         ]
         sent_file_ids.update(id(item) for item in batch_files)
 
@@ -282,8 +281,8 @@ def _text_len(value: Any) -> int:
 
 
 __all__ = [
-    "DISCORD_EMBED_TOTAL_LIMIT",
     "DISCORD_EMBEDS_PER_MESSAGE_LIMIT",
+    "DISCORD_EMBED_TOTAL_LIMIT",
     "count_embed_chars",
     "pack_embeds",
     "send_embed_batches",

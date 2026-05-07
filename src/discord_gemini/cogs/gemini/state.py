@@ -1,7 +1,7 @@
 """Conversation and UI state helpers for the Gemini cog."""
 
 import contextlib
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import discord
@@ -17,7 +17,7 @@ DAILY_COST_RETENTION_DAYS = 30
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _extract_daily_total(value: float | tuple[float, datetime]) -> float:

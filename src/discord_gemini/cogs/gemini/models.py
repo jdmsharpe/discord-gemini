@@ -1,7 +1,7 @@
 """Shared Gemini cog model types."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol, TypedDict
 
 from ...util import ChatCompletionParameters
@@ -13,10 +13,10 @@ class Conversation:
 
     params: ChatCompletionParameters
     history: list[dict[str, Any]]
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def touch(self) -> None:
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
 
 class CitationInfo(TypedDict):

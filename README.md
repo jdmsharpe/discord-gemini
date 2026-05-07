@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/github/v/tag/jdmsharpe/discord-gemini?sort=semver&label=version)](https://github.com/jdmsharpe/discord-gemini/tags)
 [![License](https://img.shields.io/github/license/jdmsharpe/discord-gemini?label=license)](./LICENSE)
 [![CI](https://github.com/jdmsharpe/discord-gemini/actions/workflows/main.yml/badge.svg)](https://hub.docker.com/r/jsgreen152/discord-gemini)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 
 ## Overview
 
@@ -72,7 +72,7 @@ Check if the bot has the necessary permissions in the current channel.
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - `google-genai` ~1.73
 - `py-cord` ~2.7
 - `Pillow` ~12.1
@@ -190,11 +190,11 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 
 # Run tests in Docker
-docker build --build-arg PYTHON_VERSION=3.10 -f Dockerfile.test -t discord-gemini-test:3.10 .
-docker run --rm discord-gemini-test:3.10 python -m pytest -q
+docker build --build-arg PYTHON_VERSION=3.11 -f Dockerfile.test -t discord-gemini-test:3.11 .
+docker run --rm discord-gemini-test:3.11 python -m pytest -q
 
 # Run linting and type checks in Docker
-docker run --rm discord-gemini-test:3.10 sh -lc 'ruff check src tests && ruff format --check src tests && pyright'
+docker run --rm discord-gemini-test:3.11 sh -lc 'ruff check src tests && ruff format --check src tests && pyright'
 ```
 
 ### Linting & Type Checking

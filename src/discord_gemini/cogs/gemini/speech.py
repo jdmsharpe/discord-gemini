@@ -1,5 +1,6 @@
 """Speech generation helpers for the Gemini cog."""
 
+import asyncio
 import wave
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -132,7 +133,7 @@ async def tts_command(
             file=File(audio_file_path),
             logger=cog.logger,
         )
-        audio_file_path.unlink(missing_ok=True)
+        await asyncio.to_thread(audio_file_path.unlink, missing_ok=True)
     except Exception as error:
         await cog._send_error_followup(ctx, error, "tts")
 

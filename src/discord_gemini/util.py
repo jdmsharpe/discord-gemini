@@ -8,7 +8,7 @@ from .cogs.gemini.tool_registry import (
     build_runtime_tool_config,
     get_tool_registry,
 )
-from .config.pricing import (  # noqa: F401 — re-exported for callers
+from .config.pricing import (
     IMAGE_PRICING,
     MAPS_GROUNDING_COST_PER_REQUEST,
     MODEL_PRICING,
@@ -345,9 +345,8 @@ class MusicGenerationParameters:
                 {"text": prompt, "weight": weight}
                 for prompt, weight in zip(self.prompts, self.prompt_weights, strict=True)
             ]
-        else:
-            # Default weight of 1.0 for all prompts
-            return [{"text": prompt, "weight": 1.0} for prompt in self.prompts]
+        # Default weight of 1.0 for all prompts
+        return [{"text": prompt, "weight": 1.0} for prompt in self.prompts]
 
     def to_music_config(self) -> dict[str, Any]:
         """Convert to MusicGenerationConfig format for Gemini API."""

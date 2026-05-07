@@ -103,7 +103,6 @@ docker compose up
 
 ## Provider Notes
 
-- Dependency baseline is `google-genai~=1.74`.
 - Preserve the current cache/file-search/maps/tool compatibility behavior when refactoring further.
 - Custom tool dispatch uses a `ToolProvider` protocol in `discord_gemini.cogs.gemini.tooling`. `LocalFunctionProvider` wraps `@tool` callables, `BuiltinGeminiToolProvider` surfaces model-supported server-side tools, and `McpToolProvider` is a stub for future MCP transport. `execute_tool_call` routes namespaced names (`provider_id.tool_name`) to the correct provider and falls back to local lookup for un-namespaced names.
 - `GEMINI_FILE_SEARCH_STORE_IDS` is the runtime gate for file-search-enabled flows.
@@ -128,3 +127,4 @@ docker compose up
 - **Retry**: the `genai.Client` is built with `HttpRetryOptions(attempts=5, initial_delay=0.5, max_delay=60.0, http_status_codes=[429, 500, 502, 503, 504])` in `client.py` — the SDK handles backoff internally.
 - **Conversation TTL**: `_prune_runtime_state` in `cogs/gemini/state.py` evicts conversations older than `CONVERSATION_TTL` (12h) every 15 minutes via `@tasks.loop`. Also cascade-cleans orphaned entries in `message_to_conversation_id`. Daily costs retained for `DAILY_COST_RETENTION_DAYS` (30).
 - **Request IDs**: `cog_before_invoke` (and `on_message`) bind a fresh 8-char hex id via `discord_gemini.logging_setup.bind_request_id`. All downstream `logger.info`/`warning`/`error` calls automatically include the id. Set `LOG_FORMAT=json` for JSON-lines output.
+- **Async file I/O**: blocking `open()` and `pathlib` methods (`read_bytes`, `write_bytes`, `unlink`, etc.) inside `async def` freeze the Discord event loop and stall every concurrent slash command. Wrap them with `asyncio.to_thread(...)` so the I/O runs on a worker thread. Enforced by `ruff` (`ASYNC230`/`ASYNC240`).
