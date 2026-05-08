@@ -1,10 +1,12 @@
 """Deep research helpers for the Gemini cog."""
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlparse
 
 from discord import Colour, Embed, File
 from discord.commands import ApplicationContext
@@ -14,6 +16,9 @@ from ...util import ResearchParameters, calculate_cost, truncate_text
 from . import embeds, state, usage
 from .embed_delivery import send_embed_batches
 from .responses import APICallError, ValidationError
+
+_SOURCES_HEADING_RE = re.compile(r"\*\*Sources:\*\*", re.IGNORECASE)
+_SOURCES_LINE_RE = re.compile(r"^\s*\d+\.\s*\[([^\]]+)\]\(([^)]+)\)\s*$", re.MULTILINE)
 
 
 @dataclass
@@ -54,18 +59,24 @@ def _build_deep_research_agent_config(
 
 
 def _extract_interaction_text(interaction: Any) -> str | None:
-    """Return the newest text output emitted by an interaction, if any."""
+    """Concatenate text from every text content item across all model_output steps.
 
-    steps = getattr(interaction, "steps", None) or []
-    for step in reversed(steps):
+    Deep research splits the report across multiple model_output steps in the v1beta
+    `steps` timeline; collecting only the last step drops the body and leaves just
+    the closing citations footer the model emits at the end.
+    """
+
+    chunks: list[str] = []
+    for step in getattr(interaction, "steps", None) or []:
         if getattr(step, "type", None) != "model_output":
             continue
         for content in getattr(step, "content", None) or []:
-            if getattr(content, "type", None) == "text":
-                text = getattr(content, "text", None)
-                if text:
-                    return str(text)
-    return None
+            if getattr(content, "type", None) != "text":
+                continue
+            text = getattr(content, "text", None)
+            if text:
+                chunks.append(str(text))
+    return "".join(chunks) if chunks else None
 
 
 def _extract_interaction_annotations(interaction: Any) -> list[Any]:
@@ -88,6 +99,58 @@ def _extract_interaction_annotations(interaction: Any) -> list[Any]:
     return collected
 
 
+def _has_model_sources_footer(report_text: str | None) -> bool:
+    """Return True when the model already emitted its own `**Sources:**` block."""
+
+    return bool(report_text and _SOURCES_HEADING_RE.search(report_text))
+
+
+def _model_footer_url_titles(report_text: str | None) -> dict[str, str]:
+    """Parse `{url: label}` pairs out of the model's closing `**Sources:**` footer.
+
+    The model labels each entry with a paper title or domain (e.g. `arxiv.org`),
+    which is far more useful than the raw `URLCitation.title=None` we get back
+    from grounding-redirect URLs. Returns an empty dict when no footer is found.
+    """
+
+    if not report_text:
+        return {}
+    match = _SOURCES_HEADING_RE.search(report_text)
+    if not match:
+        return {}
+    tail = report_text[match.end() :]
+    return {url: label for label, url in _SOURCES_LINE_RE.findall(tail)}
+
+
+def _hostname_label(url: str | None) -> str:
+    """Best-effort hostname extraction, falling back to `(untitled)`."""
+
+    if not url:
+        return "(untitled)"
+    try:
+        host = urlparse(url).hostname
+    except ValueError:
+        return "(untitled)"
+    return host or "(untitled)"
+
+
+def _url_citation_label(annotation: Any, footer_titles: dict[str, str]) -> str:
+    """Best label for a `url_citation`: API title → model footer label → hostname.
+
+    Gemini leaves `URLCitation.title` empty for grounding-redirect URLs, so we
+    fall back to the labels the model itself emitted in its closing footer (when
+    available), and finally to the URL's hostname.
+    """
+
+    title = getattr(annotation, "title", None)
+    if title:
+        return str(title)
+    url = getattr(annotation, "url", None)
+    if url and url in footer_titles:
+        return footer_titles[url]
+    return _hostname_label(url)
+
+
 def _format_citations_section(annotations: list[Any]) -> str:
     """Render annotations into a markdown section appended to the research report.
 
@@ -108,7 +171,7 @@ def _format_citations_section(annotations: list[Any]) -> str:
     for annotation in annotations:
         kind = getattr(annotation, "type", None)
         if kind == "url_citation":
-            title = getattr(annotation, "title", None) or "(untitled)"
+            title = _url_citation_label(annotation, {})
             url = getattr(annotation, "url", None)
             url_lines.append(f"- [{title}]({url})" if url else f"- {title}")
         elif kind == "file_citation":
@@ -250,17 +313,19 @@ def _create_research_response_embeds(research_params: ResearchParameters) -> lis
     ]
 
 
-def _build_citations_embed(annotations: list[Any]) -> Embed | None:
+def _build_citations_embed(annotations: list[Any], report_text: str | None = None) -> Embed | None:
     """Build a compact 'Sources' embed mirroring the chat grounding-citations format.
 
     Groups by annotation kind (URL, file, place) and caps each group so the embed
     description stays under Discord's 4096-char limit. Returns None when there are
-    no surfaceable citations.
+    no surfaceable citations. `report_text` is used to recover URL labels from the
+    model's own `**Sources:**` footer when the API leaves `URLCitation.title` empty.
     """
 
     if not annotations:
         return None
 
+    footer_titles = _model_footer_url_titles(report_text)
     url_lines: list[str] = []
     file_lines: list[str] = []
     place_lines: list[str] = []
@@ -268,7 +333,7 @@ def _build_citations_embed(annotations: list[Any]) -> Embed | None:
     for annotation in annotations:
         kind = getattr(annotation, "type", None)
         if kind == "url_citation":
-            title = truncate_text(getattr(annotation, "title", None) or "(untitled)", 120) or ""
+            title = truncate_text(_url_citation_label(annotation, footer_titles), 120) or ""
             url = getattr(annotation, "url", None)
             url_lines.append(f"[{title}]({url})" if url else title)
         elif kind == "file_citation":
@@ -369,7 +434,7 @@ async def research_command(
 
         if result.report_text:
             response_embeds = _create_research_response_embeds(research_params)
-            citations_embed = _build_citations_embed(result.annotations)
+            citations_embed = _build_citations_embed(result.annotations, result.report_text)
             if citations_embed is not None:
                 response_embeds.append(citations_embed)
             if SHOW_COST_EMBEDS:
@@ -391,7 +456,9 @@ async def research_command(
                     Embed(description=" · ".join(pricing_parts), color=embeds.GEMINI_BLUE)
                 )
 
-            report_body = result.report_text + _format_citations_section(result.annotations)
+            report_body = result.report_text
+            if not _has_model_sources_footer(result.report_text):
+                report_body += _format_citations_section(result.annotations)
             report_file = File(BytesIO(report_body.encode("utf-8")), filename="research_report.md")
             await send_embed_batches(
                 ctx.send_followup,
@@ -425,6 +492,10 @@ __all__ = [
     "_extract_interaction_annotations",
     "_format_citations_section",
     "_format_grounding_breakdown",
+    "_has_model_sources_footer",
+    "_hostname_label",
+    "_model_footer_url_titles",
     "_run_deep_research",
+    "_url_citation_label",
     "research_command",
 ]
