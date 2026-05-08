@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -113,9 +114,7 @@ def _serialize_command_group_payload(group):
                 "name": command.name,
                 "description": command.description,
                 "options": [
-                    option.to_dict()
-                    for option in command.options
-                    if option.input_type is not None
+                    option.to_dict() for option in command.options if option.input_type is not None
                 ],
                 "type": 1,
                 "nsfw": False,
@@ -652,6 +651,49 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         assert result.report_text is None
         assert result.input_tokens == 100
 
+    async def test_run_deep_research_aggregates_multi_step_output(self):
+        """Test the report body is concatenated across multiple model_output steps.
+
+        Deep research streams body and closing sources as separate steps in the
+        v1beta `steps` timeline; returning only the last step would silently drop
+        the body and leave just the trailing citations footer.
+        """
+        from discord_gemini.util import ResearchParameters
+
+        params = ResearchParameters(prompt="Research test")
+
+        interaction_done = SimpleNamespace(
+            id="multi-step",
+            status="completed",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="# Report Body\n\nFindings...\n")],
+                ),
+                SimpleNamespace(type="thought", content=[]),
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(type="text", text="**Sources:**\n1. [arxiv.org](url)\n")
+                    ],
+                ),
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
+            ),
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.cog._run_deep_research(params)
+
+        assert result.report_text is not None
+        assert "# Report Body" in result.report_text
+        assert "Findings..." in result.report_text
+        assert "**Sources:**" in result.report_text
+        assert "[arxiv.org]" in result.report_text
+
     async def test_create_research_response_embeds(self):
         """Test _create_research_response_embeds creates header embed only."""
         from discord_gemini.util import ResearchParameters
@@ -758,6 +800,192 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
 
         # Prompt should be truncated to 2000 + "..."
         assert "..." in embeds[0].description
+
+
+class TestResearchSourceLabeling:
+    """Pure-function tests for the research source-label helpers."""
+
+    def test_has_model_sources_footer_detects_heading(self):
+        text = "# Report\n\nFindings.\n\n**Sources:**\n1. [arxiv.org](https://x)\n"
+        assert gemini_research._has_model_sources_footer(text) is True
+
+    def test_has_model_sources_footer_is_case_insensitive(self):
+        assert gemini_research._has_model_sources_footer("**sources:**\n1. [a](b)\n") is True
+
+    def test_has_model_sources_footer_returns_false_without_heading(self):
+        assert gemini_research._has_model_sources_footer("just some prose") is False
+        assert gemini_research._has_model_sources_footer(None) is False
+        assert gemini_research._has_model_sources_footer("") is False
+
+    def test_model_footer_url_titles_parses_numbered_entries(self):
+        text = (
+            "Body content here.\n\n"
+            "**Sources:**\n"
+            "1. [arxiv.org](https://example/1)\n"
+            "2. [iclr.cc](https://example/2)\n"
+            "3. [aclanthology.org](https://example/3)\n"
+        )
+        titles = gemini_research._model_footer_url_titles(text)
+        assert titles == {
+            "https://example/1": "arxiv.org",
+            "https://example/2": "iclr.cc",
+            "https://example/3": "aclanthology.org",
+        }
+
+    def test_model_footer_url_titles_empty_when_no_heading(self):
+        assert gemini_research._model_footer_url_titles("no footer here") == {}
+        assert gemini_research._model_footer_url_titles(None) == {}
+
+    def test_hostname_label_extracts_host(self):
+        assert gemini_research._hostname_label("https://example.com/path?q=1") == "example.com"
+        assert gemini_research._hostname_label("https://sub.domain.co.uk/x") == "sub.domain.co.uk"
+
+    def test_hostname_label_falls_back_to_untitled(self):
+        assert gemini_research._hostname_label(None) == "(untitled)"
+        assert gemini_research._hostname_label("") == "(untitled)"
+        assert gemini_research._hostname_label("not a url") == "(untitled)"
+
+    def test_url_citation_label_prefers_api_title(self):
+        annotation = SimpleNamespace(
+            type="url_citation", title="The Real Title", url="https://example.com"
+        )
+        assert (
+            gemini_research._url_citation_label(annotation, {"https://example.com": "ignored"})
+            == "The Real Title"
+        )
+
+    def test_url_citation_label_uses_footer_when_title_missing(self):
+        annotation = SimpleNamespace(type="url_citation", title=None, url="https://redirect/abc")
+        footer = {"https://redirect/abc": "arxiv.org"}
+        assert gemini_research._url_citation_label(annotation, footer) == "arxiv.org"
+
+    def test_url_citation_label_falls_back_to_hostname(self):
+        annotation = SimpleNamespace(type="url_citation", title=None, url="https://example.org/x")
+        assert gemini_research._url_citation_label(annotation, {}) == "example.org"
+
+    def test_build_citations_embed_uses_footer_titles_for_unlabeled_urls(self):
+        annotations = [
+            SimpleNamespace(type="url_citation", title=None, url="https://redirect/1"),
+            SimpleNamespace(type="url_citation", title=None, url="https://redirect/2"),
+        ]
+        report_text = (
+            "**Sources:**\n1. [arxiv.org](https://redirect/1)\n2. [iclr.cc](https://redirect/2)\n"
+        )
+        embed = gemini_research._build_citations_embed(annotations, report_text)
+        assert embed is not None
+        assert "arxiv.org" in embed.description
+        assert "iclr.cc" in embed.description
+        assert "(untitled)" not in embed.description
+
+    def test_build_citations_embed_falls_back_to_hostname_without_footer(self):
+        annotations = [
+            SimpleNamespace(type="url_citation", title=None, url="https://example.com/path"),
+        ]
+        embed = gemini_research._build_citations_embed(annotations, report_text=None)
+        assert embed is not None
+        assert "example.com" in embed.description
+        assert "(untitled)" not in embed.description
+
+
+class TestResearchReportAssembly(AsyncGeminiCogTestCase):
+    """Integration tests for `research_command` report-body assembly (1A gating)."""
+
+    @pytest.fixture(autouse=True)
+    async def setup_research(self, setup):
+        self.mock_client_instance.aio.interactions.create = AsyncMock()
+        self.mock_client_instance.aio.interactions.get = AsyncMock()
+
+    async def _run_with_interaction(self, interaction_done):
+        captured: dict[str, Any] = {}
+
+        async def capture_send_embed_batches(send, **kwargs):
+            file_obj = kwargs.get("file")
+            if file_obj is not None:
+                captured["report_text"] = file_obj.fp.getvalue().decode("utf-8")
+            return MagicMock()
+
+        ctx = MagicMock()
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        ctx.author.id = 42
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with (
+            patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock),
+            patch(
+                "discord_gemini.cogs.gemini.research.send_embed_batches",
+                side_effect=capture_send_embed_batches,
+            ),
+        ):
+            await gemini_research.research_command(self.cog, ctx, "Test prompt")
+
+        return captured["report_text"]
+
+    async def test_report_body_skips_appended_sources_when_model_footer_present(self):
+        """When the model emits its own `**Sources:**` footer, the wrapper-appended
+        `## Sources` block must not duplicate it in the file."""
+        annotation = SimpleNamespace(type="url_citation", title=None, url="https://redirect/1")
+        interaction_done = SimpleNamespace(
+            id="footer-present",
+            status="completed",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(
+                            type="text",
+                            text=(
+                                "# Report Body\n\nDetailed findings.\n\n"
+                                "**Sources:**\n1. [arxiv.org](https://redirect/1)\n"
+                            ),
+                            annotations=[annotation],
+                        )
+                    ],
+                )
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
+            ),
+        )
+
+        report_text = await self._run_with_interaction(interaction_done)
+        assert "# Report Body" in report_text
+        assert "**Sources:**" in report_text
+        # The wrapper-appended block uses `## Sources`, which must not appear
+        # alongside the model's own `**Sources:**` heading.
+        assert "## Sources" not in report_text
+
+    async def test_report_body_appends_wrapper_sources_when_model_omits_footer(self):
+        """Without a model footer, the wrapper still appends its own `## Sources`
+        block as a safety net, with hostname-based labels."""
+        annotation = SimpleNamespace(type="url_citation", title=None, url="https://example.com/x")
+        interaction_done = SimpleNamespace(
+            id="no-footer",
+            status="completed",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(
+                            type="text",
+                            text="# Report Body\n\nFindings without a footer.\n",
+                            annotations=[annotation],
+                        )
+                    ],
+                )
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
+            ),
+        )
+
+        report_text = await self._run_with_interaction(interaction_done)
+        assert "# Report Body" in report_text
+        assert "## Sources" in report_text
+        # Hostname fallback should kick in for the (titleless) annotation.
+        assert "example.com" in report_text
+        assert "(untitled)" not in report_text
 
 
 class TestTemperatureWarning:

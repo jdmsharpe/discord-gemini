@@ -775,7 +775,9 @@ class GeminiCog(commands.Cog):
     ) -> None:
         await speech_flow.tts_command(self, ctx, input_text, model, voice_name, style_prompt)
 
-    @gemini_tools.command(name="music", description="Generate music using Lyria 3 or Lyria RealTime.")
+    @gemini_tools.command(
+        name="music", description="Generate music using Lyria 3 or Lyria RealTime."
+    )
     @option(
         "prompt",
         description="Musical prompt describing genre, mood, instruments, or style.",
