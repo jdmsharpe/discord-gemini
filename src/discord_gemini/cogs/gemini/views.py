@@ -133,12 +133,13 @@ class ButtonView(View):
                 return
 
             tool_registry = get_tool_registry()
+            values = tool_select.values or []
             selected_values = [
                 value
-                for value in tool_select.values
+                for value in values
                 if value in tool_registry and value != "custom_functions"
             ]
-            custom_functions_selected = "custom_functions" in tool_select.values
+            custom_functions_selected = "custom_functions" in values
 
             active_names, result_message = self._on_tools_changed(
                 selected_values, custom_functions_selected, conversation
