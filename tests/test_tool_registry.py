@@ -34,3 +34,11 @@ def test_registry_metadata_exposes_model_constraints():
 
     assert file_search is not None
     assert "gemini-2.5-pro" in file_search.model_allowlist
+
+
+def test_default_chat_model_allowlisted_for_grounding_tools():
+    """gemini-3.5-flash is the default chat model and must be allowed its grounding tools."""
+    for tool_id in ("google_maps", "url_context", "file_search"):
+        metadata = get_tool_metadata(tool_id)
+        assert metadata is not None
+        assert "gemini-3.5-flash" in metadata.model_allowlist

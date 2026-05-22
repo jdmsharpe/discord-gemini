@@ -106,6 +106,7 @@ def calculate_tts_cost(model: str, input_tokens: int, output_tokens: int) -> flo
 # Gemini 2.5 and newer models also support implicit caching automatically.
 # Models not listed here fall back to implicit caching only.
 CACHE_MIN_TOKEN_COUNT: dict[str, int] = {
+    "gemini-3.5-flash": 1024,
     "gemini-3.1-pro-preview": 4096,
     "gemini-3-flash-preview": 1024,
     "gemini-2.5-pro": 4096,
