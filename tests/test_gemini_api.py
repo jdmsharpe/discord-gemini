@@ -95,7 +95,13 @@ def test_cog_init_does_not_configure_root_logger():
     mock_basic_config.assert_not_called()
 
 
+def test_default_chat_model_is_first_choice():
+    """gemini-3.5-flash is the default chat model and is shown first in the picker."""
+    assert CHAT_MODEL_CHOICES[0].value == "gemini-3.5-flash"
+
+
 def test_critical_choice_values_present():
+    assert any(choice.value == "gemini-3.5-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-image-preview" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-lite-generate-preview" for choice in VIDEO_MODEL_CHOICES)

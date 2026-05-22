@@ -872,6 +872,7 @@ class TestCacheConstants:
 
     def test_cache_min_token_count_contains_expected_models(self):
         """Test that CACHE_MIN_TOKEN_COUNT includes selected 3.x and 2.5 models."""
+        assert "gemini-3.5-flash" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.1-pro-preview" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3-flash-preview" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-2.5-pro" in CACHE_MIN_TOKEN_COUNT
@@ -879,6 +880,7 @@ class TestCacheConstants:
 
     def test_cache_min_token_count_values(self):
         """Test that token thresholds are correct per model tier."""
+        assert CACHE_MIN_TOKEN_COUNT["gemini-3.5-flash"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.1-pro-preview"] == 4096
         assert CACHE_MIN_TOKEN_COUNT["gemini-3-flash-preview"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-2.5-pro"] == 4096

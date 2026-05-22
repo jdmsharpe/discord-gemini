@@ -44,6 +44,7 @@ _TOOL_REGISTRY: dict[str, ToolMetadata] = {
         description="Ground answers with Maps place data.",
         model_allowlist=frozenset(
             {
+                "gemini-3.5-flash",
                 "gemini-3.1-pro-preview",
                 "gemini-3.1-flash-lite-preview",
                 "gemini-3-flash-preview",
@@ -63,6 +64,7 @@ _TOOL_REGISTRY: dict[str, ToolMetadata] = {
         description="Retrieve and analyze provided URLs.",
         model_allowlist=frozenset(
             {
+                "gemini-3.5-flash",
                 "gemini-3.1-pro-preview",
                 "gemini-3.1-flash-lite-preview",
                 "gemini-3-flash-preview",
@@ -80,6 +82,7 @@ _TOOL_REGISTRY: dict[str, ToolMetadata] = {
         description="Search over uploaded document stores.",
         model_allowlist=frozenset(
             {
+                "gemini-3.5-flash",
                 "gemini-3.1-pro-preview",
                 "gemini-3-flash-preview",
                 "gemini-2.5-pro",
