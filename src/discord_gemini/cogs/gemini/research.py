@@ -59,12 +59,19 @@ def _build_deep_research_agent_config(
 
 
 def _extract_interaction_text(interaction: Any) -> str | None:
-    """Concatenate text from every text content item across all model_output steps.
+    """Return the report text, preferring the SDK's ``Interaction.output_text``.
 
-    Deep research splits the report across multiple model_output steps in the v1beta
-    `steps` timeline; collecting only the last step drops the body and leaves just
-    the closing citations footer the model emits at the end.
+    SDK 2.3.0 added ``Interaction.output_text`` and 2.4.0 fixed it to handle turns
+    that don't end with text — exactly the multi-step deep-research case this used to
+    work around. We use it when it yields content and otherwise fall back to manually
+    walking every text content item across all ``model_output`` steps (the original
+    behavior), since deep research splits the report across multiple steps in the
+    v1beta ``steps`` timeline and collecting only the last step drops the body.
     """
+
+    output_text = getattr(interaction, "output_text", None)
+    if output_text:
+        return str(output_text)
 
     chunks: list[str] = []
     for step in getattr(interaction, "steps", None) or []:
@@ -257,7 +264,13 @@ async def _run_deep_research(
     max_wait_time = 1200
     start_time = time.time()
     poll_interval = 15
-    while interaction.status not in ("completed", "failed", "cancelled", "requires_action"):
+    while interaction.status not in (
+        "completed",
+        "failed",
+        "cancelled",
+        "requires_action",
+        "budget_exceeded",
+    ):
         if time.time() - start_time > max_wait_time:
             raise TimeoutError("Deep research timed out after 20 minutes")
         await asyncio.sleep(poll_interval)
@@ -268,6 +281,8 @@ async def _run_deep_research(
         raise APICallError(f"Research failed: {interaction.status}")
     if interaction.status == "cancelled":
         raise APICallError("Research was cancelled")
+    if interaction.status == "budget_exceeded":
+        raise APICallError("Research stopped: token/cost budget exceeded.")
     if interaction.status == "requires_action":
         plan_preview = truncate_text(_extract_interaction_text(interaction), 600)
         message = (

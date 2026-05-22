@@ -601,6 +601,24 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         ):
             await self.cog._run_deep_research(params)
 
+    async def test_run_deep_research_budget_exceeded(self):
+        """Test _run_deep_research raises immediately on the budget_exceeded terminal status."""
+        from discord_gemini.util import ResearchParameters
+
+        params = ResearchParameters(prompt="test")
+
+        interaction_budget = SimpleNamespace(
+            id="interaction-budget", status="budget_exceeded", steps=None
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_budget
+
+        with (
+            patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(Exception, match="budget exceeded"),
+        ):
+            await self.cog._run_deep_research(params)
+
     async def test_run_deep_research_requires_action(self):
         """Test _run_deep_research raises a clear message when the agent requires confirmation."""
         from discord_gemini.util import ResearchParameters
@@ -693,6 +711,78 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         assert "Findings..." in result.report_text
         assert "**Sources:**" in result.report_text
         assert "[arxiv.org]" in result.report_text
+
+    async def test_run_deep_research_prefers_output_text(self):
+        """Test the SDK's Interaction.output_text is used for the report when present.
+
+        SDK 2.3.0+ exposes a fixed `output_text` that already aggregates the trailing
+        model output; we prefer it over the manual steps walker while keeping the
+        annotation collection (which still walks the steps) intact.
+        """
+        from discord_gemini.util import ResearchParameters
+
+        params = ResearchParameters(prompt="Research test")
+
+        annotation = SimpleNamespace(
+            type="url_citation", url="https://example.com", title="Example"
+        )
+        interaction_done = SimpleNamespace(
+            id="output-text",
+            status="completed",
+            output_text="# SDK-aggregated report\n\nFull body.",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(
+                            type="text",
+                            text="ignored manual body",
+                            annotations=[annotation],
+                        )
+                    ],
+                )
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
+            ),
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.cog._run_deep_research(params)
+
+        assert result.report_text == "# SDK-aggregated report\n\nFull body."
+        # Annotation collection still walks the steps regardless of output_text.
+        assert result.annotations == [annotation]
+
+    async def test_run_deep_research_falls_back_when_output_text_empty(self):
+        """Test the manual steps walker is used when output_text is empty/missing."""
+        from discord_gemini.util import ResearchParameters
+
+        params = ResearchParameters(prompt="Research test")
+
+        interaction_done = SimpleNamespace(
+            id="empty-output-text",
+            status="completed",
+            output_text="",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="manual fallback body")],
+                )
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=100, total_output_tokens=50, total_thought_tokens=0
+            ),
+        )
+
+        self.cog.client.aio.interactions.create.return_value = interaction_done
+
+        with patch("discord_gemini.cogs.gemini.research.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.cog._run_deep_research(params)
+
+        assert result.report_text == "manual fallback body"
 
     async def test_create_research_response_embeds(self):
         """Test _create_research_response_embeds creates header embed only."""
