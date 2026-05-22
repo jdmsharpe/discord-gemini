@@ -127,6 +127,7 @@ docker compose up
 - Manual function tool execution must preserve the Gemini-provided function-call `id` when building the `functionResponse` part for the next turn.
 - Unsupported built-in + custom tool combinations should fail fast with a user-visible validation error rather than silently falling back.
 - `discord_gemini.cogs.gemini.chat`, `image`, `music`, `research`, `speech`, and `video` now own their respective orchestration flows.
+- Default chat model is `gemini-3.5-flash`; keep the `/gemini chat` `model` param default (`cogs/gemini/cog.py`), `CHAT_MODEL_CHOICES` ordering (`cogs/gemini/command_options.py`), the tool `model_allowlist`s in `cogs/gemini/tool_registry.py`, and `CACHE_MIN_TOKEN_COUNT` (`util.py`) aligned when changing it.
 - Default music model is `lyria-3-clip-preview`; keep `discord_gemini.util.DEFAULT_MUSIC_MODEL`, the `/gemini-tools music` slash-command metadata, and user-facing docs aligned when changing it.
 - Default video model is `veo-3.1-lite-generate-preview`; keep `discord_gemini.util.VIDEO_PRICING`, the `/gemini-media video` slash-command metadata, and user-facing docs aligned when changing it.
 - `/gemini-media video` now exposes `resolution`; keep the resolution choices, model-specific validation rules, and resolution-aware pricing aligned with current Veo docs when changing video support.
