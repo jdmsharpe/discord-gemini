@@ -1,5 +1,3 @@
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from discord_gemini.cogs.gemini.video import _validate_video_request
@@ -8,18 +6,13 @@ from tests.support import AsyncGeminiCogTestCase
 
 class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
     async def _assert_video_mode(self, params, expected_mode, attachment=None):
-        video_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)  # noqa: SIM115
-        try:
-            video_file.close()
-            embed, files = await self.cog._create_video_response_embed(
-                video_params=params,
-                generated_videos=[video_file.name],
-                attachment=attachment,
-            )
-            for file in files:
-                file.close()
-        finally:
-            Path(video_file.name).unlink()  # noqa: ASYNC240 - tiny test cleanup, sync I/O is fine
+        embed, files = await self.cog._create_video_response_embed(
+            video_params=params,
+            generated_videos=[b"fake-video-bytes"],
+            attachment=attachment,
+        )
+        for file in files:
+            file.close()
         assert expected_mode in embed.description
         assert len(files) == 1
 
@@ -65,23 +58,18 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
         """Test embed includes the selected output resolution."""
         from discord_gemini.util import VideoGenerationParameters
 
-        video_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)  # noqa: SIM115
-        try:
-            video_file.close()
-            params = VideoGenerationParameters(
-                prompt="A sunset",
-                model="veo-3.1-lite-generate-preview",
-                resolution="1080p",
-            )
-            embed, files = await self.cog._create_video_response_embed(
-                video_params=params,
-                generated_videos=[video_file.name],
-                attachment=None,
-            )
-            for file in files:
-                file.close()
-        finally:
-            Path(video_file.name).unlink()  # noqa: ASYNC240 - tiny test cleanup, sync I/O is fine
+        params = VideoGenerationParameters(
+            prompt="A sunset",
+            model="veo-3.1-lite-generate-preview",
+            resolution="1080p",
+        )
+        embed, files = await self.cog._create_video_response_embed(
+            video_params=params,
+            generated_videos=[b"fake-video-bytes"],
+            attachment=None,
+        )
+        for file in files:
+            file.close()
 
         assert "**Resolution:** 1080p" in embed.description
 

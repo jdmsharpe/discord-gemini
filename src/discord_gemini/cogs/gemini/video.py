@@ -101,8 +101,13 @@ async def _generate_video_with_veo(
     video_params: VideoGenerationParameters,
     attachment: Attachment | None = None,
     last_frame_attachment: Attachment | None = None,
-) -> list[str]:
-    """Generate videos using Veo models with generate_videos."""
+) -> list[bytes]:
+    """Generate videos using Veo models with generate_videos.
+
+    Returns the raw bytes of each generated video held in memory. Nothing is
+    written to disk, so concurrent invocations cannot collide and no temporary
+    files are ever left behind.
+    """
 
     config_dict = video_params.to_dict()
 
@@ -140,7 +145,7 @@ async def _generate_video_with_veo(
         operation = await cog.client.aio.operations.get(operation)
         cog.logger.debug("Operation status: %s", operation.done)
 
-    generated_videos: list[str] = []
+    generated_videos: list[bytes] = []
     if (
         hasattr(operation, "response")
         and operation.response
@@ -151,10 +156,14 @@ async def _generate_video_with_veo(
             if hasattr(generated_video, "video") and generated_video.video:
                 try:
                     await asyncio.to_thread(cog.client.files.download, file=generated_video.video)
-                    video_path = f"temp_video_{index}.mp4"
-                    generated_video.video.save(video_path)
-                    generated_videos.append(video_path)
-                    cog.logger.info("Downloaded video %d: %s", index + 1, video_path)
+                    video_bytes = generated_video.video.video_bytes
+                    if video_bytes:
+                        generated_videos.append(video_bytes)
+                        cog.logger.info(
+                            "Downloaded video %d (%d bytes)", index + 1, len(video_bytes)
+                        )
+                    else:
+                        cog.logger.error("Video %d downloaded but contained no bytes", index + 1)
                 except Exception as error:
                     cog.logger.error("Failed to download video %d: %s", index + 1, error)
     return generated_videos
@@ -163,15 +172,15 @@ async def _generate_video_with_veo(
 async def _create_video_response_embed(
     cog: "GeminiCog",
     video_params: VideoGenerationParameters,
-    generated_videos: list[str],
+    generated_videos: list[bytes],
     attachment: Attachment | None,
 ) -> tuple[Embed, list[File]]:
     """Create the embed and files for generated videos."""
 
     files: list[File] = []
-    for index, video_path in enumerate(generated_videos):
+    for index, video_bytes in enumerate(generated_videos):
         try:
-            files.append(File(video_path, filename=f"generated_video_{index + 1}.mp4"))
+            files.append(File(BytesIO(video_bytes), filename=f"generated_video_{index + 1}.mp4"))
         except Exception as error:
             cog.logger.error("Failed to create file for video %d: %s", index + 1, error)
 
