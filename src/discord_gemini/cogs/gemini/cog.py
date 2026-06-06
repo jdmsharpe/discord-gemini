@@ -769,7 +769,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         input_text: str,
-        model: str = "gemini-2.5-flash-preview-tts",
+        model: str = "gemini-3.1-flash-tts-preview",
         voice_name: str = "Kore",
         style_prompt: str | None = None,
     ) -> None:

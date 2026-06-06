@@ -281,7 +281,7 @@ class SpeechGenerationParameters:
     """A dataclass to store the parameters for a speech generation."""
 
     input_text: str
-    model: str = "gemini-2.5-flash-preview-tts"
+    model: str = "gemini-3.1-flash-tts-preview"
     voice_name: str | None = "Kore"
     multi_speaker: bool = False
     speaker_configs: list[dict[str, str]] | None = None
