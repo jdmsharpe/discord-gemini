@@ -565,7 +565,7 @@ class TestSpeechGenerationParameters:
     def test_defaults(self):
         params = SpeechGenerationParameters(input_text="Hello world")
         assert params.input_text == "Hello world"
-        assert params.model == "gemini-2.5-flash-preview-tts"
+        assert params.model == "gemini-3.1-flash-tts-preview"
         assert params.voice_name == "Kore"
         assert params.multi_speaker is False
         assert params.speaker_configs is None
