@@ -10,8 +10,6 @@ CHAT_MODEL_CHOICES = [
     OptionChoice(name="Gemini 2.5 Pro", value="gemini-2.5-pro"),
     OptionChoice(name="Gemini 2.5 Flash", value="gemini-2.5-flash"),
     OptionChoice(name="Gemini 2.5 Flash Lite", value="gemini-2.5-flash-lite"),
-    OptionChoice(name="Gemini 2.0 Flash", value="gemini-2.0-flash"),
-    OptionChoice(name="Gemini 2.0 Flash Lite", value="gemini-2.0-flash-lite"),
 ]
 
 MEDIA_RESOLUTION_CHOICES = [
@@ -39,8 +37,8 @@ RESEARCH_AGENT_CHOICES = [
 ]
 
 IMAGE_MODEL_CHOICES = [
-    OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image-preview"),
-    OptionChoice(name="Gemini 3.0 Pro Image", value="gemini-3-pro-image-preview"),
+    OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image"),
+    OptionChoice(name="Gemini 3.0 Pro Image", value="gemini-3-pro-image"),
     OptionChoice(name="Gemini 2.5 Flash Image", value="gemini-2.5-flash-image"),
     OptionChoice(name="Imagen 4", value="imagen-4.0-generate-001"),
     OptionChoice(name="Imagen 4 Ultra", value="imagen-4.0-ultra-generate-001"),

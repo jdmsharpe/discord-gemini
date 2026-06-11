@@ -397,7 +397,7 @@ class TestImageGenerationParameters:
         """Test that None values are not included in to_dict output."""
         params = ImageGenerationParameters(
             prompt="Test",
-            model="gemini-3-pro-image-preview",
+            model="gemini-3-pro-image",
         )
         result = params.to_dict()
         assert "aspect_ratio" not in result
@@ -407,25 +407,25 @@ class TestImageGenerationParameters:
 
     def test_image_size_default_none(self):
         """Test that image_size defaults to None."""
-        params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image-preview")
+        params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image")
         assert params.image_size is None
 
     def test_image_size_set(self):
         """Test that image_size can be set to a valid value."""
         params = ImageGenerationParameters(
-            prompt="Test", model="gemini-3.1-flash-image-preview", image_size="2k"
+            prompt="Test", model="gemini-3.1-flash-image", image_size="2k"
         )
         assert params.image_size == "2k"
 
     def test_google_image_search_default_false(self):
         """Test that google_image_search defaults to False."""
-        params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image-preview")
+        params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image")
         assert params.google_image_search is False
 
     def test_google_image_search_enabled(self):
         """Test that google_image_search can be enabled."""
         params = ImageGenerationParameters(
-            prompt="Test", model="gemini-3.1-flash-image-preview", google_image_search=True
+            prompt="Test", model="gemini-3.1-flash-image", google_image_search=True
         )
         assert params.google_image_search is True
 
@@ -433,11 +433,11 @@ class TestImageGenerationParameters:
         """Test that image_size and google_image_search are independent across instances."""
         params1 = ImageGenerationParameters(
             prompt="A",
-            model="gemini-3.1-flash-image-preview",
+            model="gemini-3.1-flash-image",
             image_size="1k",
             google_image_search=True,
         )
-        params2 = ImageGenerationParameters(prompt="B", model="gemini-3.1-flash-image-preview")
+        params2 = ImageGenerationParameters(prompt="B", model="gemini-3.1-flash-image")
         assert params1.image_size == "1k"
         assert params1.google_image_search is True
         assert params2.image_size is None
@@ -1048,8 +1048,8 @@ class TestImagePricing:
     def test_pricing_contains_all_image_models(self):
         """Test that IMAGE_PRICING includes all image generation models."""
         expected_models = [
-            "gemini-3.1-flash-image-preview",
-            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image",
+            "gemini-3-pro-image",
             "gemini-2.5-flash-image",
             "imagen-4.0-generate-001",
             "imagen-4.0-ultra-generate-001",
@@ -1078,9 +1078,9 @@ class TestImagePricing:
 
     def test_calculate_image_cost_gemini_model(self):
         """Test cost calculation for a Gemini image model with input tokens."""
-        # gemini-3.1-flash-image-preview: $0.50/M input, $0.067/image at 1K
+        # gemini-3.1-flash-image: $0.50/M input, $0.067/image at 1K
         cost = calculate_image_cost(
-            "gemini-3.1-flash-image-preview", num_images=2, input_tokens=1_000_000
+            "gemini-3.1-flash-image", num_images=2, input_tokens=1_000_000
         )
         expected = 0.50 + 2 * 0.067  # input cost + 2 images
         assert cost == pytest.approx(expected)
@@ -1088,10 +1088,10 @@ class TestImagePricing:
     def test_calculate_image_cost_2k_resolution(self):
         """Test that 2K resolution uses higher per-image cost."""
         cost_1k = calculate_image_cost(
-            "gemini-3.1-flash-image-preview", num_images=1, image_size="1k"
+            "gemini-3.1-flash-image", num_images=1, image_size="1k"
         )
         cost_2k = calculate_image_cost(
-            "gemini-3.1-flash-image-preview", num_images=1, image_size="2k"
+            "gemini-3.1-flash-image", num_images=1, image_size="2k"
         )
         assert cost_1k == pytest.approx(0.067)
         assert cost_2k == pytest.approx(0.101)
@@ -1100,10 +1100,10 @@ class TestImagePricing:
     def test_calculate_image_cost_case_insensitive(self):
         """Test that image_size lookup is case-insensitive."""
         cost_lower = calculate_image_cost(
-            "gemini-3.1-flash-image-preview", num_images=1, image_size="2k"
+            "gemini-3.1-flash-image", num_images=1, image_size="2k"
         )
         cost_upper = calculate_image_cost(
-            "gemini-3.1-flash-image-preview", num_images=1, image_size="2K"
+            "gemini-3.1-flash-image", num_images=1, image_size="2K"
         )
         assert cost_lower == pytest.approx(cost_upper)
 
@@ -1114,7 +1114,7 @@ class TestImagePricing:
 
     def test_calculate_image_cost_zero_images(self):
         """Test cost calculation when no images are generated."""
-        cost = calculate_image_cost("gemini-3.1-flash-image-preview", num_images=0)
+        cost = calculate_image_cost("gemini-3.1-flash-image", num_images=0)
         assert cost == pytest.approx(0.0)
 
     def test_calculate_image_cost_unknown_model(self):
@@ -1126,7 +1126,7 @@ class TestImagePricing:
     def test_calculate_image_cost_with_input_tokens_only(self):
         """Test cost when images=0 but input tokens are charged."""
         cost = calculate_image_cost(
-            "gemini-3.1-flash-image-preview", num_images=0, input_tokens=1_000_000
+            "gemini-3.1-flash-image", num_images=0, input_tokens=1_000_000
         )
         assert cost == pytest.approx(0.50)  # input cost only
 

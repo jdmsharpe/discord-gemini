@@ -118,7 +118,7 @@ class TestGeminiCostTracking(GeminiCogTestCase):
         self.cog._log_cost(
             "image",
             42,
-            "gemini-3.1-flash-image-preview",
+            "gemini-3.1-flash-image",
             0.134,
             0.50,
             images=2,
