@@ -20,7 +20,7 @@ class TestPricingLoader:
 
     def test_image_pricing_preserves_none_key_for_default(self):
         pricing = _reload_pricing()
-        input_rate, size_prices = pricing.IMAGE_PRICING["gemini-3.1-flash-image-preview"]
+        input_rate, size_prices = pricing.IMAGE_PRICING["gemini-3.1-flash-image"]
         assert input_rate == 0.50
         # Both None (legacy) and "default" should resolve to the same price.
         assert size_prices[None] == 0.067

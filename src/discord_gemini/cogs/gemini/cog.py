@@ -595,7 +595,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3.1-flash-image-preview",
+        model: str = "gemini-3.1-flash-image",
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         person_generation: str = "allow_adult",

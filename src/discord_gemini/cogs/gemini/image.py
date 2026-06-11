@@ -57,7 +57,7 @@ async def _generate_image_with_gemini(
             image_config_kwargs["image_size"] = image_params.image_size
         config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
 
-    if image_params.google_image_search and image_params.model == "gemini-3.1-flash-image-preview":
+    if image_params.google_image_search and image_params.model == "gemini-3.1-flash-image":
         config_kwargs["tools"] = [
             types.Tool(
                 google_search=types.GoogleSearch(

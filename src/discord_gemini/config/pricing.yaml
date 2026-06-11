@@ -2,7 +2,7 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-05-21
+# Last-verified: 2026-06-10
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
 # the output-token rate. Video and image generation use per-unit (second or
@@ -30,6 +30,20 @@ models:
 # output is per-image with resolution tiers ("1k", "2k"). For Imagen models,
 # input cost is 0 and per-image is flat (only "default" key is set).
 image_generation:
+  # GA ids (replaced the -preview ids on 2026-05-28; previews discontinue 2026-06-25).
+  gemini-3.1-flash-image:
+    input_per_million: 0.50
+    per_image_by_size:
+      default: 0.067
+      1k: 0.067
+      2k: 0.101
+  gemini-3-pro-image:
+    input_per_million: 2.00
+    per_image_by_size:
+      default: 0.134
+      1k: 0.134
+      2k: 0.134
+  # Preview ids kept for cost continuity until Google retires them (2026-06-25).
   gemini-3.1-flash-image-preview:
     input_per_million: 0.50
     per_image_by_size:

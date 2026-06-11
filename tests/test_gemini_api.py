@@ -110,7 +110,7 @@ def test_chat_command_default_model_param():
 def test_critical_choice_values_present():
     assert any(choice.value == "gemini-3.5-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
-    assert any(choice.value == "gemini-3.1-flash-image-preview" for choice in IMAGE_MODEL_CHOICES)
+    assert any(choice.value == "gemini-3.1-flash-image" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-lite-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "gemini-2.5-flash-preview-tts" for choice in TTS_MODEL_CHOICES)
@@ -279,7 +279,7 @@ class TestGeminiImageResponseText:
 
         # Simulate a full embed with prompt and metadata
         embed_description = f"**Prompt:** {truncated_prompt}\n"
-        embed_description += "**Model:** gemini-3-pro-image-preview\n"
+        embed_description += "**Model:** gemini-3-pro-image\n"
         embed_description += "**Mode:** Image Generation\n"
         embed_description += "**Number of Images:** 1\n"
 
@@ -294,7 +294,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         """Test that prompts are prefixed with 'Create image:' for Gemini models."""
         from discord_gemini.util import ImageGenerationParameters
 
-        params = ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image-preview")
+        params = ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image")
         mock_response = MagicMock()
         mock_response.candidates = []
         self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
@@ -310,7 +310,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
         params = ImageGenerationParameters(
             prompt="Edit this cat",
-            model="gemini-3.1-flash-image-preview",
+            model="gemini-3.1-flash-image",
         )
         mock_response = MagicMock()
         mock_response.candidates = []
@@ -328,7 +328,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
         params = ImageGenerationParameters(
             prompt="A cat",
-            model="gemini-3.1-flash-image-preview",
+            model="gemini-3.1-flash-image",
         )
 
         mock_response = MagicMock()
@@ -352,7 +352,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
         params = ImageGenerationParameters(
             prompt="A cat",
-            model="gemini-3.1-flash-image-preview",
+            model="gemini-3.1-flash-image",
             image_size="2k",
         )
 
@@ -373,7 +373,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
         params = ImageGenerationParameters(
             prompt="A cat",
-            model="gemini-3.1-flash-image-preview",
+            model="gemini-3.1-flash-image",
             aspect_ratio="16:9",
         )
 
@@ -394,7 +394,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
         params = ImageGenerationParameters(
             prompt="A cat",
-            model="gemini-3.1-flash-image-preview",
+            model="gemini-3.1-flash-image",
             google_image_search=True,
         )
 
@@ -420,7 +420,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
         params = ImageGenerationParameters(
             prompt="A cat",
-            model="gemini-3-pro-image-preview",
+            model="gemini-3-pro-image",
             google_image_search=True,
         )
 
@@ -440,7 +440,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
         params = ImageGenerationParameters(
             prompt="A cat",
-            model="gemini-3.1-flash-image-preview",
+            model="gemini-3.1-flash-image",
             aspect_ratio="9:16",
             image_size="2k",
             google_image_search=True,
