@@ -258,7 +258,10 @@ async def _run_deep_research(
     if tools:
         kwargs["tools"] = tools
 
-    interaction = await cog.client.aio.interactions.create(**kwargs)
+    # google-genai 2.9.0 widened interactions.create/get to return
+    # Interaction | AsyncStream[...] (no stream-vs-non-stream overloads). This path
+    # never streams, so narrow to Any to keep .id/.status access well-typed.
+    interaction: Any = await cog.client.aio.interactions.create(**kwargs)
     cog.logger.info("Started deep research: %s", interaction.id)
 
     max_wait_time = 1200

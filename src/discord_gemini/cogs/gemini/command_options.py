@@ -5,7 +5,7 @@ from ...util import LYRIA_REALTIME_MODEL
 CHAT_MODEL_CHOICES = [
     OptionChoice(name="Gemini 3.5 Flash", value="gemini-3.5-flash"),
     OptionChoice(name="Gemini 3.1 Pro", value="gemini-3.1-pro-preview"),
-    OptionChoice(name="Gemini 3.1 Flash Lite", value="gemini-3.1-flash-lite-preview"),
+    OptionChoice(name="Gemini 3.1 Flash Lite", value="gemini-3.1-flash-lite"),
     OptionChoice(name="Gemini 3.0 Flash", value="gemini-3-flash-preview"),
     OptionChoice(name="Gemini 2.5 Pro", value="gemini-2.5-pro"),
     OptionChoice(name="Gemini 2.5 Flash", value="gemini-2.5-flash"),
@@ -68,9 +68,6 @@ VIDEO_MODEL_CHOICES = [
     OptionChoice(name="Veo 3.1 Lite Preview", value="veo-3.1-lite-generate-preview"),
     OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
     OptionChoice(name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"),
-    OptionChoice(name="Veo 3", value="veo-3.0-generate-001"),
-    OptionChoice(name="Veo 3 Fast", value="veo-3.0-fast-generate-001"),
-    OptionChoice(name="Veo 2", value="veo-2.0-generate-001"),
 ]
 
 VIDEO_ASPECT_RATIO_CHOICES = [

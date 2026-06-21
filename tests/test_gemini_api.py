@@ -1138,10 +1138,10 @@ class TestTemperatureWarning:
 
     def test_gemini3_flash_lite_warning(self):
         """Gemini 3.1 Flash Lite also triggers warning."""
-        desc = self._build_temperature_description("gemini-3.1-flash-lite-preview", 0.7)
+        desc = self._build_temperature_description("gemini-3.1-flash-lite", 0.7)
         assert "warning" in desc
 
-    def test_gemini2_flash_no_warning(self):
-        """Gemini 2.0 Flash does not trigger warning."""
-        desc = self._build_temperature_description("gemini-2.0-flash", 0.3)
+    def test_gemini25_flash_no_warning(self):
+        """Gemini 2.5 Flash does not trigger warning."""
+        desc = self._build_temperature_description("gemini-2.5-flash", 0.3)
         assert "warning" not in desc

@@ -36,14 +36,12 @@ VEO_3_MODELS = frozenset(
         "veo-3.0-fast-generate-001",
     }
 )
-VEO_2_MODEL = "veo-2.0-generate-001"
 VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
     "veo-3.1-lite-generate-preview": frozenset({"720p", "1080p"}),
     "veo-3.1-generate-preview": frozenset({"720p", "1080p", "4k"}),
     "veo-3.1-fast-generate-preview": frozenset({"720p", "1080p", "4k"}),
     "veo-3.0-generate-001": frozenset({"720p", "1080p", "4k"}),
     "veo-3.0-fast-generate-001": frozenset({"720p", "1080p", "4k"}),
-    VEO_2_MODEL: frozenset(),
 }
 
 
@@ -60,15 +58,8 @@ def _validate_video_request(
     if has_last_frame and model not in VEO_3_1_MODELS:
         return "The `last_frame` parameter is only supported on Veo 3.1 models."
 
-    if model != VEO_2_MODEL and number_of_videos != 1:
-        return "The `number_of_videos` parameter only supports `1` on Veo 3.x and Veo 3.1 models. Use Veo 2 for up to 2 videos per request."
-
-    if model == VEO_2_MODEL:
-        if resolution is not None:
-            return "The `resolution` parameter is not supported on Veo 2."
-        if duration_seconds is not None and duration_seconds not in {5, 6, 8}:
-            return "Veo 2 only supports 5, 6, or 8 second videos."
-        return None
+    if number_of_videos != 1:
+        return "The `number_of_videos` parameter only supports `1` on Veo 3.x and Veo 3.1 models."
 
     if duration_seconds is not None and duration_seconds not in {4, 6, 8}:
         return "This Veo model only supports 4, 6, or 8 second videos."

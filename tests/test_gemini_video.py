@@ -75,7 +75,7 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
 
 
 class TestVideoValidation:
-    def test_rejects_multiple_videos_outside_veo_2(self):
+    def test_rejects_multiple_videos(self):
         error = _validate_video_request(
             model="veo-3.1-lite-generate-preview",
             aspect_ratio="16:9",
@@ -85,17 +85,6 @@ class TestVideoValidation:
             has_last_frame=False,
         )
         assert "number_of_videos" in error
-
-    def test_rejects_resolution_on_veo_2(self):
-        error = _validate_video_request(
-            model="veo-2.0-generate-001",
-            aspect_ratio="16:9",
-            resolution="720p",
-            number_of_videos=1,
-            duration_seconds=8,
-            has_last_frame=False,
-        )
-        assert error == "The `resolution` parameter is not supported on Veo 2."
 
     def test_rejects_4k_on_lite(self):
         error = _validate_video_request(

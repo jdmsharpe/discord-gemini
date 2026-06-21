@@ -66,7 +66,7 @@ class TestGeminiThinkingEmbeds:
         embeds = []
         append_pricing_embed(
             embeds,
-            "gemini-2.0-flash",
+            "gemini-2.5-flash-lite",
             input_tokens=500_000,
             output_tokens=200_000,
             daily_cost=1.25,

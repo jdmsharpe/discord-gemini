@@ -16,7 +16,7 @@ class TestPricingLoader:
     def test_bundled_yaml_loads_model_pricing(self):
         pricing = _reload_pricing()
         assert pricing.MODEL_PRICING["gemini-2.5-pro"] == (1.25, 10.0)
-        assert pricing.MODEL_PRICING["gemini-2.0-flash"] == (0.10, 0.40)
+        assert pricing.MODEL_PRICING["gemini-2.5-flash-lite"] == (0.10, 0.40)
 
     def test_image_pricing_preserves_none_key_for_default(self):
         pricing = _reload_pricing()
