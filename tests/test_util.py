@@ -139,8 +139,8 @@ class TestChatCompletionParameters:
             TOOL_GOOGLE_MAPS,
             TOOL_URL_CONTEXT,
         ]
-        # gemini-2.0-flash-lite does not support google_maps or url_context
-        supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash-lite", tools)
+        # gemini-2.5-flash-image does not support google_maps or url_context
+        supported, unsupported = filter_supported_tools_for_model("gemini-2.5-flash-image", tools)
         assert supported == [TOOL_GOOGLE_SEARCH, TOOL_CODE_EXECUTION]
         assert "google_maps" in unsupported
         assert "url_context" in unsupported
@@ -155,7 +155,7 @@ class TestChatCompletionParameters:
     def test_filter_supported_tools_file_search_unsupported_model(self):
         """Test that file_search is filtered out for unsupported models."""
         tools = [TOOL_FILE_SEARCH, TOOL_CODE_EXECUTION]
-        supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash", tools)
+        supported, unsupported = filter_supported_tools_for_model("gemini-2.5-flash", tools)
         assert supported == [TOOL_CODE_EXECUTION]
         assert unsupported == ["file_search"]
 
@@ -220,7 +220,7 @@ class TestFilterSupportedToolsWithCallables:
             pass
 
         tools = [TOOL_GOOGLE_SEARCH, my_func]
-        supported, unsupported = filter_supported_tools_for_model("gemini-2.0-flash-lite", tools)
+        supported, unsupported = filter_supported_tools_for_model("gemini-2.5-flash-image", tools)
         assert my_func in supported
         assert unsupported == []
 
@@ -448,15 +448,15 @@ class TestVideoGenerationParameters:
     def test_to_dict_basic(self):
         params = VideoGenerationParameters(
             prompt="A cat playing piano",
-            model="veo-2.0-generate-001",
+            model="veo-3.1-generate-preview",
             aspect_ratio="16:9",
             resolution="720p",
-            number_of_videos=2,
+            number_of_videos=1,
         )
         result = params.to_dict()
         assert result["aspect_ratio"] == "16:9"
         assert result["resolution"] == "720p"
-        assert result["number_of_videos"] == 2
+        assert result["number_of_videos"] == 1
 
     def test_to_dict_with_duration(self):
         params = VideoGenerationParameters(
@@ -470,7 +470,7 @@ class TestVideoGenerationParameters:
     def test_to_dict_with_negative_prompt(self):
         params = VideoGenerationParameters(
             prompt="A dog running",
-            model="veo-2.0-generate-001",
+            model="veo-3.1-generate-preview",
             negative_prompt="blurry, distorted",
         )
         result = params.to_dict()
@@ -497,7 +497,7 @@ class TestVideoGenerationParameters:
         """Test that person_generation values are properly mapped for Veo."""
         params = VideoGenerationParameters(
             prompt="Test",
-            model="veo-2.0-generate-001",
+            model="veo-3.1-generate-preview",
             person_generation="dont_allow",
         )
         result = params.to_dict()
@@ -507,7 +507,7 @@ class TestVideoGenerationParameters:
         """Test that allow_adult (default) is not included in output."""
         params = VideoGenerationParameters(
             prompt="Test",
-            model="veo-2.0-generate-001",
+            model="veo-3.1-generate-preview",
             person_generation="allow_adult",
         )
         result = params.to_dict()
@@ -517,7 +517,7 @@ class TestVideoGenerationParameters:
         """Test that None values are not included in to_dict output."""
         params = VideoGenerationParameters(
             prompt="Test",
-            model="veo-2.0-generate-001",
+            model="veo-3.1-generate-preview",
         )
         result = params.to_dict()
         assert "aspect_ratio" not in result
@@ -887,9 +887,9 @@ class TestCacheConstants:
         assert CACHE_MIN_TOKEN_COUNT["gemini-2.5-flash"] == 1024
 
     def test_cache_min_token_count_excludes_unsupported_models(self):
-        """Test that older models still rely on implicit-only/no explicit caching here."""
-        assert "gemini-2.0-flash" not in CACHE_MIN_TOKEN_COUNT
-        assert "gemini-2.0-flash-lite" not in CACHE_MIN_TOKEN_COUNT
+        """Test that models without explicit caching are absent from the threshold map."""
+        assert "gemini-2.5-flash-lite" not in CACHE_MIN_TOKEN_COUNT
+        assert "gemini-3.1-flash-lite" not in CACHE_MIN_TOKEN_COUNT
 
     def test_cache_ttl_is_valid(self):
         """Test that CACHE_TTL is a valid duration string."""
@@ -955,13 +955,11 @@ class TestModelPricing:
         """Test that MODEL_PRICING includes all chat models."""
         expected_models = [
             "gemini-3.1-pro-preview",
-            "gemini-3.1-flash-lite-preview",
+            "gemini-3.1-flash-lite",
             "gemini-3-flash-preview",
             "gemini-2.5-pro",
             "gemini-2.5-flash",
             "gemini-2.5-flash-lite",
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-lite",
         ]
         for model in expected_models:
             assert model in MODEL_PRICING, f"{model} missing from MODEL_PRICING"
@@ -979,8 +977,8 @@ class TestModelPricing:
 
     def test_calculate_cost_known_model(self):
         """Test cost calculation for a known model."""
-        # gemini-2.0-flash: $0.10/M input, $0.40/M output
-        cost = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000)
+        # gemini-2.5-flash-lite: $0.10/M input, $0.40/M output
+        cost = calculate_cost("gemini-2.5-flash-lite", 1_000_000, 1_000_000)
         assert cost == pytest.approx(0.50)
 
     def test_calculate_cost_zero_tokens(self):
@@ -1010,8 +1008,8 @@ class TestModelPricing:
 
     def test_calculate_cost_with_zero_thinking_tokens(self):
         """Test that zero thinking tokens doesn't affect cost."""
-        cost_without = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000)
-        cost_with = calculate_cost("gemini-2.0-flash", 1_000_000, 1_000_000, thinking_tokens=0)
+        cost_without = calculate_cost("gemini-2.5-flash-lite", 1_000_000, 1_000_000)
+        cost_with = calculate_cost("gemini-2.5-flash-lite", 1_000_000, 1_000_000, thinking_tokens=0)
         assert cost_without == pytest.approx(cost_with)
 
     def test_calculate_cost_thinking_only(self):
@@ -1194,9 +1192,9 @@ class TestVideoPricing:
         assert cost == pytest.approx(2.40)
 
     def test_calculate_video_cost_multiple_videos(self):
-        """Test cost for multiple videos."""
-        cost = calculate_video_cost("veo-2.0-generate-001", duration_seconds=5, num_videos=2)
-        assert cost == pytest.approx(5 * 2 * 0.35)
+        """Test cost scales with the number of videos."""
+        cost = calculate_video_cost("veo-3.1-generate-preview", duration_seconds=5, num_videos=2)
+        assert cost == pytest.approx(5 * 2 * 0.40)
 
     def test_calculate_video_cost_zero_duration(self):
         """Test cost with zero duration."""

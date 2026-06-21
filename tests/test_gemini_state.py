@@ -83,7 +83,7 @@ class TestGeminiCostTracking(GeminiCogTestCase):
         """Test that _track_daily_cost accumulates pre-calculated cost including thinking."""
         from discord_gemini.util import calculate_cost
 
-        cost = calculate_cost("gemini-2.0-flash", 1_000_000, 500_000, thinking_tokens=500_000)
+        cost = calculate_cost("gemini-2.5-flash-lite", 1_000_000, 500_000, thinking_tokens=500_000)
         daily = self.cog._track_daily_cost(user_id=99, cost=cost)
         assert daily == pytest.approx(0.50)
 
@@ -93,7 +93,7 @@ class TestGeminiCostTracking(GeminiCogTestCase):
         self.cog._log_cost(
             "chat",
             12345,
-            "gemini-2.0-flash",
+            "gemini-2.5-flash-lite",
             0.50,
             1.00,
             input_tokens=1000,
@@ -137,7 +137,7 @@ class TestGeminiPruneRuntimeState(AsyncGeminiCogTestCase):
         from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash-lite",
             conversation_starter=starter,
         )
         conversation = Conversation(params=params, history=[])
@@ -221,7 +221,7 @@ class TestConversationTouch:
         from discord_gemini.util import ChatCompletionParameters
 
         conv = Conversation(
-            params=ChatCompletionParameters(model="gemini-2.0-flash"),
+            params=ChatCompletionParameters(model="gemini-2.5-flash-lite"),
             history=[],
         )
         original = conv.updated_at

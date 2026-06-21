@@ -669,11 +669,11 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "number_of_videos",
-        description="Number of videos to generate, from 1 to 2. (2 is only supported on Veo 2.)",
+        description="Number of videos to generate. (Veo 3.x and Veo 3.1 only support 1 per request.)",
         required=False,
         type=int,
         min_value=1,
-        max_value=2,
+        max_value=1,
     )
     @option(
         "duration_seconds",

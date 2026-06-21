@@ -155,7 +155,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         """Test that _maybe_create_cache skips for models without explicit caching."""
         from discord_gemini.util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(model="gemini-2.0-flash")
+        params = ChatCompletionParameters(model="gemini-2.5-flash-lite")
         response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=5000))
 
         await self.cog._maybe_create_cache(params, [], response)
