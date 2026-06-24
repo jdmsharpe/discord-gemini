@@ -67,6 +67,27 @@ def _guess_attachment_mime_type(attachment: Attachment) -> str:
     return _normalize_mime_type_for_name(attachment.content_type, attachment.filename)
 
 
+def _sniff_binary_mime_type(data: bytes) -> str | None:
+    """Detect a binary attachment's MIME type from its magic bytes.
+
+    Returns ``None`` for signatures we don't recognize (including every audio and
+    video format) so the caller falls back to filename/metadata-based guessing,
+    preserving the ``.opus``/``.alaw``/``.mulaw`` normalization.
+    """
+
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"%PDF-"):
+        return "application/pdf"
+    return None
+
+
 async def _get_http_session(cog: "GeminiCog") -> aiohttp.ClientSession:
     """Reuse or lazily create the shared aiohttp session."""
 
@@ -148,12 +169,18 @@ async def _prepare_attachment_part(
 ) -> dict[str, dict[str, Any]] | None:
     """Prepare an attachment as either inline data or File API data."""
 
-    content_type = _guess_attachment_mime_type(attachment)
     use_file_api = attachment.size > ATTACHMENT_FILE_API_THRESHOLD
 
     attachment_data = await _fetch_attachment_bytes(cog, attachment)
     if attachment_data is None:
         return None
+
+    # Trust the actual bytes over Discord's declared content type: Discord
+    # occasionally mislabels uploads (e.g. a PNG reported as image/jpeg), which
+    # makes Gemini decode the inline data against the wrong MIME type.
+    content_type = _sniff_binary_mime_type(attachment_data) or _guess_attachment_mime_type(
+        attachment
+    )
 
     if use_file_api:
         uploaded_file = await _upload_attachment_to_file_api(
@@ -197,6 +224,7 @@ __all__ = [
     "_guess_attachment_mime_type",
     "_guess_url_mime_type",
     "_prepare_attachment_part",
+    "_sniff_binary_mime_type",
     "_upload_attachment_to_file_api",
     "_validate_attachment_size",
 ]

@@ -135,9 +135,7 @@ class ButtonView(View):
             tool_registry = get_tool_registry()
             values = tool_select.values or []
             selected_values = [
-                value
-                for value in values
-                if value in tool_registry and value != "custom_functions"
+                value for value in values if value in tool_registry and value != "custom_functions"
             ]
             custom_functions_selected = "custom_functions" in values
 
