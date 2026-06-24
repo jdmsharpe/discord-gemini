@@ -1077,32 +1077,22 @@ class TestImagePricing:
     def test_calculate_image_cost_gemini_model(self):
         """Test cost calculation for a Gemini image model with input tokens."""
         # gemini-3.1-flash-image: $0.50/M input, $0.067/image at 1K
-        cost = calculate_image_cost(
-            "gemini-3.1-flash-image", num_images=2, input_tokens=1_000_000
-        )
+        cost = calculate_image_cost("gemini-3.1-flash-image", num_images=2, input_tokens=1_000_000)
         expected = 0.50 + 2 * 0.067  # input cost + 2 images
         assert cost == pytest.approx(expected)
 
     def test_calculate_image_cost_2k_resolution(self):
         """Test that 2K resolution uses higher per-image cost."""
-        cost_1k = calculate_image_cost(
-            "gemini-3.1-flash-image", num_images=1, image_size="1k"
-        )
-        cost_2k = calculate_image_cost(
-            "gemini-3.1-flash-image", num_images=1, image_size="2k"
-        )
+        cost_1k = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="1k")
+        cost_2k = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="2k")
         assert cost_1k == pytest.approx(0.067)
         assert cost_2k == pytest.approx(0.101)
         assert cost_2k > cost_1k
 
     def test_calculate_image_cost_case_insensitive(self):
         """Test that image_size lookup is case-insensitive."""
-        cost_lower = calculate_image_cost(
-            "gemini-3.1-flash-image", num_images=1, image_size="2k"
-        )
-        cost_upper = calculate_image_cost(
-            "gemini-3.1-flash-image", num_images=1, image_size="2K"
-        )
+        cost_lower = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="2k")
+        cost_upper = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="2K")
         assert cost_lower == pytest.approx(cost_upper)
 
     def test_calculate_image_cost_imagen_model(self):
@@ -1123,9 +1113,7 @@ class TestImagePricing:
 
     def test_calculate_image_cost_with_input_tokens_only(self):
         """Test cost when images=0 but input tokens are charged."""
-        cost = calculate_image_cost(
-            "gemini-3.1-flash-image", num_images=0, input_tokens=1_000_000
-        )
+        cost = calculate_image_cost("gemini-3.1-flash-image", num_images=0, input_tokens=1_000_000)
         assert cost == pytest.approx(0.50)  # input cost only
 
 

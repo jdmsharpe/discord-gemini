@@ -6,6 +6,7 @@ from google.genai.errors import APIError
 from discord_gemini.cogs.gemini.attachments import (
     _guess_attachment_mime_type,
     _guess_url_mime_type,
+    _sniff_binary_mime_type,
 )
 from tests.support import AsyncGeminiCogTestCase
 
@@ -97,6 +98,32 @@ class TestGeminiAttachmentHelpers(AsyncGeminiCogTestCase):
         assert "inline_data" in result
         assert result["inline_data"]["mime_type"] == "image/png"
         assert result["inline_data"]["data"] == b"image data"
+
+    async def test_prepare_attachment_part_sniffs_png_over_wrong_content_type(self):
+        """Mislabeled PNG (Discord says image/jpeg) must use sniffed image/png."""
+        attachment = MagicMock()
+        attachment.size = 1 * 1024 * 1024
+        attachment.content_type = "image/jpeg"
+        attachment.url = "https://cdn.example.com/IMG_3950.png"
+        attachment.filename = "IMG_3950.png"
+
+        png_bytes = b"\x89PNG\r\n\x1a\n" + b"payload"
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=png_bytes)
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_context)
+        self.cog._http_session = mock_session
+
+        result = await self.cog._prepare_attachment_part(attachment)
+
+        assert result is not None
+        assert result["inline_data"]["mime_type"] == "image/png"
+        assert result["inline_data"]["data"] == png_bytes
 
     async def test_prepare_attachment_part_normalizes_opus_mime_type(self):
         """Test that opus attachments use the SDK-supported audio MIME type."""
@@ -327,3 +354,33 @@ class TestGuessAttachmentMimeType:
         attachment.filename = "clip.mulaw"
 
         assert _guess_attachment_mime_type(attachment) == "audio/mulaw"
+
+
+class TestSniffBinaryMimeType:
+    def test_png(self):
+        assert _sniff_binary_mime_type(b"\x89PNG\r\n\x1a\nrest") == "image/png"
+
+    def test_jpeg(self):
+        assert _sniff_binary_mime_type(b"\xff\xd8\xff\xe0rest") == "image/jpeg"
+
+    def test_gif87(self):
+        assert _sniff_binary_mime_type(b"GIF87arest") == "image/gif"
+
+    def test_gif89(self):
+        assert _sniff_binary_mime_type(b"GIF89arest") == "image/gif"
+
+    def test_webp(self):
+        assert _sniff_binary_mime_type(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == "image/webp"
+
+    def test_pdf(self):
+        assert _sniff_binary_mime_type(b"%PDF-1.7\n") == "application/pdf"
+
+    def test_riff_without_webp_is_not_image(self):
+        # A WAV file is also RIFF-based but must not be mistaken for WEBP.
+        assert _sniff_binary_mime_type(b"RIFF\x00\x00\x00\x00WAVEfmt ") is None
+
+    def test_audio_returns_none(self):
+        assert _sniff_binary_mime_type(b"OggS\x00\x02opusdata") is None
+
+    def test_empty_returns_none(self):
+        assert _sniff_binary_mime_type(b"") is None
