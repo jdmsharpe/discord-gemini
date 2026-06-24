@@ -803,13 +803,16 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
 
         params = ResearchParameters(prompt="Research quantum computing")
 
-        embeds = self.cog._create_research_response_embeds(params)
+        embeds = self.cog._create_research_response_embeds(params, elapsed=83)
 
         # Only the header embed (report is sent as file attachment)
         assert len(embeds) == 1
         assert embeds[0].title == "Deep Research"
         assert "Research quantum computing" in embeds[0].description
         assert "deep-research-preview-04-2026" in embeds[0].description
+        # OpenAI-style Tools + Time fields
+        assert "**Tools:** google_search" in embeds[0].description
+        assert "**Time:** 1m 23s" in embeds[0].description
 
     async def test_create_research_response_embeds_with_file_search(self):
         """Test _create_research_response_embeds shows file search status."""
@@ -819,7 +822,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
 
         embeds = self.cog._create_research_response_embeds(params)
 
-        assert "File Search" in embeds[0].description
+        assert "file_search" in embeds[0].description
 
     async def test_run_deep_research_with_google_maps(self):
         """Test _run_deep_research passes google_maps tool when enabled."""
@@ -891,7 +894,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
 
         embeds = self.cog._create_research_response_embeds(params)
 
-        assert "Google Maps" in embeds[0].description
+        assert "google_maps" in embeds[0].description
 
     async def test_create_research_response_embeds_truncates_prompt(self):
         """Test _create_research_response_embeds truncates long prompts."""
@@ -903,6 +906,44 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
 
         # Prompt should be truncated to 2000 + "..."
         assert "..." in embeds[0].description
+
+
+class TestResearchThinkingExtraction:
+    """Tests for thought-summary extraction from the interaction timeline."""
+
+    def test_collects_text_from_thought_steps_only(self):
+        interaction = SimpleNamespace(
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="report body")],
+                ),
+                SimpleNamespace(
+                    type="thought",
+                    content=[
+                        SimpleNamespace(type="text", text="First I will plan."),
+                        SimpleNamespace(type="text", text="Then I will search."),
+                    ],
+                ),
+            ]
+        )
+        thinking = gemini_research._extract_interaction_thinking(interaction)
+        assert thinking == "First I will plan.\n\nThen I will search."
+        assert "report body" not in thinking
+
+    def test_returns_empty_without_thought_steps(self):
+        interaction = SimpleNamespace(
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[SimpleNamespace(type="text", text="body")],
+                )
+            ]
+        )
+        assert gemini_research._extract_interaction_thinking(interaction) == ""
+
+    def test_handles_missing_steps(self):
+        assert gemini_research._extract_interaction_thinking(SimpleNamespace(steps=None)) == ""
 
 
 class TestResearchSourceLabeling:
@@ -1005,7 +1046,11 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
             file_obj = kwargs.get("file")
             if file_obj is not None:
                 captured["report_text"] = file_obj.fp.getvalue().decode("utf-8")
-            return MagicMock()
+            # The flow sends a green status embed first, then edits it in place to the
+            # final header, so the returned message must expose an awaitable `.edit`.
+            status_msg = MagicMock()
+            status_msg.edit = AsyncMock()
+            return status_msg
 
         ctx = MagicMock()
         ctx.defer = AsyncMock()
