@@ -1018,8 +1018,9 @@ class GeminiCog(commands.Cog):
     def _create_research_response_embeds(
         self,
         research_params: ResearchParameters,
+        elapsed: int = 0,
     ) -> list[Embed]:
-        return research_flow._create_research_response_embeds(research_params)
+        return research_flow._create_research_response_embeds(research_params, elapsed)
 
 
 __all__ = ["Conversation", "GeminiCog"]

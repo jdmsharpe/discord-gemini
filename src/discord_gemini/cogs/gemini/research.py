@@ -29,6 +29,7 @@ class _ResearchResult:
     input_tokens: int = 0
     output_tokens: int = 0
     thinking_tokens: int = 0
+    thinking_text: str = ""
     annotations: list[Any] = field(default_factory=list)
     grounding_tool_counts: dict[str, int] = field(default_factory=dict)
 
@@ -104,6 +105,28 @@ def _extract_interaction_annotations(interaction: Any) -> list[Any]:
                 continue
             collected.extend(getattr(content, "annotations", None) or [])
     return collected
+
+
+def _extract_interaction_thinking(interaction: Any) -> str:
+    """Collect thought-summary text from `thought` steps in the interaction timeline.
+
+    Deep research surfaces its reasoning as separate steps with `type == "thought"`
+    (vs `model_output`) when `thinking_summaries` is enabled. Each carries text
+    content items; we join them in document order, mirroring
+    `_extract_interaction_text` so the spoilered "Thinking" embed matches the OpenAI bot.
+    """
+
+    chunks: list[str] = []
+    for step in getattr(interaction, "steps", None) or []:
+        if getattr(step, "type", None) != "thought":
+            continue
+        for content in getattr(step, "content", None) or []:
+            if getattr(content, "type", None) != "text":
+                continue
+            text = getattr(content, "text", None)
+            if text:
+                chunks.append(str(text))
+    return "\n\n".join(chunks)
 
 
 def _has_model_sources_footer(report_text: str | None) -> bool:
@@ -302,26 +325,39 @@ async def _run_deep_research(
         input_tokens=usage_counts.input_tokens,
         output_tokens=usage_counts.output_tokens,
         thinking_tokens=usage_counts.thinking_tokens,
+        thinking_text=_extract_interaction_thinking(interaction),
         annotations=_extract_interaction_annotations(interaction),
         grounding_tool_counts=_extract_grounding_tool_counts(interaction),
     )
 
 
-def _create_research_response_embeds(research_params: ResearchParameters) -> list[Embed]:
-    """Create the header embeds for a deep research report."""
+def _research_tool_names(research_params: ResearchParameters) -> list[str]:
+    """The tool labels shown in the header, mirroring the OpenAI bot's `Tools:` line.
+
+    Deep research always grounds on Google Search; file search and maps are opt-in.
+    """
+
+    names = ["google_search"]
+    if research_params.file_search:
+        names.append("file_search")
+    if research_params.google_maps:
+        names.append("google_maps")
+    return names
+
+
+def _create_research_response_embeds(
+    research_params: ResearchParameters, elapsed: int = 0
+) -> list[Embed]:
+    """Create the header embed for a deep research report (Prompt / Agent / Tools / Time).
+
+    Matches the discord-openai layout: a single status/header embed with the per-option
+    lines collapsed into one `Tools:` line plus an elapsed-`Time` field.
+    """
 
     description = f"**Prompt:** {truncate_text(research_params.prompt, 2000)}\n"
     description += f"**Agent:** {research_params.agent}\n"
-    if research_params.file_search:
-        description += "**File Search:** Enabled\n"
-    if research_params.google_maps:
-        description += "**Google Maps:** Enabled\n"
-    if research_params.thinking_summaries is not None:
-        description += f"**Thinking Summaries:** {research_params.thinking_summaries}\n"
-    if research_params.collaborative_planning:
-        description += "**Collaborative Planning:** Enabled\n"
-    if research_params.visualization is not None:
-        description += f"**Visualization:** {research_params.visualization}\n"
+    description += f"**Tools:** {', '.join(_research_tool_names(research_params))}\n"
+    description += f"**Time:** {elapsed // 60}m {elapsed % 60}s\n"
     return [
         Embed(
             title="Deep Research",
@@ -429,7 +465,22 @@ async def research_command(
             google_maps=google_maps,
             thinking_summaries=thinking_summaries,
         )
+
+        status_description = f"**Prompt:** {truncate_text(prompt, 2000)}\n"
+        status_description += f"**Agent:** {agent}\n"
+        status_description += f"**Tools:** {', '.join(_research_tool_names(research_params))}\n"
+        status_description += "\nResearching... this may take several minutes."
+        status_msg = await send_embed_batches(
+            ctx.send_followup,
+            embed=Embed(
+                title="Deep Research", description=status_description, color=Colour.green()
+            ),
+            logger=cog.logger,
+        )
+
+        start_time = time.time()
         result = await _run_deep_research(cog, research_params)
+        elapsed = int(time.time() - start_time)
 
         research_model = "gemini-3.1-pro-preview"
         cost = calculate_cost(
@@ -450,52 +501,53 @@ async def research_command(
             grounding_tool_counts=result.grounding_tool_counts or None,
         )
 
-        if result.report_text:
-            response_embeds = _create_research_response_embeds(research_params)
-            citations_embed = _build_citations_embed(result.annotations, result.report_text)
-            if citations_embed is not None:
-                response_embeds.append(citations_embed)
-            if SHOW_COST_EMBEDS:
-                pricing_parts = [f"${cost:.2f}"]
-                if result.thinking_tokens > 0:
-                    pricing_parts.append(
-                        f"{result.input_tokens:,} in / {result.output_tokens:,} out / "
-                        f"{result.thinking_tokens:,} thinking"
-                    )
-                else:
-                    pricing_parts.append(
-                        f"{result.input_tokens:,} in / {result.output_tokens:,} out"
-                    )
-                grounding_fragment = _format_grounding_breakdown(result.grounding_tool_counts)
-                if grounding_fragment:
-                    pricing_parts.append(grounding_fragment)
-                pricing_parts.append(f"daily ${daily_cost:.2f}")
-                response_embeds.append(
-                    Embed(description=" · ".join(pricing_parts), color=embeds.GEMINI_BLUE)
+        if not result.report_text:
+            await status_msg.edit(
+                embed=Embed(
+                    title="Deep Research",
+                    description=(
+                        "The research agent did not produce any output. Please try again with a "
+                        "different prompt."
+                    ),
+                    color=Colour.orange(),
                 )
-
-            report_body = result.report_text
-            if not _has_model_sources_footer(result.report_text):
-                report_body += _format_citations_section(result.annotations)
-            report_file = File(BytesIO(report_body.encode("utf-8")), filename="research_report.md")
-            await send_embed_batches(
-                ctx.send_followup,
-                embeds=response_embeds,
-                file=report_file,
-                logger=cog.logger,
             )
             return
 
+        header_embed = _create_research_response_embeds(research_params, elapsed)[0]
+
+        extra_embeds: list[Embed] = []
+        embeds.append_thinking_embeds(extra_embeds, result.thinking_text)
+        citations_embed = _build_citations_embed(result.annotations, result.report_text)
+        if citations_embed is not None:
+            extra_embeds.append(citations_embed)
+        if SHOW_COST_EMBEDS:
+            pricing_parts = [f"${cost:.2f}"]
+            if result.thinking_tokens > 0:
+                pricing_parts.append(
+                    f"{result.input_tokens:,} in / {result.output_tokens:,} out / "
+                    f"{result.thinking_tokens:,} thinking"
+                )
+            else:
+                pricing_parts.append(f"{result.input_tokens:,} in / {result.output_tokens:,} out")
+            grounding_fragment = _format_grounding_breakdown(result.grounding_tool_counts)
+            if grounding_fragment:
+                pricing_parts.append(grounding_fragment)
+            pricing_parts.append(f"daily ${daily_cost:.2f}")
+            extra_embeds.append(
+                Embed(description=" · ".join(pricing_parts), color=embeds.GEMINI_BLUE)
+            )
+
+        await status_msg.edit(embed=header_embed)
+
+        report_body = result.report_text
+        if not _has_model_sources_footer(result.report_text):
+            report_body += _format_citations_section(result.annotations)
+        report_file = File(BytesIO(report_body.encode("utf-8")), filename="research_report.md")
         await send_embed_batches(
             ctx.send_followup,
-            embed=Embed(
-                title="No Research Results",
-                description=(
-                    "The research agent did not produce any output. Please try again with a "
-                    "different prompt."
-                ),
-                color=Colour.orange(),
-            ),
+            embeds=extra_embeds,
+            file=report_file,
             logger=cog.logger,
         )
     except Exception as error:
@@ -508,11 +560,13 @@ __all__ = [
     "_create_research_response_embeds",
     "_extract_grounding_tool_counts",
     "_extract_interaction_annotations",
+    "_extract_interaction_thinking",
     "_format_citations_section",
     "_format_grounding_breakdown",
     "_has_model_sources_footer",
     "_hostname_label",
     "_model_footer_url_titles",
+    "_research_tool_names",
     "_run_deep_research",
     "_url_citation_label",
     "research_command",
