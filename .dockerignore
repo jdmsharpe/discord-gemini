@@ -5,6 +5,9 @@ venv/
 .github/
 .claude/
 .claudeignore
+.codex/
+.agents/
+.serena/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
