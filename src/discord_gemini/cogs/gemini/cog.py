@@ -959,7 +959,7 @@ class GeminiCog(commands.Cog):
         video_params: VideoGenerationParameters,
         attachment: Attachment | None = None,
         last_frame_attachment: Attachment | None = None,
-    ) -> list[str]:
+    ) -> list[bytes]:
         return await video_flow._generate_video_with_veo(
             self,
             video_params,
@@ -970,7 +970,7 @@ class GeminiCog(commands.Cog):
     async def _create_video_response_embed(
         self,
         video_params: VideoGenerationParameters,
-        generated_videos: list[str],
+        generated_videos: list[bytes],
         attachment: Attachment | None,
     ) -> tuple[Embed, list[discord.File]]:
         return await video_flow._create_video_response_embed(

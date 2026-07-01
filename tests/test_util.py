@@ -461,7 +461,7 @@ class TestVideoGenerationParameters:
     def test_to_dict_with_duration(self):
         params = VideoGenerationParameters(
             prompt="A sunset timelapse",
-            model="veo-3.0-generate-001",
+            model="veo-3.1-generate-preview",
             duration_seconds=8,
         )
         result = params.to_dict()
@@ -1126,9 +1126,6 @@ class TestVideoPricing:
             "veo-3.1-lite-generate-preview",
             "veo-3.1-generate-preview",
             "veo-3.1-fast-generate-preview",
-            "veo-3.0-generate-001",
-            "veo-3.0-fast-generate-001",
-            "veo-2.0-generate-001",
         ]
         for model in expected_models:
             assert model in VIDEO_PRICING, f"{model} missing from VIDEO_PRICING"
@@ -1148,10 +1145,6 @@ class TestVideoPricing:
         assert (
             VIDEO_PRICING["veo-3.1-fast-generate-preview"]["720p"]
             < VIDEO_PRICING["veo-3.1-generate-preview"]["720p"]
-        )
-        assert (
-            VIDEO_PRICING["veo-3.0-fast-generate-001"]["720p"]
-            < VIDEO_PRICING["veo-3.0-generate-001"]["720p"]
         )
 
     def test_calculate_video_cost_lite_default_resolution(self):
