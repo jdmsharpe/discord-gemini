@@ -119,17 +119,6 @@ class TestVideoValidation:
         )
         assert "last_frame" in error
 
-    def test_rejects_1080p_portrait_on_veo_3(self):
-        error = _validate_video_request(
-            model="veo-3.0-fast-generate-001",
-            aspect_ratio="9:16",
-            resolution="1080p",
-            number_of_videos=1,
-            duration_seconds=8,
-            has_last_frame=False,
-        )
-        assert error == "Veo 3 and Veo 3 Fast only support `1080p` with a `16:9` aspect ratio."
-
     def test_accepts_lite_1080p_portrait_at_8s(self):
         error = _validate_video_request(
             model="veo-3.1-lite-generate-preview",

@@ -30,18 +30,10 @@ VEO_3_1_MODELS = frozenset(
         "veo-3.1-fast-generate-preview",
     }
 )
-VEO_3_MODELS = frozenset(
-    {
-        "veo-3.0-generate-001",
-        "veo-3.0-fast-generate-001",
-    }
-)
 VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
     "veo-3.1-lite-generate-preview": frozenset({"720p", "1080p"}),
     "veo-3.1-generate-preview": frozenset({"720p", "1080p", "4k"}),
     "veo-3.1-fast-generate-preview": frozenset({"720p", "1080p", "4k"}),
-    "veo-3.0-generate-001": frozenset({"720p", "1080p", "4k"}),
-    "veo-3.0-fast-generate-001": frozenset({"720p", "1080p", "4k"}),
 }
 
 
@@ -74,9 +66,6 @@ def _validate_video_request(
 
         if resolution == "4k" and aspect_ratio != "16:9":
             return "4k output is only supported with a `16:9` aspect ratio."
-
-        if model in VEO_3_MODELS and resolution == "1080p" and aspect_ratio != "16:9":
-            return "Veo 3 and Veo 3 Fast only support `1080p` with a `16:9` aspect ratio."
 
         if resolution in {"1080p", "4k"} and duration_seconds not in (None, 8):
             return f"The `{resolution}` resolution only supports 8 second videos."
