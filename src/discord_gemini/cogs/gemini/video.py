@@ -1,6 +1,7 @@
 """Video generation helpers for the Gemini cog."""
 
 import asyncio
+import re
 import time
 from io import BytesIO
 from typing import TYPE_CHECKING
@@ -14,6 +15,7 @@ from ...config.auth import SHOW_COST_EMBEDS
 from ...util import (
     VIDEO_GENERATION_TIMEOUT,
     VideoGenerationParameters,
+    calculate_omni_video_cost,
     calculate_video_cost,
     truncate_text,
 )
@@ -22,6 +24,12 @@ from .embed_delivery import send_embed_batches
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
+
+# Gemini Omni Flash generates video via the Interactions API (not the Veo
+# generate_videos path). It emits ~5792 output tokens per second of 720p video,
+# used to turn the exact token count back into an approximate duration for display.
+OMNI_VIDEO_MODEL = "gemini-omni-flash-preview"
+OMNI_VIDEO_TOKENS_PER_720P_SECOND = 5792
 
 VEO_3_1_MODELS = frozenset(
     {
@@ -149,6 +157,104 @@ async def _generate_video_with_veo(
     return generated_videos
 
 
+async def _generate_video_with_omni(
+    cog: "GeminiCog",
+    video_params: VideoGenerationParameters,
+) -> tuple[list[bytes], int]:
+    """Generate a video via the Interactions API (Gemini Omni Flash).
+
+    Unlike Veo, the Interactions API completes synchronously and returns a URI to
+    the generated MP4 plus exact video-modality output-token usage. Returns the
+    downloaded video bytes and the video output-token count (for exact costing).
+    """
+
+    interaction = await cog.client.aio.interactions.create(
+        model=video_params.model,
+        input=video_params.prompt,
+        response_format={
+            "type": "video",
+            "aspect_ratio": video_params.aspect_ratio,
+            "delivery": "uri",
+        },
+    )
+
+    video_output_tokens = 0
+    usage = getattr(interaction, "usage", None)
+    for modality in getattr(usage, "output_tokens_by_modality", None) or []:
+        if getattr(modality, "modality", None) == "video":
+            video_output_tokens = getattr(modality, "tokens", 0) or 0
+
+    generated_videos: list[bytes] = []
+    output_video = getattr(interaction, "output_video", None)
+    uri = getattr(output_video, "uri", None)
+    if not uri:
+        cog.logger.error(
+            "Omni interaction returned no video URI (status=%s)",
+            getattr(interaction, "status", "?"),
+        )
+        return generated_videos, video_output_tokens
+
+    match = re.search(r"/files/([^:/?]+)", uri)
+    if not match:
+        cog.logger.error("Could not parse file name from Omni video URI: %s", uri)
+        return generated_videos, video_output_tokens
+
+    file_name = f"files/{match.group(1)}"
+    try:
+        video_bytes = await asyncio.to_thread(cog.client.files.download, file=file_name)
+        if video_bytes:
+            generated_videos.append(video_bytes)
+            cog.logger.info(
+                "Downloaded Omni video (%d bytes, %d video tokens)",
+                len(video_bytes),
+                video_output_tokens,
+            )
+        else:
+            cog.logger.error("Omni video downloaded but contained no bytes")
+    except Exception as error:
+        cog.logger.error("Failed to download Omni video: %s", error)
+    return generated_videos, video_output_tokens
+
+
+def _validate_omni_video_request(
+    video_params: VideoGenerationParameters,
+    attachment: Attachment | None,
+    last_frame: Attachment | None,
+) -> str | None:
+    """Reject Veo-only options Gemini Omni Flash does not support.
+
+    Omni Flash (Interactions API) supports text-to-video with an aspect ratio only;
+    resolution, duration, negative prompts, person-generation control, image/first-
+    or-last-frame inputs, multiple videos, and resize modes are Veo-only.
+    """
+
+    unsupported: list[str] = []
+    if video_params.resolution:
+        unsupported.append("`resolution`")
+    if video_params.duration_seconds is not None:
+        unsupported.append("`duration`")
+    if video_params.negative_prompt:
+        unsupported.append("`negative_prompt`")
+    if video_params.number_of_videos and video_params.number_of_videos > 1:
+        unsupported.append("`number_of_videos` > 1")
+    if video_params.person_generation and video_params.person_generation != "allow_adult":
+        unsupported.append("`person_generation`")
+    if video_params.image_resize_mode:
+        unsupported.append("`image_resize_mode`")
+    if attachment:
+        unsupported.append("image `attachment`")
+    if last_frame:
+        unsupported.append("`last_frame`")
+
+    if unsupported:
+        joined = ", ".join(unsupported)
+        return (
+            "Gemini Omni Flash supports text-to-video with an `aspect_ratio` only. "
+            f"Remove {joined}, or choose a Veo 3.1 model for those features."
+        )
+    return None
+
+
 async def _create_video_response_embed(
     cog: "GeminiCog",
     video_params: VideoGenerationParameters,
@@ -232,22 +338,6 @@ async def video_command(
                     )
                     return
 
-        validation_error = _validate_video_request(
-            model=model,
-            aspect_ratio=aspect_ratio,
-            resolution=resolution,
-            number_of_videos=number_of_videos,
-            duration_seconds=duration_seconds,
-            has_last_frame=last_frame is not None,
-        )
-        if validation_error:
-            await send_embed_batches(
-                ctx.send_followup,
-                embed=embeds.build_error_embed(validation_error),
-                logger=cog.logger,
-            )
-            return
-
         video_params = VideoGenerationParameters(
             prompt=prompt,
             model=model,
@@ -262,22 +352,57 @@ async def video_command(
             image_resize_mode=image_resize_mode,
         )
 
-        generated_videos = await _generate_video_with_veo(
-            cog,
-            video_params,
-            attachment,
-            last_frame,
+        is_omni = model == OMNI_VIDEO_MODEL
+        validation_error = (
+            _validate_omni_video_request(video_params, attachment, last_frame)
+            if is_omni
+            else _validate_video_request(
+                model=model,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+                number_of_videos=number_of_videos,
+                duration_seconds=duration_seconds,
+                has_last_frame=last_frame is not None,
+            )
         )
+        if validation_error:
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=embeds.build_error_embed(validation_error),
+                logger=cog.logger,
+            )
+            return
+
+        omni_video_tokens = 0
+        if is_omni:
+            generated_videos, omni_video_tokens = await _generate_video_with_omni(cog, video_params)
+        else:
+            generated_videos = await _generate_video_with_veo(
+                cog,
+                video_params,
+                attachment,
+                last_frame,
+            )
 
         if generated_videos:
             num_videos = len(generated_videos)
             est_duration = video_params.duration_seconds or 8
-            cost = calculate_video_cost(
-                model,
-                est_duration,
-                num_videos,
-                resolution=video_params.resolution,
-            )
+            if is_omni:
+                # Omni returns 720p; derive the display duration from the exact token count.
+                est_duration = (
+                    round(omni_video_tokens / OMNI_VIDEO_TOKENS_PER_720P_SECOND)
+                    or est_duration
+                )
+                cost = calculate_omni_video_cost(model, omni_video_tokens)
+                logged_resolution = "720p"
+            else:
+                cost = calculate_video_cost(
+                    model,
+                    est_duration,
+                    num_videos,
+                    resolution=video_params.resolution,
+                )
+                logged_resolution = video_params.resolution or "model_default"
             daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
             cog._log_cost(
                 "video",
@@ -287,7 +412,7 @@ async def video_command(
                 daily_cost,
                 videos=num_videos,
                 duration_seconds=est_duration,
-                resolution=video_params.resolution or "model_default",
+                resolution=logged_resolution,
             )
 
             embed, files = await _create_video_response_embed(
@@ -298,15 +423,22 @@ async def video_command(
             )
             response_embeds = [embed]
             if SHOW_COST_EMBEDS:
-                pricing_desc = (
-                    f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
-                    f"× {est_duration}s · daily ${daily_cost:.2f}"
-                )
-                if video_params.resolution:
+                if is_omni:
                     pricing_desc = (
                         f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
-                        f"× {est_duration}s · {video_params.resolution} · daily ${daily_cost:.2f}"
+                        f"· ~{est_duration}s 720p · {omni_video_tokens:,} video tokens "
+                        f"· daily ${daily_cost:.2f}"
                     )
+                else:
+                    pricing_desc = (
+                        f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
+                        f"× {est_duration}s · daily ${daily_cost:.2f}"
+                    )
+                    if video_params.resolution:
+                        pricing_desc = (
+                            f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
+                            f"× {est_duration}s · {video_params.resolution} · daily ${daily_cost:.2f}"
+                        )
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 
             await send_embed_batches(
@@ -336,7 +468,9 @@ async def video_command(
 
 __all__ = [
     "_create_video_response_embed",
+    "_generate_video_with_omni",
     "_generate_video_with_veo",
+    "_validate_omni_video_request",
     "_validate_video_request",
     "video_command",
 ]

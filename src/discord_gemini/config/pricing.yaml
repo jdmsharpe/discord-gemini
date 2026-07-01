@@ -66,6 +66,13 @@ video_generation:
   veo-3.1-fast-generate-preview:
     per_second_by_resolution: { default: 0.10, 720p: 0.10, 1080p: 0.12, 4k: 0.30 }
 
+# Interactions-API video generation billed per video-modality OUTPUT token
+# (not per second). Gemini Omni Flash emits ~5,792 video tokens per second of
+# 720p output, so 17.50/MTok works out to ~$0.10/sec at 720p.
+video_tokenized:
+  gemini-omni-flash-preview:
+    video_output_per_million: 17.50
+
 # TTS models — tokenized input/output like chat models.
 # Audio output tokens correspond to ~25 tokens per second of audio.
 text_to_speech:

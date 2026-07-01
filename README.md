@@ -20,7 +20,7 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
 - **Media Generation:**
   - **Images:** High-quality image generation and editing using Imagen 4 and Gemini Flash/Pro Image models.
-  - **Video:** Text-to-video, image-to-video, and Veo 3.1 last-frame-constrained generation powered by Google's Veo models.
+  - **Video:** Gemini Omni Flash (default) for fast text-to-video via the Interactions API, plus Veo 3.1 for image-to-video, last-frame-constrained interpolation, and resolution/duration control.
   - **Music:** Music generation using Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
   - **Text-to-Speech:** Lifelike speech conversion with 25+ voice options.
 - **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
@@ -45,8 +45,9 @@ Generate images from text prompts or edit using reference images.
 
 Generate videos from text prompts or image inputs.
 
-- **Models:** Veo 3.1 Lite Preview (default), Veo 3.1 Preview, Veo 3.1 Fast Preview.
-- **Options:** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation on Veo 3.1 models, negative prompts, and prompt enhancement control.
+- **Models:** Gemini Omni Flash (default), Veo 3.1 Lite Preview, Veo 3.1 Preview, Veo 3.1 Fast Preview.
+- **Gemini Omni Flash:** Google's recommended default — fast text-to-video via the Interactions API (aspect ratio only, ~10s 720p, billed per video output token). The Veo-only options below are rejected for it with a clear message; pick a Veo 3.1 model to use them.
+- **Options (Veo 3.1):** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation, negative prompts, and prompt enhancement control.
 - **Validation:** Veo 3.x models support 4/6/8-second outputs, `1080p` and `4k` require 8 seconds, `4k` is unavailable on Veo 3.1 Lite, and only 1 video per request is supported.
 
 ### `/gemini-tools music`
