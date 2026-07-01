@@ -18,7 +18,9 @@ from .config.pricing import (
     UNKNOWN_IMAGE_PER_IMAGE,
     UNKNOWN_TTS_MODEL_PRICING,
     UNKNOWN_VIDEO_PER_SECOND,
+    UNKNOWN_VIDEO_TOKEN_PER_MILLION,
     VIDEO_PRICING,
+    VIDEO_TOKEN_PRICING,
 )
 
 TOOL_GOOGLE_SEARCH = build_runtime_tool_config("google_search") or {"google_search": {}}
@@ -94,6 +96,16 @@ def calculate_video_cost(
         price_key, resolution_prices.get("default", UNKNOWN_VIDEO_PER_SECOND)
     )
     return duration_seconds * num_videos * price_per_second
+
+
+def calculate_omni_video_cost(model: str, video_output_tokens: int) -> float:
+    """Cost for Interactions-API token-billed video generation (e.g. Gemini Omni Flash).
+
+    Unlike Veo (per-second-by-resolution estimate), the Interactions API returns the
+    exact video-modality output token count, so this cost is exact, not estimated.
+    """
+    rate = VIDEO_TOKEN_PRICING.get(model, UNKNOWN_VIDEO_TOKEN_PER_MILLION)
+    return (video_output_tokens / 1_000_000) * rate
 
 
 def calculate_tts_cost(model: str, input_tokens: int, output_tokens: int) -> float:

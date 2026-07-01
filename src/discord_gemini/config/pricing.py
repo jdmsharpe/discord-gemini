@@ -34,6 +34,7 @@ _RAW: dict[str, Any] = _load_raw()
 _MODELS: dict[str, dict[str, Any]] = _RAW.get("models") or {}
 _IMAGE: dict[str, dict[str, Any]] = _RAW.get("image_generation") or {}
 _VIDEO: dict[str, dict[str, Any]] = _RAW.get("video_generation") or {}
+_VIDEO_TOKENIZED: dict[str, dict[str, Any]] = _RAW.get("video_tokenized") or {}
 _TTS: dict[str, dict[str, Any]] = _RAW.get("text_to_speech") or {}
 _TOOLS: dict[str, dict[str, Any]] = _RAW.get("tools") or {}
 _FALLBACKS: dict[str, dict[str, Any]] = _RAW.get("fallbacks") or {}
@@ -73,6 +74,13 @@ VIDEO_PRICING: dict[str, dict[str, float]] = {
 }
 
 
+# Per-video-output-token pricing for Interactions-API video models (Omni Flash).
+VIDEO_TOKEN_PRICING: dict[str, float] = {
+    model_id: float(cfg["video_output_per_million"])
+    for model_id, cfg in _VIDEO_TOKENIZED.items()
+}
+
+
 TTS_PRICING: dict[str, tuple[float, float]] = {
     model_id: (float(cfg["input_per_million"]), float(cfg["output_per_million"]))
     for model_id, cfg in _TTS.items()
@@ -96,6 +104,9 @@ UNKNOWN_CHAT_MODEL_PRICING: tuple[float, float] = (
 UNKNOWN_IMAGE_MODEL_INPUT_RATE: float = _fallback("unknown_image_model", "input_per_million", 0.50)
 UNKNOWN_IMAGE_PER_IMAGE: float = _fallback("unknown_image_model", "per_image", 0.067)
 UNKNOWN_VIDEO_PER_SECOND: float = _fallback("unknown_video_model", "per_second", 0.35)
+UNKNOWN_VIDEO_TOKEN_PER_MILLION: float = _fallback(
+    "unknown_video_tokenized_model", "video_output_per_million", 17.50
+)
 UNKNOWN_TTS_MODEL_PRICING: tuple[float, float] = (
     _fallback("unknown_tts_model", "input_per_million", 0.50),
     _fallback("unknown_tts_model", "output_per_million", 10.00),
@@ -112,5 +123,7 @@ __all__ = [
     "UNKNOWN_IMAGE_PER_IMAGE",
     "UNKNOWN_TTS_MODEL_PRICING",
     "UNKNOWN_VIDEO_PER_SECOND",
+    "UNKNOWN_VIDEO_TOKEN_PER_MILLION",
     "VIDEO_PRICING",
+    "VIDEO_TOKEN_PRICING",
 ]

@@ -629,7 +629,7 @@ class GeminiCog(commands.Cog):
     @option("prompt", description="Prompt for video generation", required=True, type=str)
     @option(
         "model",
-        description="Choose Veo model for video generation. (default: Veo 3.1 Lite Preview)",
+        description="Choose the video model. (default: Gemini Omni Flash)",
         required=False,
         choices=VIDEO_MODEL_CHOICES,
         type=str,
@@ -643,7 +643,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "resolution",
-        description="Output resolution for supported Veo models. (default: model default / usually 720p)",
+        description="(Veo only) Output resolution for supported Veo models. (default: model default)",
         required=False,
         choices=VIDEO_RESOLUTION_CHOICES,
         type=str,
@@ -677,7 +677,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "duration_seconds",
-        description="Length of each output video in seconds, from 4 to 8 seconds. (default: model default)",
+        description="(Veo only) Length of each output video in seconds, from 4 to 8 seconds. (default: model default)",
         required=False,
         type=int,
         min_value=4,
@@ -706,7 +706,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "veo-3.1-lite-generate-preview",
+        model: str = "gemini-omni-flash-preview",
         aspect_ratio: str = "16:9",
         resolution: str | None = None,
         person_generation: str = "allow_adult",
