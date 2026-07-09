@@ -76,8 +76,7 @@ VIDEO_PRICING: dict[str, dict[str, float]] = {
 
 # Per-video-output-token pricing for Interactions-API video models (Omni Flash).
 VIDEO_TOKEN_PRICING: dict[str, float] = {
-    model_id: float(cfg["video_output_per_million"])
-    for model_id, cfg in _VIDEO_TOKENIZED.items()
+    model_id: float(cfg["video_output_per_million"]) for model_id, cfg in _VIDEO_TOKENIZED.items()
 }
 
 
