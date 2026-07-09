@@ -38,11 +38,31 @@ VEO_3_1_MODELS = frozenset(
         "veo-3.1-fast-generate-preview",
     }
 )
+
+
 VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
     "veo-3.1-lite-generate-preview": frozenset({"720p", "1080p"}),
     "veo-3.1-generate-preview": frozenset({"720p", "1080p", "4k"}),
     "veo-3.1-fast-generate-preview": frozenset({"720p", "1080p", "4k"}),
 }
+
+
+def _build_veo_image(data: bytes, attachment: Attachment) -> types.Image:
+    """Wrap raw attachment bytes in a `types.Image` for the Veo image inputs.
+
+    A `PIL.Image` cannot be used here: pydantic coerces it to an all-`None`
+    `types.Image` without raising, which the API rejects with "Input instance with
+    image should contain both bytesBase64Encoded and mimeType".
+    """
+
+    mime_type = (attachment.content_type or "").split(";")[0].strip().lower()
+    if not mime_type.startswith("image/"):
+        with Image.open(BytesIO(data)) as probe:
+            detected = probe.format
+        if not detected:
+            raise ValueError("Could not determine the image format of the attachment.")
+        mime_type = f"image/{detected.lower()}"
+    return types.Image(image_bytes=data, mime_type=mime_type)
 
 
 def _validate_video_request(
@@ -103,7 +123,7 @@ async def _generate_video_with_veo(
         last_frame_data = await attachments._fetch_attachment_bytes(cog, last_frame_attachment)
         if last_frame_data:
             try:
-                config_dict["last_frame"] = Image.open(BytesIO(last_frame_data))
+                config_dict["last_frame"] = _build_veo_image(last_frame_data, last_frame_attachment)
             except Exception as error:
                 cog.logger.warning("Failed to open last_frame attachment: %s", error)
 
@@ -117,7 +137,7 @@ async def _generate_video_with_veo(
         image_data = await attachments._fetch_attachment_bytes(cog, attachment)
         if image_data:
             try:
-                kwargs["image"] = Image.open(BytesIO(image_data))
+                kwargs["image"] = _build_veo_image(image_data, attachment)
             except Exception as error:
                 cog.logger.warning("Failed to open attachment for video generation: %s", error)
 
@@ -390,8 +410,7 @@ async def video_command(
             if is_omni:
                 # Omni returns 720p; derive the display duration from the exact token count.
                 est_duration = (
-                    round(omni_video_tokens / OMNI_VIDEO_TOKENS_PER_720P_SECOND)
-                    or est_duration
+                    round(omni_video_tokens / OMNI_VIDEO_TOKENS_PER_720P_SECOND) or est_duration
                 )
                 cost = calculate_omni_video_cost(model, omni_video_tokens)
                 logged_resolution = "720p"

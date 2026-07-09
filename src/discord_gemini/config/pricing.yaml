@@ -35,6 +35,13 @@ image_generation:
       default: 0.067
       1k: 0.067
       2k: 0.101
+  # Lite generates 1K only — 2K returns "Image size 2K is not supported for this
+  # model" (400), so no 2k tier exists to price.
+  gemini-3.1-flash-lite-image:
+    input_per_million: 0.25
+    per_image_by_size:
+      default: 0.0336
+      1k: 0.0336
   gemini-3-pro-image:
     input_per_million: 2.00
     per_image_by_size:

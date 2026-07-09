@@ -16,6 +16,25 @@ from .embed_delivery import send_embed_batches
 if TYPE_CHECKING:
     from .cog import GeminiCog
 
+LITE_IMAGE_MODEL = "gemini-3.1-flash-lite-image"
+
+
+def _validate_lite_image_request(image_params: ImageGenerationParameters) -> str | None:
+    """Reject image sizes Gemini 3.1 Flash Lite Image does not support.
+
+    Lite generates 1K only; any larger size fails with
+    `400 INVALID_ARGUMENT: Image size 2K is not supported for this model`.
+    """
+
+    if image_params.model != LITE_IMAGE_MODEL:
+        return None
+    if image_params.image_size and image_params.image_size.lower() != "1k":
+        return (
+            f"`{LITE_IMAGE_MODEL}` only supports 1K images. "
+            "Remove `image_size` or set it to `1K`, or pick another image model."
+        )
+    return None
+
 
 async def _generate_image_with_gemini(
     cog: "GeminiCog",
@@ -242,6 +261,15 @@ async def image_command(
             image_size=image_size,
             google_image_search=bool(google_image_search),
         )
+
+        validation_error = _validate_lite_image_request(image_params)
+        if validation_error:
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=embeds.build_error_embed(validation_error),
+                logger=cog.logger,
+            )
+            return
 
         is_gemini_model = model.startswith("gemini-")
         text_response = None

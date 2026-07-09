@@ -6,11 +6,69 @@ import pytest
 from discord_gemini.cogs.gemini.command_options import VIDEO_MODEL_CHOICES
 from discord_gemini.cogs.gemini.video import (
     OMNI_VIDEO_MODEL,
+    _build_veo_image,
     _generate_video_with_omni,
     _validate_omni_video_request,
     _validate_video_request,
 )
 from tests.support import AsyncGeminiCogTestCase
+
+
+def _encoded_image(fmt: str) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    buf = BytesIO()
+    PILImage.new("RGB", (8, 8), (255, 0, 0)).save(buf, format=fmt)
+    return buf.getvalue()
+
+
+class TestBuildVeoImage:
+    """Veo image inputs must carry raw bytes + a mime type.
+
+    A `PIL.Image` silently validates into an all-None `types.Image`, which the API
+    rejects with "should contain both bytesBase64Encoded and mimeType".
+    """
+
+    @staticmethod
+    def _attachment(content_type):
+        attachment = MagicMock()
+        attachment.content_type = content_type
+        return attachment
+
+    @pytest.mark.parametrize(
+        ("fmt", "content_type", "expected_mime"),
+        [
+            ("WEBP", "image/webp", "image/webp"),
+            ("PNG", "image/png", "image/png"),
+            ("JPEG", "image/jpeg; charset=binary", "image/jpeg"),
+        ],
+    )
+    def test_uses_attachment_content_type(self, fmt, content_type, expected_mime):
+        data = _encoded_image(fmt)
+        image = _build_veo_image(data, self._attachment(content_type))
+        assert image.image_bytes == data
+        assert image.mime_type == expected_mime
+
+    def test_falls_back_to_detected_format(self):
+        data = _encoded_image("WEBP")
+        image = _build_veo_image(data, self._attachment(None))
+        assert image.mime_type == "image/webp"
+        assert image.image_bytes == data
+
+    def test_ignores_non_image_content_type(self):
+        data = _encoded_image("PNG")
+        image = _build_veo_image(data, self._attachment("application/octet-stream"))
+        assert image.mime_type == "image/png"
+
+    def test_never_serializes_to_an_empty_struct(self):
+        """The regression: the API 400s when image_bytes/mime_type are absent."""
+        image = _build_veo_image(_encoded_image("WEBP"), self._attachment("image/webp"))
+        payload = image.model_dump(exclude_none=True)
+        assert payload, "types.Image serialized to {} — the API rejects this"
+        assert "image_bytes" in payload
+        assert "mime_type" in payload
 
 
 class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
@@ -237,9 +295,7 @@ class TestOmniVideoValidation:
         assert error and "attachment" in error
 
     def test_rejects_last_frame(self):
-        error = _validate_omni_video_request(
-            self._params(has_last_frame=True), None, MagicMock()
-        )
+        error = _validate_omni_video_request(self._params(has_last_frame=True), None, MagicMock())
         assert error and "last_frame" in error
 
 

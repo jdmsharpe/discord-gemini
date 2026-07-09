@@ -27,6 +27,15 @@ class TestPricingLoader:
         assert size_prices["1k"] == 0.067
         assert size_prices["2k"] == 0.101
 
+    def test_lite_image_pricing_has_no_2k_tier(self):
+        """Lite generates 1K only, so pricing it for 2K would imply a size the API rejects."""
+        pricing = _reload_pricing()
+        input_rate, size_prices = pricing.IMAGE_PRICING["gemini-3.1-flash-lite-image"]
+        assert input_rate == 0.25
+        assert size_prices[None] == 0.0336
+        assert size_prices["1k"] == 0.0336
+        assert "2k" not in size_prices
+
     def test_imagen_models_have_zero_input_rate(self):
         pricing = _reload_pricing()
         input_rate, size_prices = pricing.IMAGE_PRICING["imagen-4.0-generate-001"]

@@ -107,10 +107,45 @@ def test_chat_command_default_model_param():
     assert signature.parameters["model"].default == "gemini-3.5-flash"
 
 
+class TestLiteImageValidation:
+    """`gemini-3.1-flash-lite-image` generates 1K only; larger sizes 400 live."""
+
+    @staticmethod
+    def _params(model="gemini-3.1-flash-lite-image", **kwargs):
+        from discord_gemini.util import ImageGenerationParameters
+
+        return ImageGenerationParameters(prompt="x", model=model, **kwargs)
+
+    def test_accepts_lite_without_image_size(self):
+        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+
+        assert _validate_lite_image_request(self._params()) is None
+
+    def test_accepts_lite_at_1k_either_case(self):
+        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+
+        assert _validate_lite_image_request(self._params(image_size="1k")) is None
+        assert _validate_lite_image_request(self._params(image_size="1K")) is None
+
+    def test_rejects_lite_at_2k(self):
+        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+
+        error = _validate_lite_image_request(self._params(image_size="2k"))
+        assert error is not None
+        assert "1K" in error
+
+    def test_does_not_constrain_other_image_models(self):
+        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+
+        params = self._params(model="gemini-3.1-flash-image", image_size="2k")
+        assert _validate_lite_image_request(params) is None
+
+
 def test_critical_choice_values_present():
     assert any(choice.value == "gemini-3.5-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-image" for choice in IMAGE_MODEL_CHOICES)
+    assert any(choice.value == "gemini-3.1-flash-lite-image" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-lite-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "gemini-2.5-flash-preview-tts" for choice in TTS_MODEL_CHOICES)

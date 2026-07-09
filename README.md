@@ -38,8 +38,9 @@ Start a conversation with Gemini AI models.
 
 Generate images from text prompts or edit using reference images.
 
-- **Models:** Gemini 3.1 Flash Image, 3.0 Pro Image, 2.5 Flash Image, Imagen 4 (Ultra/Fast).
+- **Models:** Gemini 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image, Imagen 4 (Ultra/Fast).
 - **Options:** Multiple aspect ratios, image count (1-4), resolution control (1K, 2K), and Google Image Search grounding.
+- **Gemini 3.1 Flash Lite Image:** the low-cost option (~$0.034 per 1K image). It generates 1K only — requesting 2K is rejected with a clear message.
 
 ### `/gemini-media video`
 

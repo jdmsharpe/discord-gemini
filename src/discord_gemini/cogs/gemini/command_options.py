@@ -37,6 +37,7 @@ RESEARCH_AGENT_CHOICES = [
 
 IMAGE_MODEL_CHOICES = [
     OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image"),
+    OptionChoice(name="Gemini 3.1 Flash Lite Image", value="gemini-3.1-flash-lite-image"),
     OptionChoice(name="Gemini 3.0 Pro Image", value="gemini-3-pro-image"),
     OptionChoice(name="Gemini 2.5 Flash Image", value="gemini-2.5-flash-image"),
     OptionChoice(name="Imagen 4", value="imagen-4.0-generate-001"),
