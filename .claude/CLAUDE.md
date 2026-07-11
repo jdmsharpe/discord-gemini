@@ -3,11 +3,10 @@
 ## Quick Start
 
 ```bash
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+uv sync --extra dev                   # creates .venv from uv.lock (no pip inside — use `uv pip` if needed)
 cp .env.example .env                  # then fill in required values
 git config core.hooksPath .githooks   # enable repo pre-commit hook
-python src/bot.py      # or: docker compose up
+uv run python src/bot.py   # or: docker compose up
 ```
 
 ## Gotchas
