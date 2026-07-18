@@ -63,7 +63,10 @@ async def resolve_url_context_source_labels(
 
     sources = tool_info["url_context_sources"]
     redirect_sources = [
-        source for source in sources if _is_grounding_redirect(source["retrieved_url"])
+        source
+        for source in sources
+        if source["display_name"].startswith("Source ")
+        and _is_grounding_redirect(source["retrieved_url"])
     ]
     if not redirect_sources:
         return

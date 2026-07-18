@@ -141,7 +141,14 @@ class TestExtractToolInfo:
                     "retrieved_url": redirect,
                     "display_name": "Source 1",
                     "status": "URL_RETRIEVAL_STATUS_SUCCESS",
-                }
+                },
+                {
+                    "retrieved_url": (
+                        "https://vertexaisearch.cloud.google.com/grounding-api-redirect/other"
+                    ),
+                    "display_name": "Cited Article Title",
+                    "status": "URL_RETRIEVAL_STATUS_SUCCESS",
+                },
             ],
             "maps_widget_token": None,
         }
@@ -169,6 +176,8 @@ class TestExtractToolInfo:
         await resolve_url_context_source_labels(tool_info, session)
 
         assert tool_info["url_context_sources"][0]["display_name"] == "pressbooks.pub"
+        assert tool_info["url_context_sources"][1]["display_name"] == "Cited Article Title"
+        assert len(session.calls) == 1
         assert session.calls[0][0] == redirect
         assert session.calls[0][1]["allow_redirects"] is False
 
