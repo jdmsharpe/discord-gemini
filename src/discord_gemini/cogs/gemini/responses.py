@@ -1,10 +1,82 @@
 """Response parsing helpers and Gemini-specific exceptions."""
 
+import asyncio
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
+import aiohttp
 from google.genai import types
 
 from .models import CitationInfo, ToolInfo, UrlContextInfo
+
+_GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+_GROUNDING_REDIRECT_PATH_PREFIX = "/grounding-api-redirect/"
+_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+def _source_hostname(url: str) -> str | None:
+    """Return a compact hostname suitable for a source-link label."""
+
+    host = urlparse(url).hostname
+    if not host:
+        return None
+    return host.removeprefix("www.")
+
+
+def _is_grounding_redirect(url: str) -> bool:
+    parsed = urlparse(url)
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname == _GROUNDING_REDIRECT_HOST
+        and parsed.path.startswith(_GROUNDING_REDIRECT_PATH_PREFIX)
+    )
+
+
+async def _resolve_grounding_redirect_hostname(
+    session: aiohttp.ClientSession,
+    url: str,
+) -> str | None:
+    """Read one Google grounding redirect without requesting its destination."""
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with session.get(
+            url,
+            allow_redirects=False,
+            timeout=timeout,
+        ) as response:
+            if response.status not in _REDIRECT_STATUSES:
+                return None
+            location = response.headers.get("Location")
+            if not location:
+                return None
+            return _source_hostname(urljoin(url, location))
+    except (aiohttp.ClientError, TimeoutError, ValueError):
+        return None
+
+
+async def resolve_url_context_source_labels(
+    tool_info: ToolInfo,
+    session: aiohttp.ClientSession,
+) -> None:
+    """Replace opaque grounding-redirect labels with destination hostnames."""
+
+    sources = tool_info["url_context_sources"]
+    redirect_sources = [
+        source for source in sources if _is_grounding_redirect(source["retrieved_url"])
+    ]
+    if not redirect_sources:
+        return
+
+    resolved = await asyncio.gather(
+        *(
+            _resolve_grounding_redirect_hostname(session, source["retrieved_url"])
+            for source in redirect_sources
+        )
+    )
+    for source, hostname in zip(redirect_sources, resolved, strict=True):
+        if hostname:
+            source["display_name"] = hostname
 
 
 class GeminiBotError(Exception):
@@ -163,15 +235,23 @@ def extract_tool_info(response: Any) -> ToolInfo:
     url_context_metadata = getattr(candidate, "url_context_metadata", None)
     if url_context_metadata is not None:
         url_metadata_entries = getattr(url_context_metadata, "url_metadata", None) or []
+        citation_titles = {
+            citation["uri"]: citation["title"] for citation in tool_info["citations"]
+        }
         parsed_sources: list[UrlContextInfo] = []
         for entry in url_metadata_entries:
             retrieved_url = getattr(entry, "retrieved_url", None)
             if not retrieved_url:
                 continue
+            retrieved_url = str(retrieved_url)
             status = getattr(entry, "url_retrieval_status", None)
+            display_name = citation_titles.get(retrieved_url)
+            if not display_name and not _is_grounding_redirect(retrieved_url):
+                display_name = _source_hostname(retrieved_url)
             parsed_sources.append(
                 {
-                    "retrieved_url": str(retrieved_url),
+                    "retrieved_url": retrieved_url,
+                    "display_name": display_name or f"Source {len(parsed_sources) + 1}",
                     "status": str(status) if status is not None else "UNKNOWN",
                 }
             )
@@ -202,4 +282,5 @@ __all__ = [
     "_get_response_content_parts",
     "extract_thinking_text",
     "extract_tool_info",
+    "resolve_url_context_source_labels",
 ]

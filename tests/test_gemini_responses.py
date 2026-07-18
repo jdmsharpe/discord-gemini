@@ -5,6 +5,7 @@ from discord_gemini.cogs.gemini.responses import (
     _get_response_content_parts,
     extract_thinking_text,
     extract_tool_info,
+    resolve_url_context_source_labels,
 )
 
 
@@ -124,9 +125,52 @@ class TestExtractToolInfo:
         assert tool_info["url_context_sources"] == [
             {
                 "retrieved_url": "https://example.com/a",
+                "display_name": "example.com",
                 "status": "URL_RETRIEVAL_STATUS_SUCCESS",
             }
         ]
+
+    async def test_resolves_grounding_redirect_label_without_following_destination(self):
+        redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/token"
+        tool_info = {
+            "tools_used": ["url_context"],
+            "citations": [],
+            "search_queries": [],
+            "url_context_sources": [
+                {
+                    "retrieved_url": redirect,
+                    "display_name": "Source 1",
+                    "status": "URL_RETRIEVAL_STATUS_SUCCESS",
+                }
+            ],
+            "maps_widget_token": None,
+        }
+
+        class FakeResponse:
+            def __init__(self):
+                self.status = 302
+                self.headers = {"Location": "https://www.pressbooks.pub/chapter/exchanges"}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+        class FakeSession:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return FakeResponse()
+
+        session = FakeSession()
+        await resolve_url_context_source_labels(tool_info, session)
+
+        assert tool_info["url_context_sources"][0]["display_name"] == "pressbooks.pub"
+        assert session.calls[0][0] == redirect
+        assert session.calls[0][1]["allow_redirects"] is False
 
     def test_extract_tool_info_file_search_via_retrieval_metadata(self):
         """Test extract_tool_info detects file_search via retrieval_metadata."""

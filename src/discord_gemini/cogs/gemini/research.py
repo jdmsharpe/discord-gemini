@@ -402,28 +402,31 @@ def _build_citations_embed(annotations: list[Any], report_text: str | None = Non
             url = getattr(annotation, "url", None)
             place_lines.append(f"[{name}]({url})" if url else name)
 
-    sections: list[str] = []
+    sections: list[tuple[str | None, list[str]]] = []
     if url_lines:
         numbered = [f"{i}. {entry}" for i, entry in enumerate(url_lines[:8], start=1)]
         if len(url_lines) > 8:
             numbered.append(f"_…and {len(url_lines) - 8} more_")
-        sections.append("**Web sources**\n" + "\n".join(numbered))
+        sections.append(("**Web sources**", numbered))
     if file_lines:
         numbered = [f"{i}. {entry}" for i, entry in enumerate(file_lines[:8], start=1)]
         if len(file_lines) > 8:
             numbered.append(f"_…and {len(file_lines) - 8} more_")
-        sections.append("**Documents**\n" + "\n".join(numbered))
+        sections.append(("**Documents**", numbered))
     if place_lines:
         numbered = [f"{i}. {entry}" for i, entry in enumerate(place_lines[:8], start=1)]
         if len(place_lines) > 8:
             numbered.append(f"_…and {len(place_lines) - 8} more_")
-        sections.append("**Places**\n" + "\n".join(numbered))
+        sections.append(("**Places**", numbered))
 
     if not sections:
         return None
+    description = embeds.fit_markdown_sections(sections)
+    if not description:
+        return None
     return Embed(
         title="Sources",
-        description=truncate_text("\n\n".join(sections), 4000),
+        description=description,
         color=embeds.GEMINI_BLUE,
     )
 

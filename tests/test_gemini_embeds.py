@@ -3,6 +3,7 @@ from discord import Colour
 from discord_gemini.cogs.gemini.embeds import (
     append_pricing_embed,
     append_response_embeds,
+    append_sources_embed,
     append_thinking_embeds,
     error_to_user_description,
 )
@@ -61,6 +62,58 @@ class TestGeminiThinkingEmbeds:
         assert "[thinking truncated]" in embeds[0].description
         assert len(embeds[0].description) <= 3600
 
+
+class TestAppendSourcesEmbed:
+    def test_url_context_uses_label_and_preserves_full_target(self):
+        redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/" + "a" * 300
+        tool_info = {
+            "tools_used": ["url_context"],
+            "citations": [],
+            "search_queries": ["seven exchange lists", "food exchange lists 7 categories"],
+            "url_context_sources": [
+                {
+                    "retrieved_url": redirect,
+                    "display_name": "pressbooks.pub",
+                    "status": "URL_RETRIEVAL_STATUS_SUCCESS",
+                }
+            ],
+            "maps_widget_token": None,
+        }
+
+        embeds = []
+        append_sources_embed(embeds, tool_info)
+
+        assert f"[pressbooks.pub]({redirect})" in embeds[0].description
+        assert "URL Context" not in embeds[0].description
+        assert "URL_RETRIEVAL_STATUS" not in embeds[0].description
+        assert (
+            "**Queries:** seven exchange lists, food exchange lists 7 categories"
+            in embeds[0].description
+        )
+
+    def test_url_context_deduplicates_grounding_citation(self):
+        url = "https://example.com/source"
+        tool_info = {
+            "tools_used": ["google_search", "url_context"],
+            "citations": [{"title": "example.com", "uri": url}],
+            "search_queries": [],
+            "url_context_sources": [
+                {
+                    "retrieved_url": url,
+                    "display_name": "example.com",
+                    "status": "URL_RETRIEVAL_STATUS_SUCCESS",
+                }
+            ],
+            "maps_widget_token": None,
+        }
+
+        embeds = []
+        append_sources_embed(embeds, tool_info)
+
+        assert embeds[0].description.count(f"]({url})") == 1
+
+
+class TestPricingEmbeds:
     def test_append_pricing_embed(self):
         """Test that append_pricing_embed creates a Gemini Blue embed with cost info."""
         embeds = []

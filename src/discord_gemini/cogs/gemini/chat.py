@@ -300,6 +300,12 @@ async def handle_new_message_in_conversation(
         response = result.response
         response_text = response.text or ""
         tool_info = responses.extract_tool_info(response)
+        if any(
+            source["display_name"].startswith("Source ")
+            for source in tool_info["url_context_sources"]
+        ):
+            session = await attachments._get_http_session(cog)
+            await responses.resolve_url_context_source_labels(tool_info, session)
         for tool_name in result.tool_calls_made:
             if tool_name not in tool_info["tools_used"]:
                 tool_info["tools_used"].append(tool_name)
@@ -631,6 +637,12 @@ async def chat_command(
         response = result.response
         response_text = response.text
         tool_info = responses.extract_tool_info(response)
+        if any(
+            source["display_name"].startswith("Source ")
+            for source in tool_info["url_context_sources"]
+        ):
+            session = await attachments._get_http_session(cog)
+            await responses.resolve_url_context_source_labels(tool_info, session)
         for tool_name in result.tool_calls_made:
             if tool_name not in tool_info["tools_used"]:
                 tool_info["tools_used"].append(tool_name)

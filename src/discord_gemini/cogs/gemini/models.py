@@ -26,6 +26,7 @@ class CitationInfo(TypedDict):
 
 class UrlContextInfo(TypedDict):
     retrieved_url: str
+    display_name: str
     status: str
 
 

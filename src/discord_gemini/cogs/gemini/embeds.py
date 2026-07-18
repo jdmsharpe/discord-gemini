@@ -9,6 +9,28 @@ GEMINI_BLUE = Colour(0x4285F4)
 ERROR_TRUNCATION_SUFFIX = "\n\n... (error message truncated)"
 
 
+def fit_markdown_sections(
+    sections: list[tuple[str | None, list[str]]],
+    max_length: int = 4000,
+) -> str:
+    """Fit complete Markdown entries without slicing through links."""
+
+    rendered_sections: list[str] = []
+    for heading, entries in sections:
+        accepted: list[str] = []
+        for entry in entries:
+            body = "\n".join([*accepted, entry])
+            rendered = f"{heading}\n{body}" if heading else body
+            candidate = "\n\n".join([*rendered_sections, rendered])
+            if len(candidate) > max_length:
+                break
+            accepted.append(entry)
+        if accepted:
+            body = "\n".join(accepted)
+            rendered_sections.append(f"{heading}\n{body}" if heading else body)
+    return "\n\n".join(rendered_sections)
+
+
 def build_error_embed(description: str) -> Embed:
     """Create a red error embed."""
 
@@ -63,27 +85,34 @@ def append_sources_embed(embeds: list[Embed], tool_info: ToolInfo) -> None:
         return
 
     source_lines: list[str] = []
-    for index, citation in enumerate(citations[:8], start=1):
+    seen_urls: set[str] = set()
+    source_index = 1
+    for citation in citations[:8]:
         safe_title = truncate_text(citation["title"], 120)
-        source_lines.append(f"{index}. [{safe_title}]({citation['uri']})")
+        source_lines.append(f"{source_index}. [{safe_title}]({citation['uri']})")
+        seen_urls.add(citation["uri"])
+        source_index += 1
 
-    if url_context_sources:
-        if source_lines:
-            source_lines.append("")
-        source_lines.append("**URL Context**")
-        for source in url_context_sources[:6]:
-            safe_url = truncate_text(source["retrieved_url"], 200)
-            source_lines.append(f"- {safe_url} ({source['status']})")
+    for source in url_context_sources[:6]:
+        url = source["retrieved_url"]
+        if url in seen_urls:
+            continue
+        safe_title = truncate_text(source["display_name"], 120)
+        source_lines.append(f"{source_index}. [{safe_title}]({url})")
+        seen_urls.add(url)
+        source_index += 1
 
-    description = "\n".join(source_lines)
+    sections: list[tuple[str | None, list[str]]] = [(None, source_lines)]
     queries = tool_info["search_queries"]
     if queries:
         query_preview = truncate_text(", ".join(queries[:3]), 500)
-        description += f"\n\n**Queries:** {query_preview}"
+        sections.append((None, [f"**Queries:** {query_preview}"]))
     if tool_info["maps_widget_token"]:
-        description += "\n\n**Maps Widget:** `google_maps_widget_context_token` returned."
+        sections.append((None, ["**Maps Widget:** `google_maps_widget_context_token` returned."]))
 
-    embeds.append(Embed(title="Sources", description=description, color=GEMINI_BLUE))
+    description = fit_markdown_sections(sections)
+    if description:
+        embeds.append(Embed(title="Sources", description=description, color=GEMINI_BLUE))
 
 
 def append_pricing_embed(
@@ -117,4 +146,5 @@ __all__ = [
     "append_thinking_embeds",
     "build_error_embed",
     "error_to_user_description",
+    "fit_markdown_sections",
 ]
