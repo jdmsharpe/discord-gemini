@@ -15,6 +15,7 @@ from discord_gemini.util import (
     MAPS_GROUNDING_COST_PER_REQUEST,
     MAX_AGENTIC_ITERATIONS,
     MODEL_PRICING,
+    MUSIC_PRICING,
     MUTUALLY_EXCLUSIVE_TOOLS,
     TOOL_CODE_EXECUTION,
     TOOL_FILE_SEARCH,
@@ -32,6 +33,7 @@ from discord_gemini.util import (
     VideoGenerationParameters,
     calculate_cost,
     calculate_image_cost,
+    calculate_music_cost,
     calculate_tts_cost,
     calculate_video_cost,
     check_mutually_exclusive_tools,
@@ -872,7 +874,9 @@ class TestCacheConstants:
 
     def test_cache_min_token_count_contains_expected_models(self):
         """Test that CACHE_MIN_TOKEN_COUNT includes selected 3.x and 2.5 models."""
+        assert "gemini-3.6-flash" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.5-flash" in CACHE_MIN_TOKEN_COUNT
+        assert "gemini-3.5-flash-lite" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.1-pro-preview" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3-flash-preview" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-2.5-pro" in CACHE_MIN_TOKEN_COUNT
@@ -880,7 +884,9 @@ class TestCacheConstants:
 
     def test_cache_min_token_count_values(self):
         """Test that token thresholds are correct per model tier."""
+        assert CACHE_MIN_TOKEN_COUNT["gemini-3.6-flash"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.5-flash"] == 1024
+        assert CACHE_MIN_TOKEN_COUNT["gemini-3.5-flash-lite"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.1-pro-preview"] == 4096
         assert CACHE_MIN_TOKEN_COUNT["gemini-3-flash-preview"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-2.5-pro"] == 4096
@@ -954,6 +960,9 @@ class TestModelPricing:
     def test_pricing_contains_all_chat_models(self):
         """Test that MODEL_PRICING includes all chat models."""
         expected_models = [
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
             "gemini-3.1-pro-preview",
             "gemini-3.1-flash-lite",
             "gemini-3-flash-preview",
@@ -991,6 +1000,30 @@ class TestModelPricing:
         cost = calculate_cost("unknown-model", 1_000_000, 1_000_000)
         # Default is (2.0, 12.0)
         assert cost == pytest.approx(14.0)
+
+    def test_calculate_cost_uses_new_ga_model_rows(self):
+        """Missing pricing rows fall back silently, so price the new models explicitly."""
+        # gemini-3.6-flash: $1.50/M input, $7.50/M output
+        assert calculate_cost("gemini-3.6-flash", 1_000_000, 1_000_000) == pytest.approx(9.0)
+        # gemini-3.5-flash-lite: $0.30/M input, $2.50/M output
+        assert calculate_cost("gemini-3.5-flash-lite", 1_000_000, 1_000_000) == pytest.approx(2.80)
+        # Neither may land on UNKNOWN_CHAT_MODEL_PRICING (2.0, 12.0) == $14.00.
+        for model in ("gemini-3.6-flash", "gemini-3.5-flash-lite"):
+            assert calculate_cost(model, 1_000_000, 1_000_000) != pytest.approx(14.0)
+
+    def test_new_flash_is_cheaper_than_the_model_it_succeeds(self):
+        """gemini-3.6-flash keeps the 3.5 input rate and cuts the output rate."""
+        new_input, new_output = MODEL_PRICING["gemini-3.6-flash"]
+        old_input, old_output = MODEL_PRICING["gemini-3.5-flash"]
+        assert new_input == old_input
+        assert new_output < old_output
+
+    def test_new_lite_is_more_expensive_than_the_older_lite(self):
+        """gemini-3.5-flash-lite is a higher-capability lite, NOT a cheaper 3.1 lite."""
+        new_input, new_output = MODEL_PRICING["gemini-3.5-flash-lite"]
+        old_input, old_output = MODEL_PRICING["gemini-3.1-flash-lite"]
+        assert new_input > old_input
+        assert new_output > old_output
 
     def test_calculate_cost_small_token_count(self):
         """Test cost calculation with realistic small token counts."""
@@ -1240,6 +1273,49 @@ class TestTtsPricing:
         )
         expected = (500 / 1_000_000) * 1.00 + (10_000 / 1_000_000) * 20.00
         assert cost == pytest.approx(expected)
+
+
+class TestMusicPricing:
+    """Tests for MUSIC_PRICING and calculate_music_cost."""
+
+    def test_pricing_contains_all_music_models(self):
+        """Test that MUSIC_PRICING includes every /gemini-tools music choice."""
+        expected_models = [
+            "lyria-3-clip-preview",
+            "lyria-3-pro-preview",
+            LYRIA_REALTIME_MODEL,
+        ]
+        for model in expected_models:
+            assert model in MUSIC_PRICING, f"{model} missing from MUSIC_PRICING"
+
+    def test_priced_models_are_positive(self):
+        """Test that every model with a published price is priced above zero."""
+        for model, per_song in MUSIC_PRICING.items():
+            if per_song is not None:
+                assert per_song > 0, f"{model} per-song price should be positive"
+
+    def test_pro_more_expensive_than_clip(self):
+        """Test that a full Lyria 3 Pro song costs more than a 30-second clip."""
+        assert MUSIC_PRICING["lyria-3-pro-preview"] > MUSIC_PRICING["lyria-3-clip-preview"]
+
+    def test_calculate_music_cost_priced_models(self):
+        """Test per-song cost for the two models with published prices."""
+        assert calculate_music_cost("lyria-3-clip-preview") == pytest.approx(0.04)
+        assert calculate_music_cost("lyria-3-pro-preview") == pytest.approx(0.08)
+
+    def test_calculate_music_cost_zero_songs(self):
+        """Test that a run that produced no audio is not billed."""
+        assert calculate_music_cost("lyria-3-pro-preview", 0) == pytest.approx(0.0)
+
+    def test_calculate_music_cost_realtime_is_unpriced(self):
+        """Lyria RealTime streams audio and has no published per-song price."""
+        assert MUSIC_PRICING[LYRIA_REALTIME_MODEL] is None
+        assert calculate_music_cost(LYRIA_REALTIME_MODEL) is None
+        assert calculate_music_cost(LYRIA_REALTIME_MODEL, 3) is None
+
+    def test_calculate_music_cost_unknown_model_is_unpriced(self):
+        """Unknown models return None rather than silently falling back to a rate."""
+        assert calculate_music_cost("lyria-unknown") is None
 
 
 class TestChatCompletionParametersThinking:

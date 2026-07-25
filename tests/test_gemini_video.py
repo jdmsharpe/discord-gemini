@@ -1,4 +1,5 @@
 import inspect
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,6 +9,7 @@ from discord_gemini.cogs.gemini.video import (
     OMNI_VIDEO_MODEL,
     _build_veo_image,
     _generate_video_with_omni,
+    _generate_video_with_veo,
     _validate_omni_video_request,
     _validate_video_request,
 )
@@ -196,6 +198,57 @@ class TestVideoValidation:
             has_last_frame=False,
         )
         assert error is None
+
+
+class TestVeoGenerateVideosSource(AsyncGeminiCogTestCase):
+    """google-genai 2.14.0 deprecated the prompt/image arguments in favour of `source`."""
+
+    @staticmethod
+    def _attachment():
+        attachment = MagicMock()
+        attachment.content_type = "image/png"
+        return attachment
+
+    async def _call_veo(self, attachment=None, last_frame_attachment=None):
+        from discord_gemini.util import VideoGenerationParameters
+
+        self.cog.client.aio.models.generate_videos = AsyncMock(
+            return_value=SimpleNamespace(done=True, name="operations/1", response=None)
+        )
+        params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
+        await _generate_video_with_veo(self.cog, params, attachment, last_frame_attachment)
+        return self.cog.client.aio.models.generate_videos.call_args.kwargs
+
+    async def test_prompt_is_passed_through_source(self):
+        kwargs = await self._call_veo()
+
+        assert "prompt" not in kwargs
+        assert "image" not in kwargs
+        assert kwargs["source"].prompt == "A sunset"
+        assert kwargs["source"].image is None
+
+    async def test_image_is_passed_through_source(self):
+        data = _encoded_image("PNG")
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=data)
+
+        kwargs = await self._call_veo(attachment=self._attachment())
+
+        assert "image" not in kwargs
+        assert kwargs["source"].image.image_bytes == data
+        assert kwargs["source"].image.mime_type == "image/png"
+
+    async def test_last_frame_stays_on_the_config(self):
+        """`last_frame` is a GenerateVideosConfig field, not a source field."""
+        data = _encoded_image("PNG")
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=data)
+
+        kwargs = await self._call_veo(last_frame_attachment=self._attachment())
+
+        assert kwargs["config"].last_frame.image_bytes == data
+        # `hasattr` is always False on a pydantic model for an undeclared field,
+        # so assert on the declared field set instead — that is what would
+        # actually change if last_frame ever migrated onto the source.
+        assert "last_frame" not in type(kwargs["source"]).model_fields
 
 
 def _fake_omni_interaction(

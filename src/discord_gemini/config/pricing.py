@@ -36,6 +36,7 @@ _IMAGE: dict[str, dict[str, Any]] = _RAW.get("image_generation") or {}
 _VIDEO: dict[str, dict[str, Any]] = _RAW.get("video_generation") or {}
 _VIDEO_TOKENIZED: dict[str, dict[str, Any]] = _RAW.get("video_tokenized") or {}
 _TTS: dict[str, dict[str, Any]] = _RAW.get("text_to_speech") or {}
+_MUSIC: dict[str, dict[str, Any]] = _RAW.get("music_generation") or {}
 _TOOLS: dict[str, dict[str, Any]] = _RAW.get("tools") or {}
 _FALLBACKS: dict[str, dict[str, Any]] = _RAW.get("fallbacks") or {}
 
@@ -86,6 +87,15 @@ TTS_PRICING: dict[str, tuple[float, float]] = {
 }
 
 
+# Per-song pricing for music models. A ``None`` value marks a model with no
+# published per-song price (lyria-realtime-exp streams audio), so callers must
+# report it as unpriced instead of falling back to a made-up rate.
+MUSIC_PRICING: dict[str, float | None] = {
+    model_id: (None if cfg.get("per_song") is None else float(cfg["per_song"]))
+    for model_id, cfg in _MUSIC.items()
+}
+
+
 MAPS_GROUNDING_COST_PER_REQUEST: float = float(
     (_TOOLS.get("google_maps_grounding") or {}).get("per_request", 0.025)
 )
@@ -116,6 +126,7 @@ __all__ = [
     "IMAGE_PRICING",
     "MAPS_GROUNDING_COST_PER_REQUEST",
     "MODEL_PRICING",
+    "MUSIC_PRICING",
     "TTS_PRICING",
     "UNKNOWN_CHAT_MODEL_PRICING",
     "UNKNOWN_IMAGE_MODEL_INPUT_RATE",

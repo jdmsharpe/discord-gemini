@@ -217,6 +217,86 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
             await self.cog._build_lyria3_music_contents(params, attachment)
 
 
+class TestMusicCostTracking(AsyncGeminiCogTestCase):
+    """/music is billed per song; every generation must reach the daily cost ledger."""
+
+    def _ctx(self):
+        ctx = MagicMock()
+        ctx.author.id = 123
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        return ctx
+
+    async def _run_lyria3(self, model, audio=b"audio-bytes"):
+        ctx = self._ctx()
+        self.cog._log_cost = MagicMock()
+        self.cog._send_error_followup = AsyncMock()
+
+        with patch(
+            "discord_gemini.cogs.gemini.music._generate_music_with_lyria3",
+            AsyncMock(return_value=(audio, None, "audio/mpeg")),
+        ):
+            await music_command(
+                self.cog,
+                ctx,
+                prompt="Dream pop song",
+                attachment=None,
+                model=model,
+            )
+        return ctx, self.cog._log_cost.call_args
+
+    async def test_lyria3_clip_is_billed_per_song(self):
+        _, call_args = await self._run_lyria3("lyria-3-clip-preview")
+
+        assert call_args.args[3] == pytest.approx(0.04)
+        assert call_args.args[4] == pytest.approx(0.04)
+        assert "unpriced" not in call_args.kwargs
+
+    async def test_lyria3_pro_is_billed_per_song(self):
+        _, call_args = await self._run_lyria3("lyria-3-pro-preview")
+
+        assert call_args.args[3] == pytest.approx(0.08)
+        assert call_args.args[4] == pytest.approx(0.08)
+        assert "unpriced" not in call_args.kwargs
+
+    async def test_music_cost_reaches_the_daily_ledger(self):
+        await self._run_lyria3("lyria-3-pro-preview")
+
+        totals = [total for total, _ in self.cog.daily_costs.values()]
+        assert totals == [pytest.approx(0.08)]
+
+    async def test_text_only_response_is_not_billed(self):
+        """Lyria 3 can answer with text and no audio — nothing was generated to bill."""
+        _, call_args = await self._run_lyria3("lyria-3-clip-preview", audio=None)
+
+        assert call_args.args[3] == pytest.approx(0.0)
+        assert "unpriced" not in call_args.kwargs
+
+    async def test_realtime_is_logged_as_unpriced(self):
+        """lyria-realtime-exp has no published per-song price; never invent one."""
+        ctx = self._ctx()
+        self.cog._log_cost = MagicMock()
+        self.cog._send_error_followup = AsyncMock()
+
+        with patch(
+            "discord_gemini.cogs.gemini.music._generate_music_with_lyria_realtime",
+            AsyncMock(return_value=b"audio-bytes"),
+        ):
+            await music_command(
+                self.cog,
+                ctx,
+                prompt="Ambient drone",
+                attachment=None,
+                model="lyria-realtime-exp",
+                duration=30,
+            )
+
+        call_args = self.cog._log_cost.call_args
+        assert call_args.args[3] == pytest.approx(0.0)
+        assert call_args.kwargs["unpriced"] is True
+        assert call_args.kwargs["duration_seconds"] == 30
+
+
 class TestMusicAttachmentValidation(AsyncGeminiCogTestCase):
     async def test_validate_music_attachment_accepts_lyria3_image(self):
         attachment = MagicMock()

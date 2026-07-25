@@ -97,14 +97,14 @@ def test_cog_init_does_not_configure_root_logger():
 
 
 def test_default_chat_model_is_first_choice():
-    """gemini-3.5-flash is the default chat model and is shown first in the picker."""
-    assert CHAT_MODEL_CHOICES[0].value == "gemini-3.5-flash"
+    """gemini-3.6-flash is the default chat model and is shown first in the picker."""
+    assert CHAT_MODEL_CHOICES[0].value == "gemini-3.6-flash"
 
 
 def test_chat_command_default_model_param():
-    """The /gemini chat `model` parameter defaults to gemini-3.5-flash."""
+    """The /gemini chat `model` parameter defaults to gemini-3.6-flash."""
     signature = inspect.signature(GeminiCog.chat.callback)
-    assert signature.parameters["model"].default == "gemini-3.5-flash"
+    assert signature.parameters["model"].default == "gemini-3.6-flash"
 
 
 class TestLiteImageValidation:
@@ -142,7 +142,9 @@ class TestLiteImageValidation:
 
 
 def test_critical_choice_values_present():
+    assert any(choice.value == "gemini-3.6-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.5-flash" for choice in CHAT_MODEL_CHOICES)
+    assert any(choice.value == "gemini-3.5-flash-lite" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-image" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-lite-image" for choice in IMAGE_MODEL_CHOICES)

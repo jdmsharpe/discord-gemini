@@ -19,6 +19,7 @@ from ...util import (
     LYRIA_REALTIME_MODEL,
     WS_DRAIN_INTERVAL,
     MusicGenerationParameters,
+    calculate_music_cost,
     truncate_text,
 )
 from . import attachments, embeds, state
@@ -328,11 +329,19 @@ async def music_command(
         else:
             audio_data = await _generate_music_with_lyria_realtime(cog, music_params)
 
-        daily_cost = state._track_daily_cost(cog, ctx.author.id, 0.0)
+        # Billed per song, so a run that returned no audio (Lyria 3 can answer with
+        # text only) is not charged.
+        cost = calculate_music_cost(model, 1 if audio_data else 0)
+        billable_cost = cost if cost is not None else 0.0
+        daily_cost = state._track_daily_cost(cog, ctx.author.id, billable_cost)
         log_details: dict[str, Any] = {}
         if model == LYRIA_REALTIME_MODEL:
             log_details["duration_seconds"] = duration
-        cog._log_cost("music", ctx.author.id, model, 0.0, daily_cost, **log_details)
+        if cost is None:
+            # No published per-song price for this model — flag it instead of
+            # implying the generation was free.
+            log_details["unpriced"] = True
+        cog._log_cost("music", ctx.author.id, model, billable_cost, daily_cost, **log_details)
 
         if not audio_data:
             await send_embed_batches(

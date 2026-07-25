@@ -12,6 +12,7 @@ from .config.pricing import (
     IMAGE_PRICING,
     MAPS_GROUNDING_COST_PER_REQUEST,
     MODEL_PRICING,
+    MUSIC_PRICING,
     TTS_PRICING,
     UNKNOWN_CHAT_MODEL_PRICING,
     UNKNOWN_IMAGE_MODEL_INPUT_RATE,
@@ -114,11 +115,26 @@ def calculate_tts_cost(model: str, input_tokens: int, output_tokens: int) -> flo
     return (input_tokens / 1_000_000) * input_price + (output_tokens / 1_000_000) * output_price
 
 
+def calculate_music_cost(model: str, num_songs: int = 1) -> float | None:
+    """Calculate the cost for music generation, billed per generated song.
+
+    Returns ``None`` when the model has no published per-song price — Lyria
+    RealTime streams audio and Google publishes no per-song rate — so callers
+    report the generation as unpriced rather than billing an invented number.
+    """
+    per_song = MUSIC_PRICING.get(model)
+    if per_song is None:
+        return None
+    return num_songs * per_song
+
+
 # Minimum input token counts required for this bot's explicit context caching policy.
 # Gemini 2.5 and newer models also support implicit caching automatically.
 # Models not listed here fall back to implicit caching only.
 CACHE_MIN_TOKEN_COUNT: dict[str, int] = {
+    "gemini-3.6-flash": 1024,
     "gemini-3.5-flash": 1024,
+    "gemini-3.5-flash-lite": 1024,
     "gemini-3.1-pro-preview": 4096,
     "gemini-3-flash-preview": 1024,
     "gemini-2.5-pro": 4096,

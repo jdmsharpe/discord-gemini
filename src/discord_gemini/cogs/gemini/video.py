@@ -127,21 +127,22 @@ async def _generate_video_with_veo(
             except Exception as error:
                 cog.logger.warning("Failed to open last_frame attachment: %s", error)
 
-    kwargs = {
-        "model": video_params.model,
-        "prompt": video_params.prompt,
-        "config": types.GenerateVideosConfig(**config_dict),
-    }
-
+    # The prompt/image arguments are deprecated since google-genai 2.14.0; the
+    # inputs go through `source` instead. `last_frame` stays on the config.
+    source_image: types.Image | None = None
     if attachment:
         image_data = await attachments._fetch_attachment_bytes(cog, attachment)
         if image_data:
             try:
-                kwargs["image"] = _build_veo_image(image_data, attachment)
+                source_image = _build_veo_image(image_data, attachment)
             except Exception as error:
                 cog.logger.warning("Failed to open attachment for video generation: %s", error)
 
-    operation = await cog.client.aio.models.generate_videos(**kwargs)
+    operation = await cog.client.aio.models.generate_videos(
+        model=video_params.model,
+        source=types.GenerateVideosSource(prompt=video_params.prompt, image=source_image),
+        config=types.GenerateVideosConfig(**config_dict),
+    )
     cog.logger.info("Started video generation operation: %s", operation.name)
 
     start_time = time.time()

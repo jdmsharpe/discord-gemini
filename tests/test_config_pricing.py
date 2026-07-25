@@ -15,6 +15,8 @@ def _reload_pricing():
 class TestPricingLoader:
     def test_bundled_yaml_loads_model_pricing(self):
         pricing = _reload_pricing()
+        assert pricing.MODEL_PRICING["gemini-3.6-flash"] == (1.50, 7.50)
+        assert pricing.MODEL_PRICING["gemini-3.5-flash-lite"] == (0.30, 2.50)
         assert pricing.MODEL_PRICING["gemini-2.5-pro"] == (1.25, 10.0)
         assert pricing.MODEL_PRICING["gemini-2.5-flash-lite"] == (0.10, 0.40)
 
@@ -47,6 +49,17 @@ class TestPricingLoader:
         assert pricing.VIDEO_PRICING["veo-3.1-generate-preview"]["default"] == 0.40
         assert pricing.VIDEO_PRICING["veo-3.1-generate-preview"]["4k"] == 0.60
 
+    def test_music_pricing_is_per_song(self):
+        pricing = _reload_pricing()
+        assert pricing.MUSIC_PRICING["lyria-3-clip-preview"] == 0.04
+        assert pricing.MUSIC_PRICING["lyria-3-pro-preview"] == 0.08
+
+    def test_music_pricing_keeps_realtime_explicitly_unpriced(self):
+        """lyria-realtime-exp streams audio and has no published per-song price."""
+        pricing = _reload_pricing()
+        assert "lyria-realtime-exp" in pricing.MUSIC_PRICING
+        assert pricing.MUSIC_PRICING["lyria-realtime-exp"] is None
+
     def test_tts_and_maps_grounding(self):
         pricing = _reload_pricing()
         assert pricing.TTS_PRICING["gemini-2.5-flash-preview-tts"] == (0.50, 10.00)
@@ -76,6 +89,9 @@ class TestPricingLoader:
                     per_second_by_resolution: { default: 0.5 }
                 text_to_speech:
                   custom-tts: { input_per_million: 0.2, output_per_million: 2.0 }
+                music_generation:
+                  custom-lyria: { per_song: 0.02 }
+                  custom-lyria-stream: { per_song: null }
                 tools:
                   google_maps_grounding: { per_request: 0.05 }
                 fallbacks:
@@ -92,5 +108,6 @@ class TestPricingLoader:
         assert input_rate == 0.0
         assert size_prices[None] == 0.10
         assert pricing.VIDEO_PRICING == {"custom-veo": {"default": 0.5}}
+        assert pricing.MUSIC_PRICING == {"custom-lyria": 0.02, "custom-lyria-stream": None}
         assert pricing.MAPS_GROUNDING_COST_PER_REQUEST == 0.05
         assert pricing.UNKNOWN_CHAT_MODEL_PRICING == (9.9, 99.0)
