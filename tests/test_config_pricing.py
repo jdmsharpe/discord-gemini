@@ -38,12 +38,6 @@ class TestPricingLoader:
         assert size_prices["1k"] == 0.0336
         assert "2k" not in size_prices
 
-    def test_imagen_models_have_zero_input_rate(self):
-        pricing = _reload_pricing()
-        input_rate, size_prices = pricing.IMAGE_PRICING["imagen-4.0-generate-001"]
-        assert input_rate == 0.0
-        assert size_prices[None] == 0.04
-
     def test_video_pricing_keyed_by_resolution(self):
         pricing = _reload_pricing()
         assert pricing.VIDEO_PRICING["veo-3.1-generate-preview"]["default"] == 0.40
@@ -81,7 +75,7 @@ class TestPricingLoader:
                 models:
                   custom-gemini: { input_per_million: 1.0, output_per_million: 5.0 }
                 image_generation:
-                  custom-imagen:
+                  custom-image-model:
                     input_per_million: 0.0
                     per_image_by_size: { default: 0.10 }
                 video_generation:
@@ -104,7 +98,7 @@ class TestPricingLoader:
         pricing = _reload_pricing()
 
         assert pricing.MODEL_PRICING == {"custom-gemini": (1.0, 5.0)}
-        input_rate, size_prices = pricing.IMAGE_PRICING["custom-imagen"]
+        input_rate, size_prices = pricing.IMAGE_PRICING["custom-image-model"]
         assert input_rate == 0.0
         assert size_prices[None] == 0.10
         assert pricing.VIDEO_PRICING == {"custom-veo": {"default": 0.5}}

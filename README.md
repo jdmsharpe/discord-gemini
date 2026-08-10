@@ -20,7 +20,7 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Thinking Configuration:** Customizable thinking levels for Gemini 3 models (Minimal, Low, Medium, High) and token budgets for Gemini 2.5 models, with thought summaries displayed in spoilered embeds.
 - **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
 - **Media Generation:**
-  - **Images:** High-quality image generation and editing using Imagen 4 and Gemini Flash/Pro Image models.
+  - **Images:** High-quality image generation and editing using Gemini Flash/Pro Image models.
   - **Video:** Gemini Omni Flash (default) for fast text-to-video via the Interactions API, plus Veo 3.1 for image-to-video, last-frame-constrained interpolation, and resolution/duration control.
   - **Music:** Music generation using Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
   - **Text-to-Speech:** Lifelike speech conversion with 25+ voice options.
@@ -39,7 +39,7 @@ Start a conversation with Gemini AI models.
 
 Generate images from text prompts or edit using reference images.
 
-- **Models:** Gemini 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image, Imagen 4 (Ultra/Fast).
+- **Models:** Gemini 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image.
 - **Options:** Multiple aspect ratios, image count (1-4), resolution control (1K, 2K), and Google Image Search grounding.
 - **Gemini 3.1 Flash Lite Image:** the low-cost option (~$0.034 per 1K image). It generates 1K only — requesting 2K is rejected with a clear message.
 
