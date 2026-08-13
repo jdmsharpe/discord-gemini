@@ -24,6 +24,8 @@ Thumbs.db
 
 # Tool/editor artifacts
 *.egg-info/
+build/
+dist/
 .codex/
 .agents/
 .serena/
