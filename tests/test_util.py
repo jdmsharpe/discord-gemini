@@ -334,79 +334,6 @@ class TestMutuallyExclusiveTools:
 
 
 class TestImageGenerationParameters:
-    def test_to_dict_basic(self):
-        params = ImageGenerationParameters(
-            prompt="A house in the woods",
-            model="imagen-3.0-generate-001",
-            number_of_images=2,
-            aspect_ratio="16:9",
-        )
-        result = params.to_dict()
-        assert result["number_of_images"] == 2
-        assert result["aspect_ratio"] == "16:9"
-
-    def test_to_dict_with_negative_prompt(self):
-        params = ImageGenerationParameters(
-            prompt="A sunset",
-            model="imagen-4.0-generate-001",
-            negative_prompt="blurry, low quality",
-        )
-        result = params.to_dict()
-        assert result["negative_prompt"] == "blurry, low quality"
-
-    def test_to_dict_with_seed_and_guidance(self):
-        params = ImageGenerationParameters(
-            prompt="A mountain",
-            model="imagen-3.0-generate-001",
-            seed=42,
-            guidance_scale=7.5,
-        )
-        result = params.to_dict()
-        assert result["seed"] == 42
-        assert result["guidance_scale"] == 7.5
-
-    def test_person_generation_mapping(self):
-        """Test that person_generation values are properly mapped."""
-        # Test dont_allow
-        params = ImageGenerationParameters(
-            prompt="Test",
-            model="imagen-3.0-generate-001",
-            person_generation="dont_allow",
-        )
-        result = params.to_dict()
-        assert result["person_generation"] == "DONT_ALLOW"
-
-        # Test allow_all
-        params = ImageGenerationParameters(
-            prompt="Test",
-            model="imagen-3.0-generate-001",
-            person_generation="allow_all",
-        )
-        result = params.to_dict()
-        assert result["person_generation"] == "ALLOW_ALL"
-
-    def test_person_generation_allow_adult_excluded(self):
-        """Test that allow_adult (default) is not included in output."""
-        params = ImageGenerationParameters(
-            prompt="Test",
-            model="imagen-3.0-generate-001",
-            person_generation="allow_adult",
-        )
-        result = params.to_dict()
-        assert "person_generation" not in result
-
-    def test_none_values_excluded(self):
-        """Test that None values are not included in to_dict output."""
-        params = ImageGenerationParameters(
-            prompt="Test",
-            model="gemini-3-pro-image",
-        )
-        result = params.to_dict()
-        assert "aspect_ratio" not in result
-        assert "negative_prompt" not in result
-        assert "seed" not in result
-        assert "guidance_scale" not in result
-
     def test_image_size_default_none(self):
         """Test that image_size defaults to None."""
         params = ImageGenerationParameters(prompt="Test", model="gemini-3.1-flash-image")
@@ -1082,9 +1009,6 @@ class TestImagePricing:
             "gemini-3.1-flash-image",
             "gemini-3-pro-image",
             "gemini-2.5-flash-image",
-            "imagen-4.0-generate-001",
-            "imagen-4.0-ultra-generate-001",
-            "imagen-4.0-fast-generate-001",
         ]
         for model in expected_models:
             assert model in IMAGE_PRICING, f"{model} missing from IMAGE_PRICING"
@@ -1095,17 +1019,6 @@ class TestImagePricing:
             assert input_rate >= 0, f"{model} input rate should be >= 0"
             for size, price in size_prices.items():
                 assert price > 0, f"{model} size={size} cost should be > 0"
-
-    def test_imagen_models_have_zero_input_cost(self):
-        """Test that Imagen models have zero input token cost (flat per-image pricing)."""
-        imagen_models = [
-            "imagen-4.0-generate-001",
-            "imagen-4.0-ultra-generate-001",
-            "imagen-4.0-fast-generate-001",
-        ]
-        for model in imagen_models:
-            input_rate, _ = IMAGE_PRICING[model]
-            assert input_rate == 0.0, f"{model} should have zero input rate"
 
     def test_calculate_image_cost_gemini_model(self):
         """Test cost calculation for a Gemini image model with input tokens."""
@@ -1127,11 +1040,6 @@ class TestImagePricing:
         cost_lower = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="2k")
         cost_upper = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="2K")
         assert cost_lower == pytest.approx(cost_upper)
-
-    def test_calculate_image_cost_imagen_model(self):
-        """Test cost calculation for an Imagen model (no input tokens)."""
-        cost = calculate_image_cost("imagen-4.0-generate-001", num_images=4)
-        assert cost == pytest.approx(4 * 0.04)
 
     def test_calculate_image_cost_zero_images(self):
         """Test cost calculation when no images are generated."""

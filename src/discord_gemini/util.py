@@ -70,9 +70,8 @@ def calculate_image_cost(
 ) -> float:
     """Calculate the cost for image generation.
 
-    For Gemini image models, includes input token cost plus per-image output cost
-    at the requested resolution (image_size). Falls back to default (1K) rate.
-    For Imagen models, uses flat per-image pricing only.
+    Includes input token cost plus per-image output cost at the requested
+    resolution (image_size). Falls back to default (1K) rate.
     """
     default_sizes: dict[str | None, float] = {None: UNKNOWN_IMAGE_PER_IMAGE}
     input_rate, size_prices = IMAGE_PRICING.get(
@@ -221,39 +220,9 @@ class ImageGenerationParameters:
     model: str
     number_of_images: int = 1
     aspect_ratio: str | None = None
-    person_generation: str | None = None
-    negative_prompt: str | None = None
     seed: int | None = None
-    guidance_scale: float | None = None
     image_size: str | None = None
     google_image_search: bool = False
-
-    def to_dict(self):
-        """Convert to dictionary for API calls, filtering out None values and handling special cases."""
-        config_dict = {}
-
-        if self.number_of_images is not None:
-            config_dict["number_of_images"] = self.number_of_images
-        if self.aspect_ratio is not None:
-            config_dict["aspect_ratio"] = self.aspect_ratio
-        if self.negative_prompt is not None:
-            config_dict["negative_prompt"] = self.negative_prompt
-        if self.seed is not None:
-            config_dict["seed"] = self.seed
-        if self.guidance_scale is not None:
-            config_dict["guidance_scale"] = self.guidance_scale
-
-        # Handle person_generation mapping for Imagen models
-        if self.person_generation and self.person_generation != "allow_adult":
-            person_gen_map = {
-                "dont_allow": "DONT_ALLOW",
-                "allow_adult": "ALLOW_ADULT",
-                "allow_all": "ALLOW_ALL",
-            }
-            if self.person_generation in person_gen_map:
-                config_dict["person_generation"] = person_gen_map[self.person_generation]
-
-        return config_dict
 
 
 @dataclass

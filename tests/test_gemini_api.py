@@ -272,7 +272,6 @@ class TestGeminiImageResponseText:
         # Simulate the full embed description
         embed_description = "The model did not generate any images.\n"
         embed_description += f"Text response: {truncated}\n"
-        embed_description += "\n*Note: These parameters are not yet implemented for Gemini: negative_prompt, guidance_scale, aspect_ratio, person_generation*"
 
         # Discord's limit is 4096 characters
         assert len(embed_description) <= 4096

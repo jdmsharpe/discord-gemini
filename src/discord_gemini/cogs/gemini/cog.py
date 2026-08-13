@@ -525,7 +525,7 @@ class GeminiCog(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Choose between Gemini or Imagen models. (default: Gemini 3.1 Flash Image)",
+        description="Gemini image model to use. (default: Gemini 3.1 Flash Image)",
         required=False,
         choices=IMAGE_MODEL_CHOICES,
         type=str,
@@ -546,37 +546,16 @@ class GeminiCog(commands.Cog):
         type=str,
     )
     @option(
-        "person_generation",
-        description="(Imagen only) Control generation of people in images. (default: allow_adult)",
-        required=False,
-        choices=PERSON_GENERATION_CHOICES,
-        type=str,
-    )
-    @option(
         "attachment",
-        description="(Gemini only) Image to edit. Upload an image for image editing tasks. (default: not set)",
+        description="Image to edit. Upload an image for image editing tasks. (default: not set)",
         required=False,
         type=Attachment,
-    )
-    @option(
-        "negative_prompt",
-        description="(Advanced) Description of what to discourage in the generated images. (default: not set)",
-        required=False,
-        type=str,
     )
     @option(
         "seed",
         description="(Advanced) Random seed for image generation. (default: not set)",
         required=False,
         type=int,
-    )
-    @option(
-        "guidance_scale",
-        description="(Advanced) Controls adherence to prompt. Ranges from 0.0 to 20.0. (default: not set)",
-        required=False,
-        type=float,
-        min_value=0.0,
-        max_value=20.0,
     )
     @option(
         "image_size",
@@ -598,11 +577,8 @@ class GeminiCog(commands.Cog):
         model: str = "gemini-3.1-flash-image",
         number_of_images: int = 1,
         aspect_ratio: str = "1:1",
-        person_generation: str = "allow_adult",
         attachment: Attachment | None = None,
-        negative_prompt: str | None = None,
         seed: int | None = None,
-        guidance_scale: float | None = None,
         image_size: str | None = None,
         google_image_search: bool | None = None,
     ) -> None:
@@ -613,11 +589,8 @@ class GeminiCog(commands.Cog):
             model,
             number_of_images,
             aspect_ratio,
-            person_generation,
             attachment,
-            negative_prompt,
             seed,
-            guidance_scale,
             image_size,
             google_image_search,
         )
@@ -932,12 +905,6 @@ class GeminiCog(commands.Cog):
         attachment: Attachment | None,
     ) -> tuple[str | None, list[Image.Image], int]:
         return await image_flow._generate_image_with_gemini(self, image_params, attachment)
-
-    async def _generate_image_with_imagen(
-        self,
-        image_params: ImageGenerationParameters,
-    ) -> list[Image.Image]:
-        return await image_flow._generate_image_with_imagen(self, image_params)
 
     async def _create_image_response_embed(
         self,

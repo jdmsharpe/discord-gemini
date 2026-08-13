@@ -38,12 +38,6 @@ class TestPricingLoader:
         assert size_prices["1k"] == 0.0336
         assert "2k" not in size_prices
 
-    def test_imagen_models_have_zero_input_rate(self):
-        pricing = _reload_pricing()
-        input_rate, size_prices = pricing.IMAGE_PRICING["imagen-4.0-generate-001"]
-        assert input_rate == 0.0
-        assert size_prices[None] == 0.04
-
     def test_video_pricing_keyed_by_resolution(self):
         pricing = _reload_pricing()
         assert pricing.VIDEO_PRICING["veo-3.1-generate-preview"]["default"] == 0.40
