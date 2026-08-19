@@ -12,6 +12,7 @@ from google.genai import types
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import SpeechGenerationParameters, calculate_tts_cost
 from . import embeds, state, usage
+from .client import disable_afc
 from .embed_delivery import send_embed_batches
 
 if TYPE_CHECKING:
@@ -27,7 +28,10 @@ async def _generate_speech_with_gemini(
     response = await cog.client.aio.models.generate_content(
         model=tts_params.model,
         contents=tts_params.input_text,
-        config=types.GenerateContentConfig(**cast(Any, tts_params.to_dict())),
+        config=types.GenerateContentConfig(
+            **cast(Any, tts_params.to_dict()),
+            automatic_function_calling=disable_afc(),
+        ),
     )
 
     usage_counts = usage.extract_usage_counts(response)

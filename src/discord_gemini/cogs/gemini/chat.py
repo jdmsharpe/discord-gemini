@@ -27,6 +27,7 @@ from ...util import (
     validate_builtin_custom_tool_combination,
 )
 from . import attachments, cache, embeds, responses, state, tooling, usage
+from .client import disable_afc
 from .embed_delivery import send_embed_batches
 from .models import Conversation
 from .tool_registry import build_runtime_tool_config, iter_tool_registry
@@ -224,7 +225,7 @@ async def handle_new_message_in_conversation(
             user_parts.append({"text": message.content})
         history.append({"role": "user", "parts": user_parts})
 
-        config_args: dict[str, Any] = {}
+        config_args: dict[str, Any] = {"automatic_function_calling": disable_afc()}
         if params.cache_name:
             config_args["cached_content"] = params.cache_name
         elif params.system_instruction:
@@ -585,7 +586,7 @@ async def chat_command(
                 typing_task.cancel()
             return
 
-        config_args: dict[str, Any] = {}
+        config_args: dict[str, Any] = {"automatic_function_calling": disable_afc()}
         if system_instruction is not None:
             config_args["system_instruction"] = system_instruction
         if frequency_penalty is not None:

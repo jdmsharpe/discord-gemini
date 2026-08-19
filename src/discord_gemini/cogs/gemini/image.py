@@ -11,6 +11,7 @@ from PIL import Image, UnidentifiedImageError
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import ImageGenerationParameters, calculate_image_cost, truncate_text
 from . import attachments, embeds, state, usage
+from .client import disable_afc
 from .embed_delivery import send_embed_batches
 
 if TYPE_CHECKING:
@@ -87,6 +88,8 @@ async def _generate_image_with_gemini(
                 )
             )
         ]
+
+    config_kwargs["automatic_function_calling"] = disable_afc()
 
     gemini_response = await cog.client.aio.models.generate_content(
         model=image_params.model,

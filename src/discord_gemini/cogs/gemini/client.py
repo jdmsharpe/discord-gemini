@@ -20,6 +20,18 @@ def _build_retry_options() -> types.HttpRetryOptions:
     )
 
 
+def disable_afc() -> types.AutomaticFunctionCallingConfig:
+    """Turn the SDK's automatic function calling off for a request.
+
+    No flow wants the SDK executing callables: chat runs its own tool loop in
+    ``chat._run_agentic_loop`` and the media flows pass no callables at all.
+    Leaving AFC nominally on also routes ``generate_content`` through the SDK's
+    AFC wrapper, which logs a one-shot "direct use of AFC" warning per process.
+    """
+
+    return types.AutomaticFunctionCallingConfig(disable=True)
+
+
 def build_gemini_client() -> genai.Client:
     """Build the standard Gemini client used by the cog."""
 

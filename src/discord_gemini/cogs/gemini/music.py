@@ -23,7 +23,7 @@ from ...util import (
     truncate_text,
 )
 from . import attachments, embeds, state
-from .client import build_lyria_realtime_client
+from .client import build_lyria_realtime_client, disable_afc
 from .embed_delivery import send_embed_batches
 from .responses import MusicGenerationError, _get_response_content_parts
 
@@ -150,7 +150,10 @@ async def _generate_music_with_lyria3(
         response = await cog.client.aio.models.generate_content(
             model=music_params.model,
             contents=await _build_lyria3_music_contents(cog, music_params, attachment),
-            config=types.GenerateContentConfig(response_modalities=["AUDIO", "TEXT"]),
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO", "TEXT"],
+                automatic_function_calling=disable_afc(),
+            ),
         )
 
         text_parts: list[str] = []
