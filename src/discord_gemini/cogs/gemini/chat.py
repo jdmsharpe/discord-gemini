@@ -499,6 +499,15 @@ async def chat_command(
             )
             return
 
+    thinking_error = responses._validate_thinking_request(model, thinking_level, thinking_budget)
+    if thinking_error:
+        await send_embed_batches(
+            ctx.send_followup,
+            embed=embeds.build_error_embed(thinking_error),
+            logger=cog.logger,
+        )
+        return
+
     try:
         typing_task = asyncio.create_task(keep_typing(cog, channel))
 

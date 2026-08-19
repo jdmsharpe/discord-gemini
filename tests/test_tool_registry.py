@@ -49,8 +49,11 @@ def test_registry_metadata_exposes_model_constraints():
     assert "gemini-2.5-pro" in file_search.model_allowlist
 
 
-def test_default_chat_model_allowlisted_for_grounding_tools():
-    """gemini-3.6-flash is the default chat model and must be allowed its grounding tools."""
+def test_superseded_default_still_allowlisted_for_grounding_tools():
+    """gemini-3.6-flash is no longer the default but stays selectable, so it keeps its tools.
+
+    The live default is covered by ``test_default_chat_model_is_priced_and_fully_tool_enabled``.
+    """
     for tool_id in MODEL_GATED_TOOLS:
         metadata = get_tool_metadata(tool_id)
         assert metadata is not None

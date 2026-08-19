@@ -930,19 +930,28 @@ class TestModelPricing:
 
     def test_calculate_cost_uses_new_ga_model_rows(self):
         """Missing pricing rows fall back silently, so price the new models explicitly."""
-        # gemini-3.6-flash: $1.50/M input, $7.50/M output
-        assert calculate_cost("gemini-3.6-flash", 1_000_000, 1_000_000) == pytest.approx(9.0)
+        # gemini-3.7-flash: $0.75/M input, $3.75/M output
+        assert calculate_cost("gemini-3.7-flash", 1_000_000, 1_000_000) == pytest.approx(4.50)
+        # gemini-3.6-flash: $0.75/M input, $3.75/M output
+        assert calculate_cost("gemini-3.6-flash", 1_000_000, 1_000_000) == pytest.approx(4.50)
         # gemini-3.5-flash-lite: $0.30/M input, $2.50/M output
         assert calculate_cost("gemini-3.5-flash-lite", 1_000_000, 1_000_000) == pytest.approx(2.80)
-        # Neither may land on UNKNOWN_CHAT_MODEL_PRICING (2.0, 12.0) == $14.00.
-        for model in ("gemini-3.6-flash", "gemini-3.5-flash-lite"):
+        # None may land on UNKNOWN_CHAT_MODEL_PRICING (2.0, 12.0) == $14.00.
+        for model in ("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"):
             assert calculate_cost(model, 1_000_000, 1_000_000) != pytest.approx(14.0)
 
-    def test_new_flash_is_cheaper_than_the_model_it_succeeds(self):
-        """gemini-3.6-flash keeps the 3.5 input rate and cuts the output rate."""
-        new_input, new_output = MODEL_PRICING["gemini-3.6-flash"]
+    def test_flash_tier_carries_the_promotional_rate(self):
+        """3.7 and 3.6 Flash bill at the promotional rate, not the 2027 rate.
+
+        Both were priced at the post-2027 $1.50/$7.50 row while the rate in force
+        was half that, so pin the current rate and keep the tier in lockstep.
+        """
+        assert MODEL_PRICING["gemini-3.7-flash"] == (0.75, 3.75)
+        assert MODEL_PRICING["gemini-3.6-flash"] == MODEL_PRICING["gemini-3.7-flash"]
+        # Strictly cheaper than the 3.5 Flash it succeeds, on both axes.
         old_input, old_output = MODEL_PRICING["gemini-3.5-flash"]
-        assert new_input == old_input
+        new_input, new_output = MODEL_PRICING["gemini-3.7-flash"]
+        assert new_input < old_input
         assert new_output < old_output
 
     def test_new_lite_is_more_expensive_than_the_older_lite(self):
@@ -1258,7 +1267,7 @@ class TestChatCompletionParametersThinking:
         assert params.thinking_budget == -1
 
     def test_both_thinking_params(self):
-        """Test setting both thinking_level and thinking_budget."""
+        """The dataclass holds both; `_validate_thinking_request` is what rejects them."""
         params = ChatCompletionParameters(
             model="gemini-3-flash-preview", thinking_level="low", thinking_budget=512
         )

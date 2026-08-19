@@ -44,6 +44,7 @@ _TOOL_REGISTRY: dict[str, ToolMetadata] = {
         description="Ground answers with Maps place data.",
         model_allowlist=frozenset(
             {
+                "gemini-3.7-flash",
                 "gemini-3.6-flash",
                 "gemini-3.5-flash",
                 "gemini-3.5-flash-lite",
@@ -65,6 +66,7 @@ _TOOL_REGISTRY: dict[str, ToolMetadata] = {
         description="Retrieve and analyze provided URLs.",
         model_allowlist=frozenset(
             {
+                "gemini-3.7-flash",
                 "gemini-3.6-flash",
                 "gemini-3.5-flash",
                 "gemini-3.5-flash-lite",
@@ -85,11 +87,15 @@ _TOOL_REGISTRY: dict[str, ToolMetadata] = {
         description="Search over uploaded document stores.",
         model_allowlist=frozenset(
             {
+                "gemini-3.7-flash",
                 "gemini-3.6-flash",
                 "gemini-3.5-flash",
                 "gemini-3.5-flash-lite",
                 "gemini-3.1-pro-preview",
+                "gemini-3.1-flash-lite",
                 "gemini-3-flash-preview",
+                # Not on Google's documented File Search model list, but retained:
+                # they predate it and removing them would drop a working path.
                 "gemini-2.5-pro",
                 "gemini-2.5-flash-lite",
             }

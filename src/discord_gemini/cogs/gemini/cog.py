@@ -478,7 +478,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3.6-flash",
+        model: str = "gemini-3.7-flash",
         system_instruction: str | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,

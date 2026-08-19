@@ -97,14 +97,64 @@ def test_cog_init_does_not_configure_root_logger():
 
 
 def test_default_chat_model_is_first_choice():
-    """gemini-3.6-flash is the default chat model and is shown first in the picker."""
-    assert CHAT_MODEL_CHOICES[0].value == "gemini-3.6-flash"
+    """gemini-3.7-flash is the default chat model and is shown first in the picker."""
+    assert CHAT_MODEL_CHOICES[0].value == "gemini-3.7-flash"
 
 
 def test_chat_command_default_model_param():
-    """The /gemini chat `model` parameter defaults to gemini-3.6-flash."""
+    """The /gemini chat `model` parameter defaults to gemini-3.7-flash."""
     signature = inspect.signature(GeminiCog.chat.callback)
-    assert signature.parameters["model"].default == "gemini-3.6-flash"
+    assert signature.parameters["model"].default == "gemini-3.7-flash"
+
+
+class TestThinkingValidation:
+    """Thinking configurations the API rejects must fail before the request."""
+
+    @staticmethod
+    def _validate(model, level=None, budget=None):
+        from discord_gemini.cogs.gemini.responses import _validate_thinking_request
+
+        return _validate_thinking_request(model, level, budget)
+
+    def test_accepts_a_level_alone(self):
+        assert self._validate("gemini-3.7-flash", level="low") is None
+
+    def test_accepts_a_budget_alone(self):
+        assert self._validate("gemini-3.7-flash", budget=1024) is None
+
+    def test_accepts_nothing_set(self):
+        assert self._validate("gemini-3.7-flash") is None
+
+    def test_rejects_level_and_budget_together(self):
+        """`400 You can only set only one of thinking budget and thinking level`."""
+        error = self._validate("gemini-3.7-flash", level="low", budget=1024)
+        assert error is not None
+        assert "cannot be combined" in error
+
+    def test_level_and_budget_rejected_on_every_model(self):
+        for model in ("gemini-3.6-flash", "gemini-2.5-flash", "gemini-3.1-pro-preview"):
+            assert self._validate(model, level="high", budget=512) is not None
+
+    def test_rejects_minimal_on_models_that_do_not_support_it(self):
+        """gemini-3.7-flash 400s on MINIMAL while the menu still offers it."""
+        error = self._validate("gemini-3.7-flash", level="minimal")
+        assert error is not None
+        assert "Minimal" in error
+
+    def test_allows_minimal_where_it_is_supported(self):
+        assert self._validate("gemini-3.6-flash", level="minimal") is None
+        assert self._validate("gemini-2.5-flash", level="minimal") is None
+
+    def test_default_chat_model_rejects_minimal(self):
+        """The default is the model users hit without choosing, so pin it directly."""
+        from discord_gemini.util import MINIMAL_THINKING_UNSUPPORTED_MODELS
+
+        signature = inspect.signature(GeminiCog.chat.callback)
+        assert signature.parameters["model"].default in MINIMAL_THINKING_UNSUPPORTED_MODELS
+
+    def test_minimal_is_still_offered_in_the_menu(self):
+        """If Minimal ever leaves the menu, this guard becomes dead code."""
+        assert any(choice.value == "minimal" for choice in THINKING_LEVEL_CHOICES)
 
 
 class TestLiteImageValidation:

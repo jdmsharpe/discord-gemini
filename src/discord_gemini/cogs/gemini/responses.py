@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 from google.genai import types
 
+from ...util import MINIMAL_THINKING_UNSUPPORTED_MODELS
 from .models import CitationInfo, ToolInfo, UrlContextInfo
 
 _GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -140,11 +141,39 @@ def _get_response_content_parts(response: Any) -> list[Any] | None:
     return list(parts)
 
 
+def _validate_thinking_request(
+    model: str,
+    thinking_level: str | None,
+    thinking_budget: int | None,
+) -> str | None:
+    """Reject thinking configurations the API answers with a 400.
+
+    Both are reachable straight from the slash command: level and budget together
+    fail on every model, and `minimal` fails on the models listed in
+    `MINIMAL_THINKING_UNSUPPORTED_MODELS`.
+    """
+
+    if thinking_level is not None and thinking_budget is not None:
+        return (
+            "`thinking_level` and `thinking_budget` cannot be combined — the API "
+            "accepts only one. Pick a thinking level, or set a budget, not both."
+        )
+    if thinking_level == "minimal" and model in MINIMAL_THINKING_UNSUPPORTED_MODELS:
+        return (
+            f"`{model}` does not support the Minimal thinking level. "
+            "Choose Low, Medium, or High, or use `thinking_budget` instead."
+        )
+    return None
+
+
 def _build_thinking_config(
     thinking_level: str | None,
     thinking_budget: int | None,
 ) -> types.ThinkingConfig | None:
-    """Build a ThinkingConfig from user parameters."""
+    """Build a ThinkingConfig from user parameters.
+
+    Callers must run `_validate_thinking_request` first.
+    """
 
     if thinking_level is None and thinking_budget is None:
         return None
@@ -283,6 +312,7 @@ __all__ = [
     "ValidationError",
     "_build_thinking_config",
     "_get_response_content_parts",
+    "_validate_thinking_request",
     "extract_thinking_text",
     "extract_tool_info",
     "resolve_url_context_source_labels",
