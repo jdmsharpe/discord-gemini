@@ -15,6 +15,9 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         self.mock_client_instance.aio.caches.create = AsyncMock()
         self.mock_client_instance.aio.caches.delete = AsyncMock()
         self.mock_client_instance.aio.caches.update = AsyncMock()
+        self.mock_client_instance.aio.models.count_tokens = AsyncMock(
+            return_value=SimpleNamespace(total_tokens=100_000)
+        )
 
     async def test_maybe_create_cache_below_threshold(self):
         """Test that _maybe_create_cache does nothing when below token threshold."""
@@ -224,6 +227,100 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
 
         assert params.cache_name is None
         assert params.cached_history_length == 0
+
+    async def test_maybe_create_cache_skips_payload_below_minimum(self):
+        """Test that a prompt inflated by tool declarations does not trigger a doomed create."""
+        from discord_gemini.util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-3.7-flash", conversation_id=100)
+        history = [
+            {"role": "user", "parts": [{"text": "hi"}]},
+            {"role": "model", "parts": [{"text": "hello"}]},
+        ]
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=1100))
+        self.cog.client.aio.models.count_tokens.return_value = SimpleNamespace(total_tokens=782)
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        assert params.cache_name is None
+        assert params.cached_history_length == 0
+        self.cog.client.aio.models.count_tokens.assert_awaited_once()
+        self.cog.client.aio.caches.create.assert_not_called()
+
+    async def test_maybe_create_cache_counts_system_instruction_with_contents(self):
+        """Test that the token count covers the system instruction the cache will hold."""
+        from discord_gemini.util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-3.7-flash",
+            conversation_id=100,
+            system_instruction="Be terse.",
+        )
+        history = [
+            {"role": "user", "parts": [{"text": "hi"}]},
+            {"role": "model", "parts": [{"text": "hello"}]},
+        ]
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=2000))
+        self.cog.client.aio.caches.create.return_value = SimpleNamespace(
+            name="cachedContents/with-system"
+        )
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        count_kwargs = self.cog.client.aio.models.count_tokens.call_args.kwargs
+        assert count_kwargs["model"] == "gemini-3.7-flash"
+        assert count_kwargs["contents"] == [
+            {"role": "user", "parts": [{"text": "Be terse."}]},
+            *history,
+        ]
+        assert params.cache_name == "cachedContents/with-system"
+
+    async def test_maybe_create_cache_creates_when_count_unavailable(self):
+        """Test that an unavailable token count still allows the create attempt."""
+        from discord_gemini.util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-3.7-flash", conversation_id=100)
+        history = [
+            {"role": "user", "parts": [{"text": "long prompt " * 200}]},
+            {"role": "model", "parts": [{"text": "long response " * 200}]},
+        ]
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=2000))
+        self.cog.client.aio.models.count_tokens.side_effect = APIError(500, {})
+        self.cog.client.aio.caches.create.return_value = SimpleNamespace(
+            name="cachedContents/uncounted"
+        )
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        assert params.cache_name == "cachedContents/uncounted"
+        assert params.cached_history_length == 2
+        self.cog.client.aio.caches.create.assert_called_once()
+
+    async def test_maybe_create_cache_recache_skips_payload_below_minimum(self):
+        """Test that a too-small re-cache payload leaves the existing cache in place."""
+        from discord_gemini.util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(
+            model="gemini-3.7-flash",
+            conversation_id=100,
+            cache_name="cachedContents/old-cache",
+            cached_history_length=4,
+        )
+        history = [{"role": "user", "parts": [{"text": f"msg {i}"}]} for i in range(6)]
+        response = SimpleNamespace(
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=5000,
+                cached_content_token_count=2000,
+            )
+        )
+        self.cog.client.aio.models.count_tokens.return_value = SimpleNamespace(total_tokens=900)
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        assert params.cache_name == "cachedContents/old-cache"
+        assert params.cached_history_length == 4
+        self.cog.client.aio.caches.create.assert_not_called()
+        self.cog.client.aio.caches.delete.assert_not_called()
 
     async def test_delete_conversation_cache(self):
         """Test that _delete_conversation_cache deletes and clears fields."""

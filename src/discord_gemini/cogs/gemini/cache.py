@@ -16,6 +16,78 @@ if TYPE_CHECKING:
 CACHE_API_EXCEPTIONS = (APIError, aiohttp.ClientError, TimeoutError)
 
 
+def _cache_contents(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project conversation history into the contents payload a cache stores."""
+
+    return [{"role": entry["role"], "parts": entry["parts"]} for entry in history]
+
+
+async def _count_cacheable_tokens(
+    cog: "GeminiCog",
+    params: Any,
+    contents: list[dict[str, Any]],
+) -> int | None:
+    """Count the tokens a cache would hold, or None when the count is unavailable.
+
+    ``prompt_token_count`` covers the whole request — tool declarations included —
+    while a cache only holds the system instruction and contents, so the response
+    usage overstates the payload and lets sub-minimum creates through. The
+    Developer API rejects ``system_instruction`` in ``CountTokensConfig``, so it is
+    folded in as a leading turn to keep the count comparable to the cache payload.
+    """
+
+    payload = list(contents)
+    if params.system_instruction:
+        payload.insert(0, {"role": "user", "parts": [{"text": params.system_instruction}]})
+
+    try:
+        counted = await cog.client.aio.models.count_tokens(
+            model=params.model,
+            contents=cast(Any, payload),
+        )
+    except CACHE_API_EXCEPTIONS as error:
+        cog.logger.warning("Failed to count cacheable tokens: %s", error)
+        return None
+
+    total_tokens = getattr(counted, "total_tokens", None)
+    return None if total_tokens is None else int(total_tokens)
+
+
+async def _create_cache(
+    cog: "GeminiCog",
+    params: Any,
+    history: list[dict[str, Any]],
+    threshold: int,
+) -> Any | None:
+    """Create an explicit cache over ``history``, or None if it is too small or fails."""
+
+    contents = _cache_contents(history)
+    cacheable_tokens = await _count_cacheable_tokens(cog, params, contents)
+    if cacheable_tokens is not None and cacheable_tokens < threshold:
+        cog.logger.debug(
+            "Skipping cache for conversation %s: %d cacheable tokens is below the %s minimum of %d",
+            params.conversation_id,
+            cacheable_tokens,
+            params.model,
+            threshold,
+        )
+        return None
+
+    try:
+        return await cog.client.aio.caches.create(
+            model=params.model,
+            config=types.CreateCachedContentConfig(
+                display_name=f"conv-{params.conversation_id}",
+                system_instruction=params.system_instruction,
+                contents=cast(Any, contents),
+                ttl=CACHE_TTL,
+            ),
+        )
+    except CACHE_API_EXCEPTIONS as error:
+        cog.logger.warning("Failed to create cache: %s", error)
+        return None
+
+
 async def _maybe_create_cache(
     cog: "GeminiCog",
     params: Any,
@@ -37,7 +109,7 @@ async def _maybe_create_cache(
         cached_tokens = usage_counts.cached_tokens
         uncached_tokens = prompt_tokens - cached_tokens
         if uncached_tokens >= threshold:
-            await _recache(cog, params, history, prompt_tokens, uncached_tokens)
+            await _recache(cog, params, history, prompt_tokens, uncached_tokens, threshold)
         else:
             await _refresh_cache_ttl(cog, params)
         return
@@ -45,27 +117,18 @@ async def _maybe_create_cache(
     if prompt_tokens < threshold:
         return
 
-    try:
-        contents = [{"role": entry["role"], "parts": entry["parts"]} for entry in history]
-        cache = await cog.client.aio.caches.create(
-            model=params.model,
-            config=types.CreateCachedContentConfig(
-                display_name=f"conv-{params.conversation_id}",
-                system_instruction=params.system_instruction,
-                contents=cast(Any, contents),
-                ttl=CACHE_TTL,
-            ),
-        )
-        params.cache_name = cache.name
-        params.cached_history_length = len(history)
-        cog.logger.info(
-            "Created cache %s for conversation %s (%d prompt tokens)",
-            cache.name,
-            params.conversation_id,
-            prompt_tokens,
-        )
-    except CACHE_API_EXCEPTIONS as error:
-        cog.logger.warning("Failed to create cache: %s", error)
+    cache = await _create_cache(cog, params, history, threshold)
+    if cache is None:
+        return
+
+    params.cache_name = cache.name
+    params.cached_history_length = len(history)
+    cog.logger.info(
+        "Created cache %s for conversation %s (%d prompt tokens)",
+        cache.name,
+        params.conversation_id,
+        prompt_tokens,
+    )
 
 
 async def _recache(
@@ -74,33 +137,24 @@ async def _recache(
     history: list[dict[str, Any]],
     prompt_tokens: int,
     uncached_tokens: int,
+    threshold: int,
 ) -> None:
     """Delete the old cache and create a new one covering the full history."""
 
     old_cache_name = params.cache_name
-    try:
-        contents = [{"role": entry["role"], "parts": entry["parts"]} for entry in history]
-        cache = await cog.client.aio.caches.create(
-            model=params.model,
-            config=types.CreateCachedContentConfig(
-                display_name=f"conv-{params.conversation_id}",
-                system_instruction=params.system_instruction,
-                contents=cast(Any, contents),
-                ttl=CACHE_TTL,
-            ),
-        )
-        params.cache_name = cache.name
-        params.cached_history_length = len(history)
-        cog.logger.info(
-            "Re-cached conversation %s as %s (%d prompt tokens, %d were uncached)",
-            params.conversation_id,
-            cache.name,
-            prompt_tokens,
-            uncached_tokens,
-        )
-    except CACHE_API_EXCEPTIONS as error:
-        cog.logger.warning("Failed to re-cache: %s", error)
+    cache = await _create_cache(cog, params, history, threshold)
+    if cache is None:
         return
+
+    params.cache_name = cache.name
+    params.cached_history_length = len(history)
+    cog.logger.info(
+        "Re-cached conversation %s as %s (%d prompt tokens, %d were uncached)",
+        params.conversation_id,
+        cache.name,
+        prompt_tokens,
+        uncached_tokens,
+    )
 
     if old_cache_name is not None:
         try:

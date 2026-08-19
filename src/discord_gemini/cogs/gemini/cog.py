@@ -233,8 +233,11 @@ class GeminiCog(commands.Cog):
         history: list[dict[str, Any]],
         prompt_tokens: int,
         uncached_tokens: int,
+        threshold: int,
     ) -> None:
-        await cache_helpers._recache(self, params, history, prompt_tokens, uncached_tokens)
+        await cache_helpers._recache(
+            self, params, history, prompt_tokens, uncached_tokens, threshold
+        )
 
     async def _refresh_cache_ttl(self, params: ChatCompletionParameters) -> None:
         await cache_helpers._refresh_cache_ttl(self, params)
