@@ -13,7 +13,7 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 
 ## Features
 
-- **Multi-turn Conversations:** Persistent conversation history with interactive button controls and explicit context caching for long conversations.
+- **Multi-turn Conversations:** Persistent conversation history with interactive button controls, plus explicit context caching once a conversation clears its model's cache minimum (1,024 tokens on Flash, 4,096 on Pro).
 - **Multiple Gemini Models:** Supports Gemini 3.7 Flash (default), 3.6 Flash, 3.5 Flash, 3.5 Flash Lite, 3.1 Pro, 3.1 Flash Lite, 3.0 Flash, and 2.5 Pro/Flash/Flash Lite.
 - **Multimodal Input:** Supports text, images, PDFs, audio, video, and documents. Includes external URL file input, `opus` / `alaw` / `mulaw` audio MIME handling, and automatic File API routing for large attachments (up to 2 GB).
 - **Advanced Tool Calling:** Features built-in tools (`google_search`, `code_execution`, `google_maps`, `url_context`, `file_search`). Gemini 3 chat models seamlessly combine built-in tools with custom functions.
