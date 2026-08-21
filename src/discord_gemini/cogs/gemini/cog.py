@@ -372,7 +372,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "model",
-        description="Choose from the following Gemini models. (default: Gemini 3.6 Flash)",
+        description="Choose from the following Gemini models. (default: Gemini 3.7 Flash)",
         required=False,
         choices=CHAT_MODEL_CHOICES,
         type=str,
@@ -600,7 +600,7 @@ class GeminiCog(commands.Cog):
 
     @gemini_media.command(
         name="video",
-        description="Generates a video based on a prompt using Veo.",
+        description="Generates a video based on a prompt using Gemini Omni or Veo.",
     )
     @option("prompt", description="Prompt for video generation", required=True, type=str)
     @option(
@@ -723,7 +723,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "model",
-        description="Choose Gemini text-to-speech model. (default: Gemini 2.5 Flash Preview TTS)",
+        description="Choose Gemini text-to-speech model. (default: Gemini 3.1 Flash Preview TTS)",
         required=False,
         choices=TTS_MODEL_CHOICES,
         type=str,
@@ -775,7 +775,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "duration",
-        description="Target duration in seconds. Lyria RealTime only. (default: not set)",
+        description="Target duration in seconds. Lyria RealTime only. (default: 30)",
         required=False,
         type=int,
         min_value=5,
