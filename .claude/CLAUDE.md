@@ -12,7 +12,7 @@ uv run python src/bot.py   # or: docker compose up
 ## Gotchas
 
 - Uses **`py-cord`** (not `discord.py`). The slash-command API differs; don't mix docs between the two.
-- `GUILD_IDS` empty → commands register globally (up to 1-hour propagation delay). Set it to a test guild ID during development for instant updates.
+- `GUILD_IDS` must list at least one guild ID. Empty or unset parses to `[]`, and py-cord only registers a command globally when `guild_ids is None`, so the commands land **nowhere** — not globally, not per-guild. `validate_required_config()` does not check it, so the bot starts clean and silently serves no commands.
 
 ## Environment Setup
 
@@ -21,7 +21,7 @@ Copy `.env.example` to `.env` and fill in the values:
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `BOT_TOKEN` | **Yes** | — | Discord bot token |
-| `GUILD_IDS` | **Yes** | — | Comma-separated Discord server IDs |
+| `GUILD_IDS` | **Yes** | — | Comma-separated Discord server IDs; empty or unset registers **no** commands anywhere |
 | `GEMINI_API_KEY` | **Yes** | — | Google Gemini API key |
 | `GEMINI_API_VERSION` | No | SDK default (`v1beta`) | Override API version (`v1` for stable, `v1alpha` for preview) |
 | `GEMINI_FILE_SEARCH_STORE_IDS` | No | `""` | Comma-separated file search store IDs |
