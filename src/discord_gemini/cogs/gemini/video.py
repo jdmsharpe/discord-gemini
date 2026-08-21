@@ -244,9 +244,11 @@ def _validate_omni_video_request(
 ) -> str | None:
     """Reject Veo-only options Gemini Omni Flash does not support.
 
-    Omni Flash (Interactions API) supports text-to-video with an aspect ratio only;
-    resolution, duration, negative prompts, person-generation control, image/first-
-    or-last-frame inputs, multiple videos, and resize modes are Veo-only.
+    Omni Flash (Interactions API) supports text-to-video with an aspect ratio only:
+    duration, negative prompts, person-generation control, image/first-or-last-frame
+    inputs, multiple videos, and resize modes are Veo-only. `resolution` is typed on the
+    Interactions video response format as of google-genai 2.19.0, but Omni Flash ignores
+    it and always returns 720p (verified by live probe, 2026-08-20).
     """
 
     unsupported: list[str] = []

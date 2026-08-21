@@ -77,7 +77,7 @@ Check if the bot has the necessary permissions in the current channel.
 ### Prerequisites
 
 - Python 3.11+
-- `google-genai` ~2.14
+- `google-genai` ~2.19
 - `py-cord` ~2.8
 - `Pillow` ~12.2
 - `aiohttp` ~3.14
