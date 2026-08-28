@@ -6,9 +6,9 @@
 [![Version](https://img.shields.io/github/v/tag/jdmsharpe/discord-gemini?sort=semver&label=version)](https://github.com/jdmsharpe/discord-gemini/tags)
 [![License](https://img.shields.io/github/license/jdmsharpe/discord-gemini?label=license)](./LICENSE)
 [![CI](https://github.com/jdmsharpe/discord-gemini/actions/workflows/main.yml/badge.svg)](https://github.com/jdmsharpe/discord-gemini/actions/workflows/main.yml)
-[![Codecov](https://codecov.io/gh/jdmsharpe/discord-gemini/branch/main/graph/badge.svg)](https://app.codecov.io/gh/jdmsharpe/discord-gemini)
 [![Docker Pulls](https://img.shields.io/docker/pulls/jsgreen152/discord-gemini?logo=docker&logoColor=white)](https://hub.docker.com/r/jsgreen152/discord-gemini)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Codecov](https://codecov.io/gh/jdmsharpe/discord-gemini/branch/main/graph/badge.svg)](https://app.codecov.io/gh/jdmsharpe/discord-gemini)
 
 </div>
 
