@@ -186,8 +186,12 @@ class TestThinkingValidation:
         assert any(choice.value == "minimal" for choice in THINKING_LEVEL_CHOICES)
 
 
-class TestLiteImageValidation:
-    """`gemini-3.1-flash-lite-image` generates 1K only; larger sizes 400 live."""
+class TestImageSizeValidation:
+    """Per-model `image_size` support, from live 400s probed 2026-08-28.
+
+    `gemini-3.1-flash-lite-image` generates 1K only; 512 and 4K are Flash Image,
+    4K also Pro; 512 on Pro is a 400. The bot refuses with the API's own wording.
+    """
 
     @staticmethod
     def _params(model="gemini-3.1-flash-lite-image", **kwargs):
@@ -196,28 +200,77 @@ class TestLiteImageValidation:
         return ImageGenerationParameters(prompt="x", model=model, **kwargs)
 
     def test_accepts_lite_without_image_size(self):
-        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+        from discord_gemini.cogs.gemini.image import _validate_image_size_request
 
-        assert _validate_lite_image_request(self._params()) is None
+        assert _validate_image_size_request(self._params()) is None
 
     def test_accepts_lite_at_1k_either_case(self):
-        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+        from discord_gemini.cogs.gemini.image import _validate_image_size_request
 
-        assert _validate_lite_image_request(self._params(image_size="1k")) is None
-        assert _validate_lite_image_request(self._params(image_size="1K")) is None
+        assert _validate_image_size_request(self._params(image_size="1k")) is None
+        assert _validate_image_size_request(self._params(image_size="1K")) is None
 
     def test_rejects_lite_at_2k(self):
-        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+        from discord_gemini.cogs.gemini.image import _validate_image_size_request
 
-        error = _validate_lite_image_request(self._params(image_size="2k"))
+        error = _validate_image_size_request(self._params(image_size="2K"))
         assert error is not None
+        assert error.startswith("Image size 2K is not supported for this model")
         assert "1K" in error
 
+    @pytest.mark.parametrize(
+        ("model", "size"),
+        [
+            ("gemini-3.1-flash-lite-image", "4K"),
+            ("gemini-3.1-flash-lite-image", "512"),
+            ("gemini-3-pro-image", "512"),
+        ],
+    )
+    def test_rejects_sizes_the_api_400s_on_verbatim(self, model, size):
+        from discord_gemini.cogs.gemini.image import _validate_image_size_request
+
+        error = _validate_image_size_request(self._params(model=model, image_size=size))
+        assert error is not None
+        assert error.startswith(f"Image size {size} is not supported for this model")
+
+    @pytest.mark.parametrize(
+        ("model", "size"),
+        [
+            ("gemini-3.1-flash-image", "512"),
+            ("gemini-3.1-flash-image", "4K"),
+            ("gemini-3-pro-image", "4K"),
+            ("gemini-3-pro-image", "2K"),
+        ],
+    )
+    def test_accepts_sizes_the_api_rendered(self, model, size):
+        from discord_gemini.cogs.gemini.image import _validate_image_size_request
+
+        assert _validate_image_size_request(self._params(model=model, image_size=size)) is None
+
+    def test_supported_sizes_table_matches_the_probes(self):
+        from discord_gemini.cogs.gemini.image import IMAGE_SUPPORTED_SIZES
+
+        assert {
+            "gemini-3.1-flash-image": {"512", "1k", "2k", "4k"},
+            "gemini-3.1-flash-lite-image": {"1k"},
+            "gemini-3-pro-image": {"1k", "2k", "4k"},
+        } == IMAGE_SUPPORTED_SIZES
+
     def test_does_not_constrain_other_image_models(self):
-        from discord_gemini.cogs.gemini.image import _validate_lite_image_request
+        from discord_gemini.cogs.gemini.image import _validate_image_size_request
 
         params = self._params(model="gemini-3.1-flash-image", image_size="2k")
-        assert _validate_lite_image_request(params) is None
+        assert _validate_image_size_request(params) is None
+        # Models with no table entry pass every size through to the API.
+        params = self._params(model="gemini-2.5-flash-image", image_size="4K")
+        assert _validate_image_size_request(params) is None
+
+    def test_choice_values_are_the_canonical_uppercase_spelling(self):
+        """Lowercase `2k` was metered at the 1K tier (1,120 vs 1,680 IMAGE tokens,
+        probe 2026-08-28); the documented spelling is uppercase, so send that."""
+        from discord_gemini.cogs.gemini.command_options import IMAGE_SIZE_CHOICES
+
+        assert [choice.value for choice in IMAGE_SIZE_CHOICES] == ["512", "1K", "2K", "4K"]
 
 
 def test_critical_choice_values_present():
@@ -438,12 +491,18 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         assert call_kwargs.kwargs["contents"] == "Edit this cat"
 
     async def test_generate_image_with_gemini_default_config(self):
-        """Test that default config has response_modalities and no custom image_config/tools."""
+        """The command default (aspect_ratio 1:1, no size) sends ONLY the aspect ratio.
+
+        The ratio is always on the wire, 1:1 included: omitted, the model picked its
+        own 11:6 (704x384 for a 512 request) while an explicit 1:1 returned 512x512
+        (probe 2026-08-28), so the advertised `(default: 1:1)` was not real before.
+        """
         from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
             model="gemini-3.1-flash-image",
+            aspect_ratio="1:1",
         )
 
         mock_response = MagicMock()
@@ -455,20 +514,19 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
         assert config.response_modalities == ["TEXT", "IMAGE"]
-        # image_config may be auto-initialized but should have no custom values
-        if config.image_config:
-            assert config.image_config.image_size is None
-            assert config.image_config.aspect_ratio is None
+        assert config.image_config is not None
+        assert config.image_config.aspect_ratio == "1:1"
+        assert config.image_config.image_size is None
         assert config.tools is None
 
     async def test_generate_image_with_gemini_image_size(self):
-        """Test that image_size is passed via image_config."""
+        """Test that image_size is passed via image_config, in the canonical spelling."""
         from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
             prompt="A cat",
             model="gemini-3.1-flash-image",
-            image_size="2k",
+            image_size="2K",
         )
 
         mock_response = MagicMock()
@@ -480,7 +538,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         call_kwargs = self.cog.client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs["config"]
         assert config.image_config is not None
-        assert config.image_config.image_size == "2k"
+        assert config.image_config.image_size == "2K"
 
     async def test_generate_image_with_gemini_aspect_ratio(self):
         """Test that non-default aspect_ratio is passed via image_config."""
@@ -502,6 +560,26 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         config = call_kwargs.kwargs["config"]
         assert config.image_config is not None
         assert config.image_config.aspect_ratio == "16:9"
+
+    async def test_generate_image_with_gemini_sends_default_aspect_ratio_when_unset(self):
+        """A caller that leaves aspect_ratio unset still sends the 1:1 default on the wire."""
+        from discord_gemini.util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat",
+            model="gemini-3.1-flash-image",
+        )
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        call_kwargs = self.cog.client.aio.models.generate_content.call_args
+        config = call_kwargs.kwargs["config"]
+        assert config.image_config is not None
+        assert config.image_config.aspect_ratio == "1:1"
 
     async def test_generate_image_with_gemini_image_search(self):
         """Test that google_image_search adds tools with search_types."""
@@ -557,7 +635,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
             prompt="A cat",
             model="gemini-3.1-flash-image",
             aspect_ratio="9:16",
-            image_size="2k",
+            image_size="2K",
             google_image_search=True,
         )
 
@@ -571,10 +649,104 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         config = call_kwargs.kwargs["config"]
         # image_config should have both aspect_ratio and image_size
         assert config.image_config.aspect_ratio == "9:16"
-        assert config.image_config.image_size == "2k"
+        assert config.image_config.image_size == "2K"
         # tools should have google_search with image_search
         assert len(config.tools) == 1
         assert config.tools[0].google_search.search_types.image_search is not None
+
+    async def test_generate_image_returns_the_api_bytes_and_mime(self):
+        """Image parts come back as the API's own bytes + MIME, not decoded PIL images."""
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+        from discord_gemini.util import ImageGenerationParameters
+
+        jpeg = _encoded_image("JPEG")
+        part = SimpleNamespace(
+            text=None,
+            inline_data=SimpleNamespace(data=jpeg, mime_type="image/jpeg; charset=binary"),
+        )
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))],
+            usage_metadata=SimpleNamespace(prompt_token_count=11),
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+
+        text, images, input_tokens = await self.cog._generate_image_with_gemini(
+            ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image"),
+            attachment=None,
+        )
+
+        assert text is None
+        assert images == [GeneratedImage(jpeg, "image/jpeg")]
+        assert input_tokens == 11
+
+
+def _encoded_image(fmt: str) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    buf = BytesIO()
+    PILImage.new("RGB", (8, 8), (255, 0, 0)).save(buf, format=fmt)
+    return buf.getvalue()
+
+
+class TestGeminiImageDelivery(AsyncGeminiCogTestCase):
+    """Attach the API's original PNG/JPEG bytes; re-encode anything else to PNG.
+
+    Re-encoding the probe's 4K JPEGs to PNG produced 10.06-12.95 MB files, over
+    Discord's 10 MB bot upload cap, while the originals were 5.5-7.1 MB (2026-08-28).
+    """
+
+    async def _deliver(self, image):
+        from discord_gemini.util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="x", model="gemini-3.1-flash-image", image_size="4K"
+        )
+        return await self.cog._create_image_response_embed(
+            image_params=params, generated_images=[image], attachment=None
+        )
+
+    @pytest.mark.parametrize(
+        ("fmt", "mime", "extension"),
+        [("JPEG", "image/jpeg", "jpg"), ("PNG", "image/png", "png")],
+    )
+    async def test_discord_native_formats_are_attached_unchanged(self, fmt, mime, extension):
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _encoded_image(fmt)
+        embed, files = await self._deliver(GeneratedImage(data, mime))
+        try:
+            assert [file.filename for file in files] == [f"generated_image_1.{extension}"]
+            assert files[0].fp.read() == data
+            assert embed.image.url == f"attachment://generated_image_1.{extension}"
+        finally:
+            for file in files:
+                file.close()
+
+    async def test_other_formats_are_reencoded_to_png(self):
+        from PIL import Image as PILImage
+
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _encoded_image("WEBP")
+        embed, files = await self._deliver(GeneratedImage(data, "image/webp"))
+        try:
+            assert [file.filename for file in files] == ["generated_image_1.png"]
+            with PILImage.open(files[0].fp) as decoded:
+                assert decoded.format == "PNG"
+                assert decoded.size == (8, 8)
+            assert embed.image.url == "attachment://generated_image_1.png"
+        finally:
+            for file in files:
+                file.close()
+
+    async def test_undecodable_bytes_are_skipped_not_fatal(self):
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        embed, files = await self._deliver(GeneratedImage(b"not an image", "image/webp"))
+        assert files == []
+        assert "image" not in embed.to_dict()
 
 
 class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
@@ -1158,7 +1330,7 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
         self.mock_client_instance.aio.interactions.create = AsyncMock()
         self.mock_client_instance.aio.interactions.get = AsyncMock()
 
-    async def _run_with_interaction(self, interaction_done):
+    async def _run_with_interaction(self, interaction_done, **command_kwargs):
         captured: dict[str, Any] = {}
 
         async def capture_send_embed_batches(send, **kwargs):
@@ -1185,7 +1357,7 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
                 side_effect=capture_send_embed_batches,
             ),
         ):
-            await gemini_research.research_command(self.cog, ctx, "Test prompt")
+            await gemini_research.research_command(self.cog, ctx, "Test prompt", **command_kwargs)
 
         return captured["report_text"]
 
@@ -1218,6 +1390,64 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
         calculate_cost.assert_called_once()
         assert calculate_cost.call_args.args[1] == 10_000
         assert calculate_cost.call_args.kwargs["cached_tokens"] == 8_000
+
+    async def test_research_bills_maps_grounding_surcharge_for_research_model(self):
+        """A run the API reports as Maps-grounded must bill the research model's
+        Maps surcharge ONCE PER GROUNDED PROMPT (Google bills each one, and the
+        Interactions API reports the count); a run without Maps grounding must not.
+        Mirrors chat, which bills on actual grounding use, not on the tool being
+        enabled."""
+        # Resolve through util so the expected rate is the one calculate_cost consults,
+        # regardless of pricing-module reloads elsewhere in the suite.
+        from discord_gemini.util import maps_grounding_cost_for_model
+
+        def interaction_with(grounding_tool_count):
+            return SimpleNamespace(
+                id="maps-billing",
+                status="completed",
+                steps=[
+                    SimpleNamespace(
+                        type="model_output",
+                        content=[
+                            SimpleNamespace(type="text", text="# Report\n\nBody.", annotations=[])
+                        ],
+                    )
+                ],
+                usage=SimpleNamespace(
+                    total_input_tokens=1_000_000,
+                    total_output_tokens=0,
+                    total_thought_tokens=0,
+                    grounding_tool_count=grounding_tool_count,
+                ),
+            )
+
+        async def billed(interaction_done, **command_kwargs):
+            with patch.object(self.cog, "_log_cost") as log_cost:
+                await self._run_with_interaction(interaction_done, **command_kwargs)
+            log_cost.assert_called_once()
+            return log_cost.call_args.args[3], log_cost.call_args.kwargs["google_maps_grounded"]
+
+        maps_off_cost, maps_off_grounded = await billed(interaction_with(None))
+        maps_once_cost, maps_once_grounded = await billed(
+            interaction_with([SimpleNamespace(type="google_maps", count=1)]), google_maps=True
+        )
+        maps_twice_cost, maps_twice_grounded = await billed(
+            interaction_with([SimpleNamespace(type="google_maps", count=2)]), google_maps=True
+        )
+        # Enabled but never invoked: the API reports no Maps grounding, so no surcharge.
+        unused_cost, unused_grounded = await billed(
+            interaction_with([SimpleNamespace(type="google_search", count=3)]), google_maps=True
+        )
+
+        surcharge = maps_grounding_cost_for_model("gemini-3.1-pro-preview")
+        assert surcharge > 0
+        assert maps_off_grounded is False
+        assert maps_once_grounded is True
+        assert maps_once_cost == pytest.approx(maps_off_cost + surcharge)
+        assert maps_twice_grounded is True
+        assert maps_twice_cost == pytest.approx(maps_off_cost + 2 * surcharge)
+        assert unused_grounded is False
+        assert unused_cost == pytest.approx(maps_off_cost)
 
     async def test_report_body_skips_appended_sources_when_model_footer_present(self):
         """When the model emits its own `**Sources:**` footer, the wrapper-appended

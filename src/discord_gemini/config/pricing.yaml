@@ -37,28 +37,37 @@ models:
   gemini-2.5-flash-lite:         { input_per_million: 0.10,  output_per_million: 0.40,  cached_input_per_million: 0.01 }
 
 # Image generation pricing. Input is token-based and output is per-image with
-# resolution tiers ("1k", "2k").
+# size tiers ("512", "1k", "2k", "4k"). calculate_image_cost lower-cases the
+# requested size, so the canonical uppercase option values ("1K", "4K") hit these
+# rows; a size with no row bills at `default`.
 image_generation:
   # GA ids (replaced the -preview ids on 2026-05-28; previews discontinue 2026-06-25).
+  # 512 (747 IMAGE tokens = $0.045) and 4K (2,520 tokens = $0.151, "$0.151 per 4K
+  # image" on the pricing page) verified by live probe 2026-08-28.
   gemini-3.1-flash-image:
     input_per_million: 0.50
     per_image_by_size:
       default: 0.067
+      "512": 0.045
       1k: 0.067
       2k: 0.101
+      4k: 0.151
   # Lite generates 1K only — 2K returns "Image size 2K is not supported for this
-  # model" (400), so no 2k tier exists to price.
+  # model" (400), and 512 and 4K return the same 400 (probed 2026-08-28), so no
+  # other tier exists to price.
   gemini-3.1-flash-lite-image:
     input_per_million: 0.25
     per_image_by_size:
       default: 0.0336
       1k: 0.0336
+  # 4K (2,000 IMAGE tokens = $0.24) verified by live probe 2026-08-28; 512 is a 400.
   gemini-3-pro-image:
     input_per_million: 2.00
     per_image_by_size:
       default: 0.134
       1k: 0.134
       2k: 0.134
+      4k: 0.24
   gemini-2.5-flash-image:
     input_per_million: 0.30
     per_image_by_size:
@@ -76,8 +85,10 @@ video_generation:
     per_second_by_resolution: { default: 0.10, 720p: 0.10, 1080p: 0.12, 4k: 0.30 }
 
 # Interactions-API video generation billed per video-modality OUTPUT token
-# (not per second). Gemini Omni emits ~5,792 video tokens per second of 720p
-# output, so 17.50/MTok works out to ~$0.10/sec at 720p.
+# (not per second). A default 720p clip bills ~57,920 video tokens (~$1.01 at
+# 17.50/MTok), and a 3 s 1080p clip on gemini-omni-1.1-flash billed the SAME
+# 57,920 (live probe 2026-08-28): the count is flat per clip, not per second or
+# per resolution, so never derive a duration or a per-resolution rate from it.
 video_tokenized:
   # GA 2026-08-27 (default video model); same per-token rate as the preview.
   gemini-omni-1.1-flash:

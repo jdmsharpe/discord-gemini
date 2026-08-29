@@ -1024,6 +1024,18 @@ class TestModelPricing:
             maps_grounding_cost_for_model("gemini-3-flash-preview")
         )
 
+    def test_calculate_cost_bills_each_maps_grounded_prompt(self):
+        """Google bills per grounded prompt: research passes the API's count, and
+        `True` (chat's single grounded request) is exactly one surcharge."""
+        base = calculate_cost("gemini-3.1-pro-preview", 1000, 500)
+        surcharge = maps_grounding_cost_for_model("gemini-3.1-pro-preview")
+        one = calculate_cost("gemini-3.1-pro-preview", 1000, 500, google_maps_grounded=True)
+        three = calculate_cost("gemini-3.1-pro-preview", 1000, 500, google_maps_grounded=3)
+        none = calculate_cost("gemini-3.1-pro-preview", 1000, 500, google_maps_grounded=0)
+        assert one - base == pytest.approx(surcharge)
+        assert three - base == pytest.approx(3 * surcharge)
+        assert none == pytest.approx(base)
+
     def test_calculate_cost_bills_cached_tokens_at_the_cached_rate(self):
         """Cache hits used to bill at the full input rate; split them at the cached rate."""
         # gemini-3.7-flash: $0.75/M input, $0.075/M cached input, $3.75/M output
@@ -1102,6 +1114,24 @@ class TestImagePricing:
         cost_lower = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="2k")
         cost_upper = calculate_image_cost("gemini-3.1-flash-image", num_images=1, image_size="2K")
         assert cost_lower == pytest.approx(cost_upper)
+
+    def test_calculate_image_cost_512_and_4k_tiers(self):
+        """The canonical uppercase option values must hit the probed 512/4K rows:
+        Flash 512 = $0.045, Flash 4K = $0.151, Pro 4K = $0.24 (2026-08-28)."""
+        assert calculate_image_cost("gemini-3.1-flash-image", 1, image_size="512") == (
+            pytest.approx(0.045)
+        )
+        assert calculate_image_cost("gemini-3.1-flash-image", 1, image_size="4K") == (
+            pytest.approx(0.151)
+        )
+        assert calculate_image_cost("gemini-3-pro-image", 1, image_size="4K") == (
+            pytest.approx(0.24)
+        )
+        # Every 4K row must cost more than its 1K row, or the tier is mispriced.
+        for model in ("gemini-3.1-flash-image", "gemini-3-pro-image"):
+            assert calculate_image_cost(model, 1, image_size="4K") > calculate_image_cost(
+                model, 1, image_size="1K"
+            )
 
     def test_calculate_image_cost_zero_images(self):
         """Test cost calculation when no images are generated."""

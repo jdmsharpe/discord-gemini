@@ -47,7 +47,7 @@ def calculate_cost(
     input_tokens: int,
     output_tokens: int,
     thinking_tokens: int = 0,
-    google_maps_grounded: bool = False,
+    google_maps_grounded: bool | int = False,
     cached_tokens: int = 0,
 ) -> float:
     """Calculate the cost in dollars for a given model and token usage.
@@ -56,9 +56,11 @@ def calculate_cost(
     ``input_tokens`` served from a context cache: it is billed at the model's cached
     rate (``CACHED_INPUT_PRICING``, else the input rate) and the remainder at the input
     rate; the split is clamped so neither side can go negative. Thinking tokens are
-    billed at the output token rate. When google_maps_grounded is True, adds the
-    per-request Maps surcharge for the model's generation
-    (``maps_grounding_cost_for_model``).
+    billed at the output token rate. ``google_maps_grounded`` adds the Maps surcharge
+    for the model's generation (``maps_grounding_cost_for_model``) once per grounded
+    prompt, which is how Google bills it: pass ``True`` for a single grounded request
+    (chat) or the number of grounded prompts (research, from the Interactions API's
+    ``usage.grounding_tool_count``).
     """
     input_price, output_price = MODEL_PRICING.get(model, UNKNOWN_CHAT_MODEL_PRICING)
     cached_price = CACHED_INPUT_PRICING.get(model, input_price)
@@ -69,8 +71,9 @@ def calculate_cost(
         + (cached / 1_000_000) * cached_price
         + ((output_tokens + thinking_tokens) / 1_000_000) * output_price
     )
-    if google_maps_grounded:
-        cost += maps_grounding_cost_for_model(model)
+    grounded_prompts = max(int(google_maps_grounded), 0)
+    if grounded_prompts:
+        cost += grounded_prompts * maps_grounding_cost_for_model(model)
     return cost
 
 

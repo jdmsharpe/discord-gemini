@@ -31,13 +31,27 @@ class TestPricingLoader:
         assert size_prices["2k"] == 0.101
 
     def test_lite_image_pricing_has_no_2k_tier(self):
-        """Lite generates 1K only, so pricing it for 2K would imply a size the API rejects."""
+        """Lite generates 1K only, so pricing it for 2K (or 512/4K, which 400 the same
+        way — probed 2026-08-28) would imply a size the API rejects."""
         pricing = _reload_pricing()
         input_rate, size_prices = pricing.IMAGE_PRICING["gemini-3.1-flash-lite-image"]
         assert input_rate == 0.25
         assert size_prices[None] == 0.0336
         assert size_prices["1k"] == 0.0336
         assert "2k" not in size_prices
+        assert set(size_prices) == {None, "default", "1k"}
+
+    def test_flash_and_pro_image_pricing_carry_the_probed_512_and_4k_rows(self):
+        """Flash Image 512 = $0.045 and 4K = $0.151; Pro 4K = $0.24 (probed 2026-08-28).
+        The 512 key is quoted in the YAML so it loads as the string the lookup uses."""
+        pricing = _reload_pricing()
+        _, flash = pricing.IMAGE_PRICING["gemini-3.1-flash-image"]
+        assert flash["512"] == 0.045
+        assert flash["4k"] == 0.151
+        assert flash["1k"] == 0.067 and flash["2k"] == 0.101
+        _, pro = pricing.IMAGE_PRICING["gemini-3-pro-image"]
+        assert pro["4k"] == 0.24
+        assert "512" not in pro
 
     def test_video_pricing_keyed_by_resolution(self):
         pricing = _reload_pricing()

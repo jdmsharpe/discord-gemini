@@ -1,5 +1,6 @@
 """Image generation helpers for the Gemini cog."""
 
+from dataclasses import dataclass
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, cast
 
@@ -17,31 +18,63 @@ from .embed_delivery import send_embed_batches
 if TYPE_CHECKING:
     from .cog import GeminiCog
 
-LITE_IMAGE_MODEL = "gemini-3.1-flash-lite-image"
+# `image_size` values each model accepts, lower-cased for comparison (the option
+# values themselves are the API's canonical uppercase `1K`/`2K`/`4K` — see
+# `IMAGE_SIZE_CHOICES`). Probed live 2026-08-28 with the bot's exact request shape:
+# Flash Image renders `512` (704x384 at the model's own 11:6 when no aspect ratio
+# is sent, 512x512 with `1:1`) and `4K` (5632x3072); Pro renders `4K`; Lite 400s on
+# `512`, `2K` and `4K` and Pro on `512`, all with "Image size <size> is not
+# supported for this model"; `0.5K` 400s everywhere ("Supported values are: 1K, 2K,
+# 4K, 512, 512P, 512PX."). Models not listed here (gemini-2.5-flash-image) pass
+# every size through to the API.
+IMAGE_SUPPORTED_SIZES: dict[str, frozenset[str]] = {
+    "gemini-3.1-flash-image": frozenset({"512", "1k", "2k", "4k"}),
+    "gemini-3.1-flash-lite-image": frozenset({"1k"}),
+    "gemini-3-pro-image": frozenset({"1k", "2k", "4k"}),
+}
+_IMAGE_SIZE_DISPLAY_ORDER = ("512", "1k", "2k", "4k")
+
+# Discord renders these inline as-is, so the API's original bytes are attached
+# unchanged; anything else is re-encoded to PNG. Re-encoding the probe's 4K JPEGs to
+# PNG produced 10.06-12.95 MB files, over Discord's 10 MB bot upload cap, while the
+# originals were 5.5-7.1 MB (2026-08-28).
+DISCORD_NATIVE_IMAGE_EXTENSIONS: dict[str, str] = {"image/png": "png", "image/jpeg": "jpg"}
+# Sent whenever the caller leaves aspect_ratio unset, so the advertised default holds
+# at the API boundary and not only through the slash-command parameter default.
+DEFAULT_IMAGE_ASPECT_RATIO = "1:1"
 
 
-def _validate_lite_image_request(image_params: ImageGenerationParameters) -> str | None:
-    """Reject image sizes Gemini 3.1 Flash Lite Image does not support.
+@dataclass(frozen=True)
+class GeneratedImage:
+    """One image part of a generate_content response: the API's own bytes and MIME."""
 
-    Lite generates 1K only; any larger size fails with
-    `400 INVALID_ARGUMENT: Image size 2K is not supported for this model`.
-    """
+    data: bytes
+    mime_type: str
 
-    if image_params.model != LITE_IMAGE_MODEL:
+
+def _validate_image_size_request(image_params: ImageGenerationParameters) -> str | None:
+    """Reject `image_size` values the chosen model 400s on, in the API's own words."""
+
+    if not image_params.image_size:
         return None
-    if image_params.image_size and image_params.image_size.lower() != "1k":
-        return (
-            f"`{LITE_IMAGE_MODEL}` only supports 1K images. "
-            "Remove `image_size` or set it to `1K`, or pick another image model."
-        )
-    return None
+    supported = IMAGE_SUPPORTED_SIZES.get(image_params.model)
+    if supported is None or image_params.image_size.lower() in supported:
+        return None
+    supported_list = ", ".join(
+        size.upper() for size in _IMAGE_SIZE_DISPLAY_ORDER if size in supported
+    )
+    return (
+        f"Image size {image_params.image_size} is not supported for this model. "
+        f"`{image_params.model}` supports {supported_list}; choose a supported size or "
+        "another image model."
+    )
 
 
 async def _generate_image_with_gemini(
     cog: "GeminiCog",
     image_params: ImageGenerationParameters,
     attachment: Attachment | None,
-) -> tuple[str | None, list[Image.Image], int]:
+) -> tuple[str | None, list[GeneratedImage], int]:
     """Generate images using Gemini models with generate_content."""
 
     prompt = image_params.prompt
@@ -69,12 +102,14 @@ async def _generate_image_with_gemini(
     elif image_params.seed is not None:
         config_kwargs["seed"] = image_params.seed
 
-    if image_params.aspect_ratio != "1:1" or image_params.image_size:
-        image_config_kwargs = {}
-        if image_params.aspect_ratio != "1:1":
-            image_config_kwargs["aspect_ratio"] = image_params.aspect_ratio
-        if image_params.image_size:
-            image_config_kwargs["image_size"] = image_params.image_size
+    image_config_kwargs: dict[str, Any] = {}
+    # Always on the wire, 1:1 included: with the field omitted the model picks its
+    # own ratio (a 512 request came back 704x384, 11:6), so the advertised 1:1
+    # default only holds when it is sent explicitly (probe 2026-08-28).
+    image_config_kwargs["aspect_ratio"] = image_params.aspect_ratio or DEFAULT_IMAGE_ASPECT_RATIO
+    if image_params.image_size:
+        image_config_kwargs["image_size"] = image_params.image_size
+    if image_config_kwargs:
         config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
 
     if image_params.google_image_search and image_params.model == "gemini-3.1-flash-image":
@@ -101,7 +136,7 @@ async def _generate_image_with_gemini(
     input_tokens = usage_counts.input_tokens
 
     text_response = None
-    generated_images: list[Image.Image] = []
+    generated_images: list[GeneratedImage] = []
     if gemini_response.candidates and len(gemini_response.candidates) > 0:
         candidate = gemini_response.candidates[0]
         if candidate.content and candidate.content.parts:
@@ -113,7 +148,8 @@ async def _generate_image_with_gemini(
                     and part.inline_data is not None
                     and part.inline_data.data
                 ):
-                    generated_images.append(Image.open(BytesIO(part.inline_data.data)))
+                    mime_type = (part.inline_data.mime_type or "").split(";")[0].strip().lower()
+                    generated_images.append(GeneratedImage(part.inline_data.data, mime_type))
 
     return text_response, generated_images, input_tokens
 
@@ -121,19 +157,33 @@ async def _generate_image_with_gemini(
 async def _create_image_response_embed(
     cog: "GeminiCog",
     image_params: ImageGenerationParameters,
-    generated_images: list[Image.Image],
+    generated_images: list[GeneratedImage],
     attachment: Attachment | None,
     text_response: str | None = None,
 ) -> tuple[Embed, list[File]]:
-    """Create the embed and file attachments for image generation results."""
+    """Create the embed and file attachments for image generation results.
+
+    PNG and JPEG parts are attached exactly as the API returned them (see
+    `DISCORD_NATIVE_IMAGE_EXTENSIONS`); any other format is re-encoded to PNG.
+    """
 
     files: list[File] = []
     for index, image in enumerate(generated_images):
         try:
-            image_bytes = BytesIO()
-            image.save(image_bytes, format="PNG")
-            image_bytes.seek(0)
-            files.append(File(image_bytes, filename=f"generated_image_{index + 1}.png"))
+            extension = DISCORD_NATIVE_IMAGE_EXTENSIONS.get(image.mime_type)
+            if extension:
+                # Attach untouched, but still decode-check so a truncated payload is
+                # logged and skipped instead of reaching Discord as a broken file.
+                with Image.open(BytesIO(image.data)) as native:
+                    native.verify()
+                payload = BytesIO(image.data)
+            else:
+                payload = BytesIO()
+                with Image.open(BytesIO(image.data)) as decoded:
+                    decoded.save(payload, format="PNG")
+                payload.seek(0)
+                extension = "png"
+            files.append(File(payload, filename=f"generated_image_{index + 1}.{extension}"))
         except (OSError, ValueError) as error:
             cog.logger.error("Failed to save image %d: %s", index + 1, error)
 
@@ -203,7 +253,7 @@ async def image_command(
             google_image_search=bool(google_image_search),
         )
 
-        validation_error = _validate_lite_image_request(image_params)
+        validation_error = _validate_image_size_request(image_params)
         if validation_error:
             await send_embed_batches(
                 ctx.send_followup,
@@ -279,7 +329,10 @@ async def image_command(
 
 
 __all__ = [
+    "IMAGE_SUPPORTED_SIZES",
+    "GeneratedImage",
     "_create_image_response_embed",
     "_generate_image_with_gemini",
+    "_validate_image_size_request",
     "image_command",
 ]

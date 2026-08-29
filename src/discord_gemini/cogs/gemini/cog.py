@@ -10,7 +10,6 @@ import discord
 from discord import Attachment, Embed, Member, User
 from discord.commands import ApplicationContext, SlashCommandGroup, option
 from discord.ext import commands, tasks
-from PIL import Image
 
 from ...config.auth import GUILD_IDS
 from ...logging_setup import bind_request_id
@@ -562,7 +561,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "image_size",
-        description="(Gemini only) Output image resolution. (default: not set / model default)",
+        description="Output image size; 512 and 4K vary by model, Lite is 1K only. (default: model default)",
         required=False,
         choices=IMAGE_SIZE_CHOICES,
         type=str,
@@ -619,7 +618,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "resolution",
-        description="(Veo only) Output resolution for supported Veo models. (default: model default)",
+        description="720p/1080p on Gemini Omni 1.1 Flash; up to 4k on Veo (model-specific). (default: model default)",
         required=False,
         choices=VIDEO_RESOLUTION_CHOICES,
         type=str,
@@ -906,13 +905,13 @@ class GeminiCog(commands.Cog):
         self,
         image_params: ImageGenerationParameters,
         attachment: Attachment | None,
-    ) -> tuple[str | None, list[Image.Image], int]:
+    ) -> tuple[str | None, list[image_flow.GeneratedImage], int]:
         return await image_flow._generate_image_with_gemini(self, image_params, attachment)
 
     async def _create_image_response_embed(
         self,
         image_params: ImageGenerationParameters,
-        generated_images: list[Image.Image],
+        generated_images: list[image_flow.GeneratedImage],
         attachment: Attachment | None,
         text_response: str | None = None,
     ) -> tuple[Embed, list[discord.File]]:

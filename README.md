@@ -25,8 +25,8 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Thinking Configuration:** Customizable thinking levels for Gemini 3 models (Minimal, Low, Medium, High) and token budgets for Gemini 2.5 models, with thought summaries displayed in spoilered embeds. Requests the API would reject are caught before the call: a thinking level on any Gemini 2.5 model (use a budget there), Minimal on Gemini 3.7 Flash or 3.1 Pro, or a level and a budget together.
 - **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
 - **Media Generation:**
-  - **Images:** High-quality image generation and editing using Gemini Flash/Pro Image models.
-  - **Video:** Gemini Omni 1.1 Flash (default) for fast text-to-video via the Interactions API (the Omni Flash preview stays selectable as a legacy choice until its 2026-09-30 shutdown), plus Veo 3.1 for image-to-video, last-frame-constrained interpolation, and resolution/duration control.
+  - **Images:** High-quality image generation and editing using Gemini Flash/Pro Image models, up to 4K, delivered as the API's original PNG/JPEG bytes.
+  - **Video:** Gemini Omni 1.1 Flash (default) for fast text-to-video at 720p or 1080p via the Interactions API (the Omni Flash preview stays selectable as a legacy choice until its 2026-09-30 shutdown), plus Veo 3.1 for image-to-video, last-frame-constrained interpolation, and 4k/duration control.
   - **Music:** Music generation using Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
   - **Text-to-Speech:** Lifelike speech conversion with 25+ voice options.
 - **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
@@ -45,15 +45,16 @@ Start a conversation with Gemini AI models.
 Generate images from text prompts or edit using reference images.
 
 - **Models:** Gemini 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image.
-- **Options:** Multiple aspect ratios, image count (1-4), resolution control (1K, 2K), and Google Image Search grounding.
-- **Gemini 3.1 Flash Lite Image:** the low-cost option (~$0.034 per 1K image). It generates 1K only — requesting 2K is rejected with a clear message.
+- **Options:** Multiple aspect ratios, image count (1-4), image size (`512`, `1K`, `2K`, `4K` — availability varies by model, see below), and Google Image Search grounding. The chosen aspect ratio (`1:1` by default) is always sent to the API; left out, the model would pick its own ratio.
+- **Image sizes by model:** Gemini 3.1 Flash Image accepts `512` ($0.045), `1K` ($0.067), `2K` ($0.101) and `4K` ($0.151, 5632x3072); Gemini 3.0 Pro Image accepts `1K`/`2K` ($0.134) and `4K` ($0.24); Gemini 3.1 Flash Lite Image is the low-cost option (~$0.034) and generates `1K` only. A size a model does not support (`512` on Pro or Lite, `2K`/`4K` on Lite) is rejected before the call with the API's own "Image size X is not supported for this model" message.
+- **Delivery:** generated PNG/JPEG images are attached exactly as the API returned them (a 4K JPEG is 5-7 MB, under Discord's 10 MB bot upload cap; re-encoded to PNG it would exceed it). Other formats are converted to PNG.
 
 ### `/gemini-media video`
 
 Generate videos from text prompts or image inputs.
 
 - **Models:** Gemini Omni 1.1 Flash (default), Gemini Omni Flash Preview (legacy, shuts down 2026-09-30), Veo 3.1 Lite Preview, Veo 3.1 Preview, Veo 3.1 Fast Preview.
-- **Gemini Omni 1.1 Flash:** Google's recommended default — fast text-to-video via the Interactions API (aspect ratio only, ~10s 720p, billed per video output token at the same rate as the preview). The Veo-only options below are rejected for both Omni ids with a clear message; pick a Veo 3.1 model to use them.
+- **Gemini Omni 1.1 Flash:** Google's recommended default — fast text-to-video via the Interactions API with an aspect ratio and a `720p` (default) or `1080p` resolution; `4k` is not yet supported for Omni, and the legacy preview ignores resolution, so it is rejected there. The request runs in background mode and is polled until the clip is ready. Billed per video output token at the same rate as the preview; the token count is flat per clip, so the cost embed shows the requested resolution and the exact token count rather than an estimated duration. The other Veo-only options below are rejected for both Omni ids with a clear message; pick a Veo 3.1 model to use them.
 - **Options (Veo 3.1):** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation, negative prompts, and prompt enhancement control.
 - **Validation:** Veo 3.x models support 4/6/8-second outputs, `1080p` and `4k` require 8 seconds, `4k` is unavailable on Veo 3.1 Lite, and only 1 video per request is supported.
 
@@ -71,7 +72,7 @@ Convert text to high-quality WAV speech audio (24kHz, 16-bit). Features 25+ voic
 
 ### `/gemini-tools research`
 
-Run autonomous deep research tasks (takes 2-10 minutes) using a Gemini Deep Research agent. The default `deep-research-preview-04-2026` (Apr 2026) is tuned for low latency and cost; choose `deep-research-max-preview-04-2026` for higher-quality, more comprehensive reports at the cost of longer runtimes. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries.
+Run autonomous deep research tasks (takes 2-10 minutes) using a Gemini Deep Research agent. The default `deep-research-preview-04-2026` (Apr 2026) is tuned for low latency and cost; choose `deep-research-max-preview-04-2026` for higher-quality, more comprehensive reports at the cost of longer runtimes. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries. When the agent actually grounds on Maps, the run's cost embed includes the same per-prompt Maps grounding surcharge as chat, billed once per Maps-grounded prompt the API reports (the `maps: N` count in the embed) at the underlying Gemini 3 research model's rate.
 
 ### `/gemini check_permissions`
 

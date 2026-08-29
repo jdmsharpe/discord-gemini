@@ -59,9 +59,17 @@ PERSON_GENERATION_CHOICES = [
     OptionChoice(name="Allow All", value="allow_all"),
 ]
 
+# Values use the API's documented canonical spelling (uppercase `K`). Lowercase
+# `1k`/`2k` are accepted and return the requested pixels but are METERED at the 1K
+# tier (`2k` billed 1,120 IMAGE tokens vs 1,680 for `2K`, probe 2026-08-28) — a
+# Google-side inconsistency that can be corrected at any time, so never rely on it.
+# Per-model support lives in `image.IMAGE_SUPPORTED_SIZES`; pricing lookups
+# lower-case the value, so these keys still hit the `pricing.yaml` tiers.
 IMAGE_SIZE_CHOICES = [
-    OptionChoice(name="1K", value="1k"),
-    OptionChoice(name="2K", value="2k"),
+    OptionChoice(name="512 (0.5K, Flash Image only)", value="512"),
+    OptionChoice(name="1K", value="1K"),
+    OptionChoice(name="2K", value="2K"),
+    OptionChoice(name="4K (Flash Image, Pro)", value="4K"),
 ]
 
 VIDEO_MODEL_CHOICES = [

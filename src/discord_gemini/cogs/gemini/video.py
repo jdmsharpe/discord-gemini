@@ -4,7 +4,7 @@ import asyncio
 import re
 import time
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from discord import Attachment, Colour, Embed, File
 from discord.commands import ApplicationContext
@@ -21,6 +21,7 @@ from ...util import (
 )
 from . import attachments, embeds, state
 from .embed_delivery import send_embed_batches
+from .responses import APICallError
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
@@ -29,11 +30,19 @@ if TYPE_CHECKING:
 # generate_videos path). Both ids share this code path and the same per-token
 # price: the GA gemini-omni-1.1-flash (default since 2026-08-27) and the legacy
 # gemini-omni-flash-preview, which stays selectable until its 2026-09-30 shutdown.
-# Omni emits ~5792 output tokens per second of 720p video, used to turn the exact
-# token count back into an approximate duration for display.
+# The request runs in background mode and is polled every OMNI_VIDEO_POLL_INTERVAL
+# seconds (see _generate_video_with_omni). Omni renders 720p unless a resolution is
+# requested. No duration is ever derived from the token count: it does not scale
+# with length (a 3 s 1080p clip billed the same 57,920 video tokens as a
+# default-length 720p clip, live probe 2026-08-28).
 DEFAULT_OMNI_VIDEO_MODEL = "gemini-omni-1.1-flash"
 OMNI_VIDEO_MODELS = frozenset({"gemini-omni-1.1-flash", "gemini-omni-flash-preview"})
-OMNI_VIDEO_TOKENS_PER_720P_SECOND = 5792
+OMNI_VIDEO_POLL_INTERVAL = 5
+OMNI_DEFAULT_VIDEO_RESOLUTION = "720p"
+# Interaction statuses that end polling (mirrors research.py).
+_OMNI_TERMINAL_STATUSES = frozenset(
+    {"completed", "failed", "cancelled", "requires_action", "budget_exceeded"}
+)
 
 VEO_3_1_MODELS = frozenset(
     {
@@ -48,6 +57,11 @@ VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
     "veo-3.1-lite-generate-preview": frozenset({"720p", "1080p"}),
     "veo-3.1-generate-preview": frozenset({"720p", "1080p", "4k"}),
     "veo-3.1-fast-generate-preview": frozenset({"720p", "1080p", "4k"}),
+    # Omni 1.1 (GA) honoured 1080p with a real 1920x1080 avc1 MP4 (live probe
+    # 2026-08-28). Its docs also list 360p and 4k (upscaled), but neither was probed
+    # and no per-resolution price exists, so they are refused as not yet supported.
+    # The legacy preview ignored resolution (2026-08-20) and is deliberately absent.
+    "gemini-omni-1.1-flash": frozenset({"720p", "1080p"}),
 }
 
 
@@ -182,26 +196,69 @@ async def _generate_video_with_veo(
     return generated_videos
 
 
+def _interaction_error_message(interaction: Any) -> str:
+    """Join the `errors[].message` entries of a terminal interaction (may be empty)."""
+
+    messages = [
+        str(getattr(error, "message", None) or "")
+        for error in getattr(interaction, "errors", None) or []
+    ]
+    return "; ".join(message for message in messages if message)
+
+
 async def _generate_video_with_omni(
     cog: "GeminiCog",
     video_params: VideoGenerationParameters,
 ) -> tuple[list[bytes], int]:
     """Generate a video via the Interactions API (Gemini Omni).
 
-    Unlike Veo, the Interactions API completes synchronously and returns a URI to
-    the generated MP4 plus exact video-modality output-token usage. Returns the
-    downloaded video bytes and the video output-token count (for exact costing).
+    The request is submitted with ``background=True`` and polled through
+    ``interactions.get`` every ``OMNI_VIDEO_POLL_INTERVAL`` seconds until it reaches a
+    terminal status, bounded by ``VIDEO_GENERATION_TIMEOUT`` exactly like the Veo
+    poller. A synchronous ``interactions.create`` on the GA ``gemini-omni-1.1-flash``
+    is closed server-side after ~60 s ("Server disconnected without sending a
+    response", twice in a row on 2026-08-28, no interaction id returned), while the
+    same request in background mode returned an id in 0.79 s and completed after
+    ~56 s of polling; the preview id still completed synchronously on 2026-08-20.
+    The completed interaction carries a URI to the generated MP4 (downloaded first
+    try via ``files.download``, no ACTIVE polling needed) plus exact video-modality
+    output-token usage. Returns the downloaded video bytes and the video
+    output-token count (for exact costing).
     """
 
-    interaction = await cog.client.aio.interactions.create(
+    response_format: dict[str, Any] = {
+        "type": "video",
+        "aspect_ratio": video_params.aspect_ratio,
+        "delivery": "uri",
+    }
+    if video_params.resolution:
+        response_format["resolution"] = video_params.resolution
+
+    # interactions.create/get return Interaction | AsyncStream; this path never
+    # streams, so narrow to Any to keep .id/.status access well-typed.
+    interaction: Any = await cog.client.aio.interactions.create(
         model=video_params.model,
         input=video_params.prompt,
-        response_format={
-            "type": "video",
-            "aspect_ratio": video_params.aspect_ratio,
-            "delivery": "uri",
-        },
+        response_format=response_format,
+        background=True,
     )
+    cog.logger.info("Started Omni video generation: %s", interaction.id)
+
+    start_time = time.time()
+    while interaction.status not in _OMNI_TERMINAL_STATUSES:
+        if time.time() - start_time > VIDEO_GENERATION_TIMEOUT:
+            raise TimeoutError("Video generation timed out after 10 minutes")
+        await asyncio.sleep(OMNI_VIDEO_POLL_INTERVAL)
+        interaction = await cog.client.aio.interactions.get(interaction.id)
+        cog.logger.debug("Omni video %s status: %s", interaction.id, interaction.status)
+
+    if interaction.status != "completed":
+        summary = {
+            "failed": "Omni video generation failed",
+            "cancelled": "Omni video generation was cancelled",
+        }.get(interaction.status, f"Omni video generation stopped ({interaction.status})")
+        detail = _interaction_error_message(interaction)
+        raise APICallError(f"{summary}: {detail}" if detail else f"{summary}.")
 
     video_output_tokens = 0
     usage = getattr(interaction, "usage", None)
@@ -249,17 +306,36 @@ def _validate_omni_video_request(
     """Reject Veo-only options Gemini Omni does not support.
 
     Applies to every id in `OMNI_VIDEO_MODELS`. Omni (Interactions API) is exposed here
-    as text-to-video with an aspect ratio only: duration, negative prompts,
-    person-generation control, image/first-or-last-frame inputs, multiple videos, and
-    resize modes are Veo-only. `resolution` is typed on the Interactions video response
-    format since google-genai 2.19.0 and the Omni 1.1 GA docs list it, but exposing it
-    is deliberately deferred (not adopted in the 2026-08-28 sweep); the preview ignored
-    it and always returned 720p (verified by live probe, 2026-08-20).
+    as text-to-video with an aspect ratio, plus a `resolution` on the ids listed in
+    `VIDEO_SUPPORTED_RESOLUTIONS`: duration, negative prompts, person-generation
+    control, image/first-or-last-frame inputs, multiple videos, and resize modes are
+    Veo-only.
+
+    `resolution` probes: `gemini-omni-flash-preview` ignored it and always returned
+    720p (2026-08-20), so it stays rejected there; `gemini-omni-1.1-flash` honoured
+    `1080p` with a real 1920x1080 avc1 MP4 (tkhd and stsd agree, 2026-08-28). The Omni
+    docs also list `360p` and `4k` (upscaled), but neither was probed and there is no
+    per-resolution pricing row, so they are refused as not yet supported.
+
+    `duration` is deliberately NOT exposed although the GA id accepts it (`"<n>s"`
+    format, minimum 3 s — `1s` 400s with "less than the minimum allowed 3s"): a 3 s
+    1080p clip was billed 57,920 video tokens, identical to a default-length 720p clip
+    (2026-08-28), so a shorter clip saves nothing.
     """
 
     unsupported: list[str] = []
+    supported_resolutions = VIDEO_SUPPORTED_RESOLUTIONS.get(video_params.model, frozenset())
     if video_params.resolution:
-        unsupported.append("`resolution`")
+        if not supported_resolutions:
+            unsupported.append("`resolution`")
+        elif video_params.resolution not in supported_resolutions:
+            supported_list = ", ".join(
+                sorted(supported_resolutions, key=lambda value: int(value[:-1]))
+            )
+            return (
+                f"The `{video_params.resolution}` resolution is not yet supported for "
+                f"Gemini Omni. Supported values on `{video_params.model}`: {supported_list}."
+            )
     if video_params.duration_seconds is not None:
         unsupported.append("`duration`")
     if video_params.negative_prompt:
@@ -277,8 +353,13 @@ def _validate_omni_video_request(
 
     if unsupported:
         joined = ", ".join(unsupported)
+        accepted = (
+            "an `aspect_ratio` and a `resolution`"
+            if supported_resolutions
+            else "an `aspect_ratio` only"
+        )
         return (
-            "Gemini Omni supports text-to-video with an `aspect_ratio` only. "
+            f"Gemini Omni supports text-to-video with {accepted}. "
             f"Remove {joined}, or choose a Veo 3.1 model for those features."
         )
     return None
@@ -417,12 +498,11 @@ async def video_command(
             num_videos = len(generated_videos)
             est_duration = video_params.duration_seconds or 8
             if is_omni:
-                # Omni returns 720p; derive the display duration from the exact token count.
-                est_duration = (
-                    round(omni_video_tokens / OMNI_VIDEO_TOKENS_PER_720P_SECOND) or est_duration
-                )
+                # Exact from usage. The token count says nothing about the clip
+                # length, so no duration is derived or shown for Omni.
                 cost = calculate_omni_video_cost(model, omni_video_tokens)
-                logged_resolution = "720p"
+                logged_resolution = video_params.resolution or OMNI_DEFAULT_VIDEO_RESOLUTION
+                cost_details: dict[str, Any] = {"video_tokens": omni_video_tokens}
             else:
                 cost = calculate_video_cost(
                     model,
@@ -431,6 +511,7 @@ async def video_command(
                     resolution=video_params.resolution,
                 )
                 logged_resolution = video_params.resolution or "model_default"
+                cost_details = {"duration_seconds": est_duration}
             daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
             cog._log_cost(
                 "video",
@@ -439,8 +520,8 @@ async def video_command(
                 cost,
                 daily_cost,
                 videos=num_videos,
-                duration_seconds=est_duration,
                 resolution=logged_resolution,
+                **cost_details,
             )
 
             embed, files = await _create_video_response_embed(
@@ -454,7 +535,7 @@ async def video_command(
                 if is_omni:
                     pricing_desc = (
                         f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
-                        f"· ~{est_duration}s 720p · {omni_video_tokens:,} video tokens "
+                        f"· {logged_resolution} · {omni_video_tokens:,} video tokens "
                         f"· daily ${daily_cost:.2f}"
                     )
                 else:

@@ -488,11 +488,15 @@ async def research_command(
         elapsed = int(time.time() - start_time)
 
         research_model = "gemini-3.1-pro-preview"
+        # Google bills every Maps-grounded prompt, so the API's count is billed
+        # N times, not collapsed to a single surcharge.
+        maps_grounded_prompts = result.grounding_tool_counts.get("google_maps", 0)
         cost = calculate_cost(
             research_model,
             result.input_tokens,
             result.output_tokens,
             result.thinking_tokens,
+            google_maps_grounded=maps_grounded_prompts,
             cached_tokens=result.cached_tokens,
         )
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
@@ -508,6 +512,7 @@ async def research_command(
             cached_tokens=result.cached_tokens,
             file_search=file_search,
             google_maps=google_maps,
+            google_maps_grounded=maps_grounded_prompts > 0,
             grounding_tool_counts=result.grounding_tool_counts or None,
         )
 

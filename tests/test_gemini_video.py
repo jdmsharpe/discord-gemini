@@ -1,15 +1,18 @@
 import asyncio
 import inspect
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
 from discord_gemini.cogs.gemini.cog import GeminiCog
 from discord_gemini.cogs.gemini.command_options import VIDEO_MODEL_CHOICES
+from discord_gemini.cogs.gemini.responses import APICallError
 from discord_gemini.cogs.gemini.video import (
     DEFAULT_OMNI_VIDEO_MODEL,
     OMNI_VIDEO_MODELS,
+    OMNI_VIDEO_POLL_INTERVAL,
+    VIDEO_SUPPORTED_RESOLUTIONS,
     _build_veo_image,
     _generate_video_with_omni,
     _generate_video_with_veo,
@@ -17,6 +20,7 @@ from discord_gemini.cogs.gemini.video import (
     _validate_video_request,
 )
 from discord_gemini.util import (
+    VIDEO_GENERATION_TIMEOUT,
     VIDEO_TOKEN_PRICING,
     VideoGenerationParameters,
     calculate_omni_video_cost,
@@ -262,6 +266,8 @@ class TestVeoGenerateVideosSource(AsyncGeminiCogTestCase):
 def _fake_omni_interaction(
     uri: str | None = "https://x/v1beta/files/abc123:download?alt=media",
     video_tokens: int = 57920,
+    status: str = "completed",
+    errors=None,
 ):
     modality = MagicMock()
     modality.modality = "video"
@@ -269,7 +275,9 @@ def _fake_omni_interaction(
     usage = MagicMock()
     usage.output_tokens_by_modality = [modality]
     interaction = MagicMock()
-    interaction.status = "completed"
+    interaction.id = "omni-1"
+    interaction.status = status
+    interaction.errors = errors
     interaction.usage = usage
     if uri is None:
         interaction.output_video = None
@@ -281,33 +289,120 @@ def _fake_omni_interaction(
     return interaction
 
 
-class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
-    async def test_downloads_video_and_returns_tokens(self):
-        from discord_gemini.util import VideoGenerationParameters
+def _in_progress():
+    return _fake_omni_interaction(uri=None, video_tokens=0, status="in_progress")
 
-        self.cog.client.aio.interactions.create = AsyncMock(return_value=_fake_omni_interaction())
+
+class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
+    """Omni must run in background mode and poll, like research.
+
+    A synchronous `interactions.create` on the GA gemini-omni-1.1-flash was closed
+    server-side after 60.26 s twice ("Server disconnected without sending a
+    response", no id returned); `background=True` returned an id in 0.79 s and
+    completed after 55.7 s of `interactions.get` polling (probe 2026-08-28).
+    """
+
+    SLEEP = "discord_gemini.cogs.gemini.video.asyncio.sleep"
+
+    @staticmethod
+    def _params(**kwargs):
+        base = {
+            "prompt": "A red ball rolls across a table",
+            "model": DEFAULT_OMNI_VIDEO_MODEL,
+            "aspect_ratio": "16:9",
+        }
+        base.update(kwargs)
+        return VideoGenerationParameters(**base)
+
+    async def test_downloads_video_and_returns_tokens(self):
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_in_progress())
+        self.cog.client.aio.interactions.get = AsyncMock(
+            side_effect=[_in_progress(), _fake_omni_interaction()]
+        )
         self.cog.client.files.download = MagicMock(return_value=b"mp4-bytes")
 
-        params = VideoGenerationParameters(
-            prompt="A red ball rolls across a table",
-            model=DEFAULT_OMNI_VIDEO_MODEL,
-            aspect_ratio="16:9",
-        )
-        videos, tokens = await _generate_video_with_omni(self.cog, params)
+        with patch(self.SLEEP, new_callable=AsyncMock) as sleep:
+            videos, tokens = await _generate_video_with_omni(self.cog, self._params())
 
         assert videos == [b"mp4-bytes"]
         assert tokens == 57920
         _, kwargs = self.cog.client.aio.interactions.create.call_args
         assert kwargs["model"] == DEFAULT_OMNI_VIDEO_MODEL
         assert kwargs["input"] == "A red ball rolls across a table"
+        assert kwargs["background"] is True
+        # No resolution requested -> the key is absent, so the API default (720p) applies.
         assert kwargs["response_format"] == {
             "type": "video",
             "aspect_ratio": "16:9",
             "delivery": "uri",
         }
+        # Polled by id every OMNI_VIDEO_POLL_INTERVAL seconds until `completed`.
+        assert self.cog.client.aio.interactions.get.await_args_list == [
+            call("omni-1"),
+            call("omni-1"),
+        ]
+        assert sleep.await_args_list == [call(OMNI_VIDEO_POLL_INTERVAL)] * 2
+        assert OMNI_VIDEO_POLL_INTERVAL == 5
         # File name is parsed from the URI, not the raw URI.
         _, dl_kwargs = self.cog.client.files.download.call_args
         assert dl_kwargs["file"] == "files/abc123"
+
+    async def test_requested_resolution_is_passed_through(self):
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_fake_omni_interaction())
+        self.cog.client.files.download = MagicMock(return_value=b"mp4-bytes")
+
+        await _generate_video_with_omni(self.cog, self._params(resolution="1080p"))
+
+        _, kwargs = self.cog.client.aio.interactions.create.call_args
+        assert kwargs["response_format"]["resolution"] == "1080p"
+        self.cog.client.aio.interactions.get.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [("failed", "failed: Upstream rendering error"), ("cancelled", "cancelled: Upstream")],
+    )
+    async def test_terminal_failure_surfaces_the_interaction_error(self, status, expected):
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_in_progress())
+        self.cog.client.aio.interactions.get = AsyncMock(
+            return_value=_fake_omni_interaction(
+                uri=None,
+                status=status,
+                errors=[SimpleNamespace(code="internal", message="Upstream rendering error")],
+            )
+        )
+        self.cog.client.files.download = MagicMock()
+
+        with (
+            patch(self.SLEEP, new_callable=AsyncMock),
+            pytest.raises(APICallError, match=expected),
+        ):
+            await _generate_video_with_omni(self.cog, self._params())
+
+        self.cog.client.files.download.assert_not_called()
+
+    async def test_failed_without_error_detail_still_raises(self):
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=_fake_omni_interaction(uri=None, status="failed", errors=None)
+        )
+
+        with pytest.raises(APICallError, match="Omni video generation failed"):
+            await _generate_video_with_omni(self.cog, self._params())
+
+    async def test_times_out_after_video_generation_timeout(self):
+        """The Omni poller is bounded by the same VIDEO_GENERATION_TIMEOUT as Veo."""
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_in_progress())
+        self.cog.client.aio.interactions.get = AsyncMock(return_value=_in_progress())
+
+        with (
+            patch(self.SLEEP, new_callable=AsyncMock),
+            patch("discord_gemini.cogs.gemini.video.time") as fake_time,
+            pytest.raises(TimeoutError, match="timed out"),
+        ):
+            fake_time.time.side_effect = [0, 1, VIDEO_GENERATION_TIMEOUT + 1]
+            await _generate_video_with_omni(self.cog, self._params())
+
+        # One poll ran before the clock crossed the deadline; then it gave up.
+        self.cog.client.aio.interactions.get.assert_awaited_once()
 
     async def test_missing_uri_returns_no_bytes(self):
         from discord_gemini.util import VideoGenerationParameters
@@ -419,10 +514,72 @@ class TestOmniVideoModels:
     @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
     def test_each_omni_id_rejects_veo_only_options(self, model):
         params = VideoGenerationParameters(
-            prompt="x", model=model, resolution="1080p", duration_seconds=8
+            prompt="x", model=model, duration_seconds=8, negative_prompt="no cats"
         )
         error = _validate_omni_video_request(params, None, None)
-        assert error and "resolution" in error and "duration" in error
+        assert error and "duration" in error and "negative_prompt" in error
+
+    @pytest.mark.parametrize(
+        ("model", "accepted"),
+        [("gemini-omni-1.1-flash", True), ("gemini-omni-flash-preview", False)],
+    )
+    def test_resolution_is_accepted_only_on_the_ga_id(self, model, accepted):
+        """1080p on the GA id returned a real 1920x1080 MP4 (2026-08-28); the preview
+        ignored resolution and always returned 720p (2026-08-20), so it stays rejected
+        there with the existing aspect-ratio-only message."""
+        params = VideoGenerationParameters(prompt="x", model=model, resolution="1080p")
+        error = _validate_omni_video_request(params, None, None)
+        if accepted:
+            assert error is None
+        else:
+            assert error and "`resolution`" in error and "`aspect_ratio` only" in error
+
+    @pytest.mark.parametrize(("resolution", "shown"), [(None, "720p"), ("1080p", "1080p")])
+    async def test_omni_cost_embed_shows_the_requested_resolution(self, resolution, shown):
+        """The label is the REQUESTED resolution (720p by default), and no duration is
+        derived from the token count: a 3 s 1080p clip billed the same 57,920 tokens
+        as a default 720p clip, so the old `~10s 720p` label was simply wrong."""
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._send_error_followup = AsyncMock()
+
+        with (
+            patch("discord_gemini.cogs.gemini.video.SHOW_COST_EMBEDS", True),
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
+                AsyncMock(return_value=([b"mp4"], 57920)),
+            ),
+            patch.object(cog, "_log_cost") as log_cost,
+        ):
+            await cog.video.callback(
+                cog,
+                ctx=ctx,
+                prompt="a red ball",
+                model=DEFAULT_OMNI_VIDEO_MODEL,
+                resolution=resolution,
+            )
+
+        cog._send_error_followup.assert_not_awaited()
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        for file in send_kwargs.get("files", []):
+            file.close()
+        pricing = send_kwargs["embeds"][-1].description
+        assert f"· {shown} ·" in pricing
+        assert "57,920 video tokens" in pricing
+        assert "~" not in pricing and "s 720p" not in pricing
+        assert pricing.startswith(
+            f"${calculate_omni_video_cost(DEFAULT_OMNI_VIDEO_MODEL, 57920):.2f}"
+        )
+        assert log_cost.call_args.kwargs["resolution"] == shown
+        assert log_cost.call_args.kwargs["video_tokens"] == 57920
+        assert "duration_seconds" not in log_cost.call_args.kwargs
 
 
 class TestOmniVideoValidation:
@@ -436,9 +593,24 @@ class TestOmniVideoValidation:
     def test_accepts_bare_text_to_video(self):
         assert _validate_omni_video_request(self._params(), None, None) is None
 
-    def test_rejects_resolution(self):
-        error = _validate_omni_video_request(self._params(resolution="1080p"), None, None)
-        assert error and "resolution" in error
+    @pytest.mark.parametrize("resolution", ["720p", "1080p"])
+    def test_accepts_probed_resolutions_on_the_ga_id(self, resolution):
+        assert _validate_omni_video_request(self._params(resolution=resolution), None, None) is None
+
+    def test_refuses_4k_on_the_ga_id_as_not_yet_supported(self):
+        """4k and 360p are documented for Omni but were never probed and have no price
+        row, so the 1.1 id refuses them explicitly instead of passing them through."""
+        error = _validate_omni_video_request(self._params(resolution="4k"), None, None)
+        assert error and "`4k`" in error and "not yet supported for Gemini Omni" in error
+        assert "720p, 1080p" in error
+
+    def test_ga_id_supported_resolutions_are_exactly_the_probed_pair(self):
+        assert VIDEO_SUPPORTED_RESOLUTIONS[DEFAULT_OMNI_VIDEO_MODEL] == {"720p", "1080p"}
+        assert "gemini-omni-flash-preview" not in VIDEO_SUPPORTED_RESOLUTIONS
+
+    def test_rejected_option_message_names_resolution_as_accepted_on_the_ga_id(self):
+        error = _validate_omni_video_request(self._params(duration_seconds=8), None, None)
+        assert error and "an `aspect_ratio` and a `resolution`" in error
 
     def test_rejects_duration(self):
         error = _validate_omni_video_request(self._params(duration_seconds=8), None, None)
