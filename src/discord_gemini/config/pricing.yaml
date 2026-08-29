@@ -73,7 +73,6 @@ image_generation:
     per_image_by_size:
       default: 0.039
       1k: 0.039
-      2k: 0.039
 
 # Video generation pricing (per second, keyed by resolution).
 video_generation:

@@ -25,9 +25,10 @@ if TYPE_CHECKING:
 # is sent, 512x512 with `1:1`) and `4K` (5632x3072); Pro renders `4K`; Lite 400s on
 # `512`, `2K` and `4K` and Pro on `512`, all with "Image size <size> is not
 # supported for this model"; `0.5K` 400s everywhere ("Supported values are: 1K, 2K,
-# 4K, 512, 512P, 512PX."). Models not listed here (gemini-2.5-flash-image) pass
-# every size through to the API.
+# 4K, 512, 512P, 512PX."). Gemini 2.5 accepts a `4K` field but still returns a
+# 1024x1024 image, so only its truthful fixed-size `1K` option is allowed.
 IMAGE_SUPPORTED_SIZES: dict[str, frozenset[str]] = {
+    "gemini-2.5-flash-image": frozenset({"1k"}),
     "gemini-3.1-flash-image": frozenset({"512", "1k", "2k", "4k"}),
     "gemini-3.1-flash-lite-image": frozenset({"1k"}),
     "gemini-3-pro-image": frozenset({"1k", "2k", "4k"}),
@@ -53,7 +54,7 @@ class GeneratedImage:
 
 
 def _validate_image_size_request(image_params: ImageGenerationParameters) -> str | None:
-    """Reject `image_size` values the chosen model 400s on, in the API's own words."""
+    """Reject `image_size` values the chosen model rejects or silently ignores."""
 
     if not image_params.image_size:
         return None

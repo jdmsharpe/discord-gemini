@@ -41,6 +41,15 @@ class TestPricingLoader:
         assert "2k" not in size_prices
         assert set(size_prices) == {None, "default", "1k"}
 
+    def test_gemini_2_5_pricing_only_has_its_fixed_1k_tier(self):
+        """Gemini 2.5 silently renders 1K for larger requests, so only 1K is priced."""
+        pricing = _reload_pricing()
+        input_rate, size_prices = pricing.IMAGE_PRICING["gemini-2.5-flash-image"]
+        assert input_rate == 0.30
+        assert size_prices[None] == 0.039
+        assert size_prices["1k"] == 0.039
+        assert set(size_prices) == {None, "default", "1k"}
+
     def test_flash_and_pro_image_pricing_carry_the_probed_512_and_4k_rows(self):
         """Flash Image 512 = $0.045 and 4K = $0.151; Pro 4K = $0.24 (probed 2026-08-28).
         The 512 key is quoted in the YAML so it loads as the string the lookup uses."""

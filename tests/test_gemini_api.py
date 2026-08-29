@@ -187,10 +187,11 @@ class TestThinkingValidation:
 
 
 class TestImageSizeValidation:
-    """Per-model `image_size` support, from live 400s probed 2026-08-28.
+    """Per-model `image_size` support, from live requests probed 2026-08-28.
 
     `gemini-3.1-flash-lite-image` generates 1K only; 512 and 4K are Flash Image,
-    4K also Pro; 512 on Pro is a 400. The bot refuses with the API's own wording.
+    4K also Pro; 512 on Pro is a 400. Gemini 2.5 silently renders 1K for a 4K
+    request, so the bot refuses sizes that would be rejected or ignored.
     """
 
     @staticmethod
@@ -251,18 +252,27 @@ class TestImageSizeValidation:
         from discord_gemini.cogs.gemini.image import IMAGE_SUPPORTED_SIZES
 
         assert {
+            "gemini-2.5-flash-image": {"1k"},
             "gemini-3.1-flash-image": {"512", "1k", "2k", "4k"},
             "gemini-3.1-flash-lite-image": {"1k"},
             "gemini-3-pro-image": {"1k", "2k", "4k"},
         } == IMAGE_SUPPORTED_SIZES
 
-    def test_does_not_constrain_other_image_models(self):
+    def test_gemini_2_5_only_accepts_its_fixed_1k_size(self):
         from discord_gemini.cogs.gemini.image import _validate_image_size_request
 
-        params = self._params(model="gemini-3.1-flash-image", image_size="2k")
+        params = self._params(model="gemini-2.5-flash-image", image_size="1K")
         assert _validate_image_size_request(params) is None
-        # Models with no table entry pass every size through to the API.
-        params = self._params(model="gemini-2.5-flash-image", image_size="4K")
+        for size in ("512", "2K", "4K"):
+            params = self._params(model="gemini-2.5-flash-image", image_size=size)
+            error = _validate_image_size_request(params)
+            assert error is not None
+            assert "supports 1K" in error
+
+    def test_does_not_constrain_unknown_future_image_models(self):
+        from discord_gemini.cogs.gemini.image import _validate_image_size_request
+
+        params = self._params(model="gemini-future-image", image_size="4K")
         assert _validate_image_size_request(params) is None
 
     def test_choice_values_are_the_canonical_uppercase_spelling(self):
