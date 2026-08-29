@@ -123,15 +123,25 @@ def append_pricing_embed(
     daily_cost: float,
     thinking_tokens: int = 0,
     google_maps_grounded: bool = False,
+    cached_tokens: int = 0,
 ) -> None:
     """Append the compact pricing footer embed."""
 
-    cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens, google_maps_grounded)
+    cost = calculate_cost(
+        model,
+        input_tokens,
+        output_tokens,
+        thinking_tokens,
+        google_maps_grounded,
+        cached_tokens=cached_tokens,
+    )
     parts = [f"${cost:.4f}"]
     if thinking_tokens > 0:
         parts.append(f"{input_tokens:,} in / {output_tokens:,} out / {thinking_tokens:,} thinking")
     else:
         parts.append(f"{input_tokens:,} tokens in / {output_tokens:,} tokens out")
+    if cached_tokens > 0:
+        parts.append(f"{cached_tokens:,} cached")
     if google_maps_grounded:
         parts.append("Maps grounded")
     parts.append(f"daily ${daily_cost:.2f}")

@@ -136,14 +136,43 @@ class TestThinkingValidation:
             assert self._validate(model, level="high", budget=512) is not None
 
     def test_rejects_minimal_on_models_that_do_not_support_it(self):
-        """gemini-3.7-flash 400s on MINIMAL while the menu still offers it."""
-        error = self._validate("gemini-3.7-flash", level="minimal")
-        assert error is not None
-        assert "Minimal" in error
+        """gemini-3.7-flash and gemini-3.1-pro-preview 400 on MINIMAL while the menu offers it."""
+        for model in ("gemini-3.7-flash", "gemini-3.1-pro-preview"):
+            error = self._validate(model, level="minimal")
+            assert error is not None, model
+            assert "Minimal" in error
 
     def test_allows_minimal_where_it_is_supported(self):
         assert self._validate("gemini-3.6-flash", level="minimal") is None
-        assert self._validate("gemini-2.5-flash", level="minimal") is None
+
+    def test_rejects_every_level_on_gemini_2_5(self):
+        """Gemini 2.5 400s on ANY level: 'Thinking level is not supported for this model'."""
+        for model, level in (
+            ("gemini-2.5-pro", "low"),
+            ("gemini-2.5-flash", "minimal"),
+            ("gemini-2.5-flash-lite", "high"),
+        ):
+            error = self._validate(model, level=level)
+            assert error is not None, (model, level)
+            assert "thinking_budget" in error
+
+    def test_accepts_a_budget_on_gemini_2_5(self):
+        """Budgets are the 2.5 control; the level guard must not swallow them."""
+        assert self._validate("gemini-2.5-flash", budget=2048) is None
+        assert self._validate("gemini-2.5-pro", budget=2048) is None
+
+    def test_thinking_level_unsupported_set_is_exactly_the_2_5_family(self):
+        from discord_gemini.util import THINKING_LEVEL_UNSUPPORTED_MODELS
+
+        assert {
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+        } == THINKING_LEVEL_UNSUPPORTED_MODELS
+        # Every 2.5 model in the picker is gated, and no Gemini 3 model is.
+        for choice in CHAT_MODEL_CHOICES:
+            gated = choice.value in THINKING_LEVEL_UNSUPPORTED_MODELS
+            assert gated == choice.value.startswith("gemini-2.5"), choice.value
 
     def test_default_chat_model_rejects_minimal(self):
         """The default is the model users hit without choosing, so pin it directly."""
@@ -563,7 +592,10 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         params = ResearchParameters(prompt="Research AI safety")
 
         mock_usage = SimpleNamespace(
-            total_input_tokens=250_000, total_output_tokens=60_000, total_thought_tokens=5_000
+            total_input_tokens=250_000,
+            total_output_tokens=60_000,
+            total_thought_tokens=5_000,
+            cached_content_token_count=40_000,
         )
         # First call returns in_progress, second returns completed
         interaction_started = SimpleNamespace(
@@ -595,6 +627,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         assert result.input_tokens == 250_000
         assert result.output_tokens == 60_000
         assert result.thinking_tokens == 5_000
+        assert result.cached_tokens == 40_000
         self.cog.client.aio.interactions.create.assert_called_once_with(
             input="Research AI safety",
             agent="deep-research-preview-04-2026",
@@ -1155,6 +1188,36 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
             await gemini_research.research_command(self.cog, ctx, "Test prompt")
 
         return captured["report_text"]
+
+    async def test_research_bills_cached_tokens_through_calculate_cost(self):
+        """Cache hits reported on the interaction must reach the cost split, not be dropped."""
+        interaction_done = SimpleNamespace(
+            id="cached",
+            status="completed",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(type="text", text="# Report\n\nBody.", annotations=[])
+                    ],
+                )
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=10_000,
+                total_output_tokens=50,
+                total_thought_tokens=0,
+                cached_content_token_count=8_000,
+            ),
+        )
+
+        with patch(
+            "discord_gemini.cogs.gemini.research.calculate_cost", return_value=0.0
+        ) as calculate_cost:
+            await self._run_with_interaction(interaction_done)
+
+        calculate_cost.assert_called_once()
+        assert calculate_cost.call_args.args[1] == 10_000
+        assert calculate_cost.call_args.kwargs["cached_tokens"] == 8_000
 
     async def test_report_body_skips_appended_sources_when_model_footer_present(self):
         """When the model emits its own `**Sources:**` footer, the wrapper-appended

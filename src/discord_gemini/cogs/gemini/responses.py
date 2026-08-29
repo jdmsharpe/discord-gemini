@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 from google.genai import types
 
-from ...util import MINIMAL_THINKING_UNSUPPORTED_MODELS
+from ...util import MINIMAL_THINKING_UNSUPPORTED_MODELS, THINKING_LEVEL_UNSUPPORTED_MODELS
 from .models import CitationInfo, ToolInfo, UrlContextInfo
 
 _GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -148,15 +148,22 @@ def _validate_thinking_request(
 ) -> str | None:
     """Reject thinking configurations the API answers with a 400.
 
-    Both are reachable straight from the slash command: level and budget together
-    fail on every model, and `minimal` fails on the models listed in
-    `MINIMAL_THINKING_UNSUPPORTED_MODELS`.
+    All three are reachable straight from the slash command: level and budget
+    together fail on every model, any level fails on the Gemini 2.5 models in
+    `THINKING_LEVEL_UNSUPPORTED_MODELS` (they take a budget instead), and
+    `minimal` fails on the models listed in `MINIMAL_THINKING_UNSUPPORTED_MODELS`.
     """
 
     if thinking_level is not None and thinking_budget is not None:
         return (
             "`thinking_level` and `thinking_budget` cannot be combined — the API "
             "accepts only one. Pick a thinking level, or set a budget, not both."
+        )
+    if thinking_level is not None and model in THINKING_LEVEL_UNSUPPORTED_MODELS:
+        return (
+            f"`{model}` does not support `thinking_level` — the API rejects every level "
+            'with "Thinking level is not supported for this model". '
+            "Use `thinking_budget` to control thinking on Gemini 2.5 models."
         )
     if thinking_level == "minimal" and model in MINIMAL_THINKING_UNSUPPORTED_MODELS:
         return (

@@ -25,6 +25,7 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
                 prompt_token_count=10,
                 response_token_count=4,
                 thoughts_token_count=1,
+                cached_content_token_count=6,
             ),
             candidates=[],
         )
@@ -61,6 +62,8 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
         assert result.total_input_tokens == 13
         assert result.total_output_tokens == 12
         assert result.total_thinking_tokens == 1
+        # Cache hits are summed across iterations (the final turn reports none).
+        assert result.total_cached_tokens == 6
 
         second_call_contents = self.cog.client.aio.models.generate_content.call_args_list[1].kwargs[
             "contents"
@@ -91,6 +94,7 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
             total_input_tokens=10,
             total_output_tokens=20,
             total_thinking_tokens=0,
+            total_cached_tokens=0,
         )
 
         with (
@@ -114,6 +118,53 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
         for call in ctx.send_followup.await_args_list:
             assert "embeds" in call.kwargs
             assert not str(call.kwargs.get("content", "")).startswith("**Response:**")
+
+
+class TestGeminiChatCachedTokenBilling(AsyncGeminiCogTestCase):
+    async def test_chat_passes_cached_tokens_to_calculate_cost(self):
+        """Cache hits summed by the agentic loop must reach the cost split, not be dropped."""
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.channel = MagicMock()
+        ctx.channel.id = 222
+        ctx.interaction = MagicMock()
+        ctx.interaction.id = 333
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock(return_value=SimpleNamespace(id=444))
+        result = SimpleNamespace(
+            response=SimpleNamespace(
+                text="hi",
+                function_calls=[],
+                candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))],
+            ),
+            tool_calls_made=[],
+            total_input_tokens=5_000,
+            total_output_tokens=20,
+            total_thinking_tokens=0,
+            total_cached_tokens=4_000,
+        )
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch(
+                "discord_gemini.cogs.gemini.chat._run_agentic_loop",
+                AsyncMock(return_value=result),
+            ),
+            patch(
+                "discord_gemini.cogs.gemini.chat.calculate_cost", return_value=0.0
+            ) as calculate_cost,
+        ):
+            await self.cog.chat.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="hello",
+                model="gemini-3.7-flash",
+            )
+
+        calculate_cost.assert_called_once()
+        assert calculate_cost.call_args.args[:2] == ("gemini-3.7-flash", 5_000)
+        assert calculate_cost.call_args.kwargs["cached_tokens"] == 4_000
 
 
 class TestGeminiToolCombinationConfig:

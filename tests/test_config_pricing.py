@@ -55,10 +55,41 @@ class TestPricingLoader:
         assert "lyria-realtime-exp" in pricing.MUSIC_PRICING
         assert pricing.MUSIC_PRICING["lyria-realtime-exp"] is None
 
+    def test_every_chat_row_declares_a_cached_input_rate_below_its_input_rate(self):
+        """Cache hits were billed at the full input rate; every row now carries a cheaper one."""
+        pricing = _reload_pricing()
+        assert set(pricing.CACHED_INPUT_PRICING) == set(pricing.MODEL_PRICING)
+        for model, (input_rate, _output_rate) in pricing.MODEL_PRICING.items():
+            cached_rate = pricing.CACHED_INPUT_PRICING[model]
+            assert 0 < cached_rate < input_rate, model
+
+    def test_cached_input_rates_match_the_live_page(self):
+        pricing = _reload_pricing()
+        assert pricing.CACHED_INPUT_PRICING["gemini-3.7-flash"] == 0.075
+        assert pricing.CACHED_INPUT_PRICING["gemini-3.1-pro-preview"] == 0.20
+        assert pricing.CACHED_INPUT_PRICING["gemini-2.5-pro"] == 0.125
+        assert pricing.CACHED_INPUT_PRICING["gemini-2.5-flash-lite"] == 0.01
+
     def test_tts_and_maps_grounding(self):
         pricing = _reload_pricing()
         assert pricing.TTS_PRICING["gemini-2.5-flash-preview-tts"] == (0.50, 10.00)
+        assert pricing.MAPS_GROUNDING_COST_BY_MODEL_PREFIX == {
+            "gemini-3": 0.014,
+            "gemini-2.5": 0.025,
+        }
         assert pricing.MAPS_GROUNDING_COST_PER_REQUEST == 0.025
+
+    def test_maps_grounding_rate_is_picked_by_model_generation(self):
+        """Gemini 3.x: $14/1K (upper bound, free tier untracked); 2.5: $25/1K; else fallback."""
+        pricing = _reload_pricing()
+        assert pricing.maps_grounding_cost_for_model("gemini-3.7-flash") == 0.014
+        assert pricing.maps_grounding_cost_for_model("gemini-3-flash-preview") == 0.014
+        assert pricing.maps_grounding_cost_for_model("gemini-2.5-flash") == 0.025
+        assert pricing.maps_grounding_cost_for_model("gemini-2.5-pro") == 0.025
+        assert (
+            pricing.maps_grounding_cost_for_model("some-unknown-model")
+            == pricing.MAPS_GROUNDING_COST_PER_REQUEST
+        )
 
     def test_fallback_constants(self):
         pricing = _reload_pricing()
@@ -66,7 +97,14 @@ class TestPricingLoader:
         assert pricing.UNKNOWN_IMAGE_MODEL_INPUT_RATE == 0.50
         assert pricing.UNKNOWN_IMAGE_PER_IMAGE == 0.067
         assert pricing.UNKNOWN_VIDEO_PER_SECOND == 0.35
+        assert pricing.UNKNOWN_VIDEO_TOKEN_PER_MILLION == 17.50
         assert pricing.UNKNOWN_TTS_MODEL_PRICING == (0.50, 10.00)
+
+    def test_video_tokenized_fallback_is_declared_in_yaml(self):
+        """pricing.py read a fallbacks key the yaml never declared; the code default hid it."""
+        pricing = _reload_pricing()
+        declared = pricing._FALLBACKS.get("unknown_video_tokenized_model") or {}
+        assert declared.get("video_output_per_million") == 17.50
 
     def test_env_var_override_path(self, monkeypatch, tmp_path: Path):
         custom_yaml = tmp_path / "custom-pricing.yaml"
@@ -74,7 +112,8 @@ class TestPricingLoader:
             textwrap.dedent(
                 """
                 models:
-                  custom-gemini: { input_per_million: 1.0, output_per_million: 5.0 }
+                  custom-gemini: { input_per_million: 1.0, output_per_million: 5.0, cached_input_per_million: 0.1 }
+                  custom-gemini-uncached: { input_per_million: 2.0, output_per_million: 6.0 }
                 image_generation:
                   custom-imagen:
                     input_per_million: 0.0
@@ -88,7 +127,9 @@ class TestPricingLoader:
                   custom-lyria: { per_song: 0.02 }
                   custom-lyria-stream: { per_song: null }
                 tools:
-                  google_maps_grounding: { per_request: 0.05 }
+                  google_maps_grounding:
+                    per_request_by_model_prefix: { custom-gemini: 0.01 }
+                    per_request: 0.05
                 fallbacks:
                   unknown_chat_model: { input_per_million: 9.9, output_per_million: 99.0 }
                 """
@@ -98,11 +139,19 @@ class TestPricingLoader:
 
         pricing = _reload_pricing()
 
-        assert pricing.MODEL_PRICING == {"custom-gemini": (1.0, 5.0)}
+        assert pricing.MODEL_PRICING == {
+            "custom-gemini": (1.0, 5.0),
+            "custom-gemini-uncached": (2.0, 6.0),
+        }
+        # A row without cached_input_per_million is left out, not defaulted.
+        assert pricing.CACHED_INPUT_PRICING == {"custom-gemini": 0.1}
         input_rate, size_prices = pricing.IMAGE_PRICING["custom-imagen"]
         assert input_rate == 0.0
         assert size_prices[None] == 0.10
         assert pricing.VIDEO_PRICING == {"custom-veo": {"default": 0.5}}
         assert pricing.MUSIC_PRICING == {"custom-lyria": 0.02, "custom-lyria-stream": None}
+        assert pricing.MAPS_GROUNDING_COST_BY_MODEL_PREFIX == {"custom-gemini": 0.01}
         assert pricing.MAPS_GROUNDING_COST_PER_REQUEST == 0.05
+        assert pricing.maps_grounding_cost_for_model("custom-gemini-uncached") == 0.01
+        assert pricing.maps_grounding_cost_for_model("other") == 0.05
         assert pricing.UNKNOWN_CHAT_MODEL_PRICING == (9.9, 99.0)

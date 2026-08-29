@@ -7,12 +7,12 @@ from discord_gemini.util import (
     ATTACHMENT_PDF_MAX_INLINE_SIZE,
     CACHE_MIN_TOKEN_COUNT,
     CACHE_TTL,
+    CACHED_INPUT_PRICING,
     DEFAULT_MUSIC_MODEL,
     FILE_SEARCH_INCOMPATIBLE_TOOLS,
     IMAGE_PRICING,
     LYRIA_3_MODELS,
     LYRIA_REALTIME_MODEL,
-    MAPS_GROUNDING_COST_PER_REQUEST,
     MAX_AGENTIC_ITERATIONS,
     MODEL_PRICING,
     MUSIC_PRICING,
@@ -41,6 +41,7 @@ from discord_gemini.util import (
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
     has_server_side_tools,
+    maps_grounding_cost_for_model,
     model_supports_tool_combinations,
     resolve_tool_name,
     validate_builtin_custom_tool_combination,
@@ -200,6 +201,7 @@ class TestAgenticResult:
         assert result.total_input_tokens == 0
         assert result.total_output_tokens == 0
         assert result.total_thinking_tokens == 0
+        assert result.total_cached_tokens == 0
         assert result.iterations == 0
         assert result.tool_calls_made == []
 
@@ -989,10 +991,22 @@ class TestModelPricing:
         assert cost == pytest.approx(expected)
 
     def test_calculate_cost_with_maps_grounding(self):
-        """Test that Maps grounding adds the per-request surcharge."""
+        """Test that Maps grounding adds the model generation's per-request surcharge."""
         base_cost = calculate_cost("gemini-2.5-flash", 1000, 500)
         maps_cost = calculate_cost("gemini-2.5-flash", 1000, 500, google_maps_grounded=True)
-        assert maps_cost - base_cost == pytest.approx(MAPS_GROUNDING_COST_PER_REQUEST)
+        assert maps_cost - base_cost == pytest.approx(
+            maps_grounding_cost_for_model("gemini-2.5-flash")
+        )
+
+    def test_maps_surcharge_is_split_by_generation(self):
+        """Gemini 3.x bills $14/1K grounded prompts (an upper bound: the 5,000/month
+        free tier shared across Gemini 3 is untracked); Gemini 2.5 bills $25/1K."""
+        base_37 = calculate_cost("gemini-3.7-flash", 1000, 500)
+        maps_37 = calculate_cost("gemini-3.7-flash", 1000, 500, google_maps_grounded=True)
+        assert maps_37 - base_37 == pytest.approx(0.014)
+        base_25 = calculate_cost("gemini-2.5-flash", 1000, 500)
+        maps_25 = calculate_cost("gemini-2.5-flash", 1000, 500, google_maps_grounded=True)
+        assert maps_25 - base_25 == pytest.approx(0.025)
 
     def test_calculate_cost_without_maps_grounding(self):
         """Test that Maps surcharge is not applied when grounding is False."""
@@ -1006,7 +1020,46 @@ class TestModelPricing:
         with_maps = calculate_cost(
             "gemini-3-flash-preview", 1000, 500, thinking_tokens=2000, google_maps_grounded=True
         )
-        assert with_maps - base == pytest.approx(MAPS_GROUNDING_COST_PER_REQUEST)
+        assert with_maps - base == pytest.approx(
+            maps_grounding_cost_for_model("gemini-3-flash-preview")
+        )
+
+    def test_calculate_cost_bills_cached_tokens_at_the_cached_rate(self):
+        """Cache hits used to bill at the full input rate; split them at the cached rate."""
+        # gemini-3.7-flash: $0.75/M input, $0.075/M cached input, $3.75/M output
+        cost = calculate_cost("gemini-3.7-flash", 1_000_000, 100_000, cached_tokens=600_000)
+        expected = 0.4 * 0.75 + 0.6 * 0.075 + 0.1 * 3.75
+        assert cost == pytest.approx(expected)
+        assert cost < calculate_cost("gemini-3.7-flash", 1_000_000, 100_000)
+
+    def test_calculate_cost_cached_zero_is_unchanged(self):
+        without = calculate_cost("gemini-2.5-flash", 1_000_000, 500_000, thinking_tokens=500_000)
+        with_zero = calculate_cost(
+            "gemini-2.5-flash", 1_000_000, 500_000, thinking_tokens=500_000, cached_tokens=0
+        )
+        assert with_zero == pytest.approx(without)
+        assert with_zero == pytest.approx(2.80)
+
+    def test_calculate_cost_cached_tokens_never_go_negative(self):
+        """More cached than input tokens, or a negative count, must clamp — never refund."""
+        # gemini-2.5-pro: $1.25/M input, $0.125/M cached input
+        full_cache = calculate_cost("gemini-2.5-pro", 1000, 0, cached_tokens=1000)
+        assert full_cache == pytest.approx(1000 / 1_000_000 * 0.125)
+        over = calculate_cost("gemini-2.5-pro", 1000, 0, cached_tokens=5000)
+        assert over == pytest.approx(full_cache)
+        assert over >= 0
+        negative = calculate_cost("gemini-2.5-pro", 1000, 0, cached_tokens=-50)
+        assert negative == pytest.approx(calculate_cost("gemini-2.5-pro", 1000, 0))
+
+    def test_calculate_cost_cached_falls_back_to_input_rate_for_unpriced_models(self):
+        """A model with no cached rate bills cache hits at its input rate, never at $0."""
+        assert "unknown-model" not in CACHED_INPUT_PRICING
+        cost = calculate_cost("unknown-model", 1_000_000, 0, cached_tokens=1_000_000)
+        assert cost == pytest.approx(2.0)
+
+    def test_every_priced_chat_model_has_a_cached_rate(self):
+        for model in MODEL_PRICING:
+            assert model in CACHED_INPUT_PRICING, model
 
 
 class TestImagePricing:

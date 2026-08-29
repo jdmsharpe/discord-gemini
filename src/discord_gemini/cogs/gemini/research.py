@@ -29,6 +29,7 @@ class _ResearchResult:
     input_tokens: int = 0
     output_tokens: int = 0
     thinking_tokens: int = 0
+    cached_tokens: int = 0
     thinking_text: str = ""
     annotations: list[Any] = field(default_factory=list)
     grounding_tool_counts: dict[str, int] = field(default_factory=dict)
@@ -325,6 +326,7 @@ async def _run_deep_research(
         input_tokens=usage_counts.input_tokens,
         output_tokens=usage_counts.output_tokens,
         thinking_tokens=usage_counts.thinking_tokens,
+        cached_tokens=usage_counts.cached_tokens,
         thinking_text=_extract_interaction_thinking(interaction),
         annotations=_extract_interaction_annotations(interaction),
         grounding_tool_counts=_extract_grounding_tool_counts(interaction),
@@ -487,7 +489,11 @@ async def research_command(
 
         research_model = "gemini-3.1-pro-preview"
         cost = calculate_cost(
-            research_model, result.input_tokens, result.output_tokens, result.thinking_tokens
+            research_model,
+            result.input_tokens,
+            result.output_tokens,
+            result.thinking_tokens,
+            cached_tokens=result.cached_tokens,
         )
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
@@ -499,6 +505,7 @@ async def research_command(
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             thinking_tokens=result.thinking_tokens,
+            cached_tokens=result.cached_tokens,
             file_search=file_search,
             google_maps=google_maps,
             grounding_tool_counts=result.grounding_tool_counts or None,

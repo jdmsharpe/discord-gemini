@@ -9,8 +9,8 @@ from .cogs.gemini.tool_registry import (
     get_tool_registry,
 )
 from .config.pricing import (
+    CACHED_INPUT_PRICING,
     IMAGE_PRICING,
-    MAPS_GROUNDING_COST_PER_REQUEST,
     MODEL_PRICING,
     MUSIC_PRICING,
     TTS_PRICING,
@@ -22,6 +22,7 @@ from .config.pricing import (
     UNKNOWN_VIDEO_TOKEN_PER_MILLION,
     VIDEO_PRICING,
     VIDEO_TOKEN_PRICING,
+    maps_grounding_cost_for_model,
 )
 
 TOOL_GOOGLE_SEARCH = build_runtime_tool_config("google_search") or {"google_search": {}}
@@ -47,18 +48,29 @@ def calculate_cost(
     output_tokens: int,
     thinking_tokens: int = 0,
     google_maps_grounded: bool = False,
+    cached_tokens: int = 0,
 ) -> float:
     """Calculate the cost in dollars for a given model and token usage.
 
-    Thinking tokens are billed at the output token rate.
-    When google_maps_grounded is True, adds the per-request Maps surcharge ($0.025).
+    ``cached_tokens`` (the response's ``cached_content_token_count``) is the share of
+    ``input_tokens`` served from a context cache: it is billed at the model's cached
+    rate (``CACHED_INPUT_PRICING``, else the input rate) and the remainder at the input
+    rate; the split is clamped so neither side can go negative. Thinking tokens are
+    billed at the output token rate. When google_maps_grounded is True, adds the
+    per-request Maps surcharge for the model's generation
+    (``maps_grounding_cost_for_model``).
     """
     input_price, output_price = MODEL_PRICING.get(model, UNKNOWN_CHAT_MODEL_PRICING)
-    cost = (input_tokens / 1_000_000) * input_price + (
-        (output_tokens + thinking_tokens) / 1_000_000
-    ) * output_price
+    cached_price = CACHED_INPUT_PRICING.get(model, input_price)
+    cached = min(max(cached_tokens, 0), max(input_tokens, 0))
+    uncached = max(input_tokens - cached, 0)
+    cost = (
+        (uncached / 1_000_000) * input_price
+        + (cached / 1_000_000) * cached_price
+        + ((output_tokens + thinking_tokens) / 1_000_000) * output_price
+    )
     if google_maps_grounded:
-        cost += MAPS_GROUNDING_COST_PER_REQUEST
+        cost += maps_grounding_cost_for_model(model)
     return cost
 
 
@@ -99,7 +111,7 @@ def calculate_video_cost(
 
 
 def calculate_omni_video_cost(model: str, video_output_tokens: int) -> float:
-    """Cost for Interactions-API token-billed video generation (e.g. Gemini Omni Flash).
+    """Cost for Interactions-API token-billed video generation (Gemini Omni).
 
     Unlike Veo (per-second-by-resolution estimate), the Interactions API returns the
     exact video-modality output token count, so this cost is exact, not estimated.
@@ -145,7 +157,13 @@ CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches
 
 # Models that 400 on `thinking_level="minimal"`. "Minimal" is an unconditional
 # slash-command choice, so it must be gated here rather than in the menu.
-MINIMAL_THINKING_UNSUPPORTED_MODELS = frozenset({"gemini-3.7-flash"})
+MINIMAL_THINKING_UNSUPPORTED_MODELS = frozenset({"gemini-3.7-flash", "gemini-3.1-pro-preview"})
+
+# Models that 400 on EVERY `thinking_level` ("Thinking level is not supported for
+# this model"); they take `thinking_budget` instead. Live-reproduced 2026-08-28.
+THINKING_LEVEL_UNSUPPORTED_MODELS = frozenset(
+    {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"}
+)
 
 MAX_AGENTIC_ITERATIONS = 10  # Max tool-calling round-trips per user message
 TYPING_INDICATOR_INTERVAL = 5  # Seconds between typing indicator resends
@@ -398,6 +416,7 @@ class AgenticResult:
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_thinking_tokens: int = 0
+    total_cached_tokens: int = 0
     iterations: int = 0
     tool_calls_made: list[str] = field(default_factory=list)
 

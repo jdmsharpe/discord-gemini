@@ -2,11 +2,14 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-08-18
+# Last-verified: 2026-08-28 (every row re-verified against the live page)
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
-# the output-token rate. Video and image generation use per-unit (second or
-# image) pricing with resolution/size tiers.
+# the output-token rate. Cache hits (usage_metadata.cached_content_token_count)
+# are billed at cached_input_per_million instead of input_per_million; the
+# per-token-hour STORAGE charge for explicit caches is NOT modeled here. Video
+# and image generation use per-unit (second or image) pricing with
+# resolution/size tiers.
 #
 # Override this file at runtime by setting GEMINI_PRICING_PATH to an alternate
 # YAML path — useful for pushing new pricing without a code release.
@@ -21,17 +24,17 @@
 
 models:
   # Promotional; doubles to $1.50/$7.50 on 2027-01-01.
-  gemini-3.7-flash:              { input_per_million: 0.75,  output_per_million: 3.75 }
+  gemini-3.7-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
   # Promotional; doubles to $1.50/$7.50 on 2027-01-01.
-  gemini-3.6-flash:              { input_per_million: 0.75,  output_per_million: 3.75 }
-  gemini-3.5-flash:              { input_per_million: 1.50,  output_per_million: 9.0 }
-  gemini-3.5-flash-lite:         { input_per_million: 0.30,  output_per_million: 2.50 }
-  gemini-3.1-pro-preview:        { input_per_million: 2.0,   output_per_million: 12.0 }
-  gemini-3.1-flash-lite:         { input_per_million: 0.25,  output_per_million: 1.50 }
-  gemini-3-flash-preview:        { input_per_million: 0.50,  output_per_million: 3.0 }
-  gemini-2.5-pro:                { input_per_million: 1.25,  output_per_million: 10.0 }
-  gemini-2.5-flash:              { input_per_million: 0.30,  output_per_million: 2.50 }
-  gemini-2.5-flash-lite:         { input_per_million: 0.10,  output_per_million: 0.40 }
+  gemini-3.6-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
+  gemini-3.5-flash:              { input_per_million: 1.50,  output_per_million: 9.0,   cached_input_per_million: 0.15 }
+  gemini-3.5-flash-lite:         { input_per_million: 0.30,  output_per_million: 2.50,  cached_input_per_million: 0.03 }
+  gemini-3.1-pro-preview:        { input_per_million: 2.0,   output_per_million: 12.0,  cached_input_per_million: 0.20 }
+  gemini-3.1-flash-lite:         { input_per_million: 0.25,  output_per_million: 1.50,  cached_input_per_million: 0.025 }
+  gemini-3-flash-preview:        { input_per_million: 0.50,  output_per_million: 3.0,   cached_input_per_million: 0.05 }
+  gemini-2.5-pro:                { input_per_million: 1.25,  output_per_million: 10.0,  cached_input_per_million: 0.125 }
+  gemini-2.5-flash:              { input_per_million: 0.30,  output_per_million: 2.50,  cached_input_per_million: 0.03 }
+  gemini-2.5-flash-lite:         { input_per_million: 0.10,  output_per_million: 0.40,  cached_input_per_million: 0.01 }
 
 # Image generation pricing. Input is token-based and output is per-image with
 # resolution tiers ("1k", "2k").
@@ -73,9 +76,13 @@ video_generation:
     per_second_by_resolution: { default: 0.10, 720p: 0.10, 1080p: 0.12, 4k: 0.30 }
 
 # Interactions-API video generation billed per video-modality OUTPUT token
-# (not per second). Gemini Omni Flash emits ~5,792 video tokens per second of
-# 720p output, so 17.50/MTok works out to ~$0.10/sec at 720p.
+# (not per second). Gemini Omni emits ~5,792 video tokens per second of 720p
+# output, so 17.50/MTok works out to ~$0.10/sec at 720p.
 video_tokenized:
+  # GA 2026-08-27 (default video model); same per-token rate as the preview.
+  gemini-omni-1.1-flash:
+    video_output_per_million: 17.50
+  # Legacy preview id, shuts down 2026-09-30; stays selectable and priced until then.
   gemini-omni-flash-preview:
     video_output_per_million: 17.50
 
@@ -97,7 +104,15 @@ music_generation:
 
 tools:
   google_maps_grounding:
-    per_request: 0.025  # $25 / 1K grounded prompts
+    # Per grounded prompt, keyed by model-id prefix (longest matching prefix wins;
+    # ids matching no prefix bill at `per_request`). Gemini 3.x
+    # gets 5,000 grounded prompts per month free, shared across Gemini 3, then
+    # $14 / 1K; that free tier cannot be tracked here, so the gemini-3 rate is an
+    # UPPER BOUND. Gemini 2.5 has no free tier: $25 / 1K grounded prompts.
+    per_request_by_model_prefix:
+      gemini-3:   0.014
+      gemini-2.5: 0.025
+    per_request: 0.025  # fallback for ids matching no prefix above
 
 fallbacks:
   unknown_chat_model:  { input_per_million: 2.0,  output_per_million: 12.0 }
@@ -105,4 +120,5 @@ fallbacks:
     input_per_million: 0.50
     per_image: 0.067
   unknown_video_model: { per_second: 0.35 }
+  unknown_video_tokenized_model: { video_output_per_million: 17.50 }
   unknown_tts_model:   { input_per_million: 0.50, output_per_million: 10.00 }

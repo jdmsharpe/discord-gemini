@@ -605,7 +605,7 @@ class GeminiCog(commands.Cog):
     @option("prompt", description="Prompt for video generation", required=True, type=str)
     @option(
         "model",
-        description="Choose the video model. (default: Gemini Omni Flash)",
+        description="Choose the video model. (default: Gemini Omni 1.1 Flash)",
         required=False,
         choices=VIDEO_MODEL_CHOICES,
         type=str,
@@ -682,7 +682,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-omni-flash-preview",
+        model: str = "gemini-omni-1.1-flash",
         aspect_ratio: str = "16:9",
         resolution: str | None = None,
         person_generation: str = "allow_adult",

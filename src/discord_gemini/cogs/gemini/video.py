@@ -25,10 +25,14 @@ from .embed_delivery import send_embed_batches
 if TYPE_CHECKING:
     from .cog import GeminiCog
 
-# Gemini Omni Flash generates video via the Interactions API (not the Veo
-# generate_videos path). It emits ~5792 output tokens per second of 720p video,
-# used to turn the exact token count back into an approximate duration for display.
-OMNI_VIDEO_MODEL = "gemini-omni-flash-preview"
+# Gemini Omni generates video via the Interactions API (not the Veo
+# generate_videos path). Both ids share this code path and the same per-token
+# price: the GA gemini-omni-1.1-flash (default since 2026-08-27) and the legacy
+# gemini-omni-flash-preview, which stays selectable until its 2026-09-30 shutdown.
+# Omni emits ~5792 output tokens per second of 720p video, used to turn the exact
+# token count back into an approximate duration for display.
+DEFAULT_OMNI_VIDEO_MODEL = "gemini-omni-1.1-flash"
+OMNI_VIDEO_MODELS = frozenset({"gemini-omni-1.1-flash", "gemini-omni-flash-preview"})
 OMNI_VIDEO_TOKENS_PER_720P_SECOND = 5792
 
 VEO_3_1_MODELS = frozenset(
@@ -182,7 +186,7 @@ async def _generate_video_with_omni(
     cog: "GeminiCog",
     video_params: VideoGenerationParameters,
 ) -> tuple[list[bytes], int]:
-    """Generate a video via the Interactions API (Gemini Omni Flash).
+    """Generate a video via the Interactions API (Gemini Omni).
 
     Unlike Veo, the Interactions API completes synchronously and returns a URI to
     the generated MP4 plus exact video-modality output-token usage. Returns the
@@ -242,13 +246,15 @@ def _validate_omni_video_request(
     attachment: Attachment | None,
     last_frame: Attachment | None,
 ) -> str | None:
-    """Reject Veo-only options Gemini Omni Flash does not support.
+    """Reject Veo-only options Gemini Omni does not support.
 
-    Omni Flash (Interactions API) supports text-to-video with an aspect ratio only:
-    duration, negative prompts, person-generation control, image/first-or-last-frame
-    inputs, multiple videos, and resize modes are Veo-only. `resolution` is typed on the
-    Interactions video response format as of google-genai 2.19.0, but Omni Flash ignores
-    it and always returns 720p (verified by live probe, 2026-08-20).
+    Applies to every id in `OMNI_VIDEO_MODELS`. Omni (Interactions API) is exposed here
+    as text-to-video with an aspect ratio only: duration, negative prompts,
+    person-generation control, image/first-or-last-frame inputs, multiple videos, and
+    resize modes are Veo-only. `resolution` is typed on the Interactions video response
+    format since google-genai 2.19.0 and the Omni 1.1 GA docs list it, but exposing it
+    is deliberately deferred (not adopted in the 2026-08-28 sweep); the preview ignored
+    it and always returned 720p (verified by live probe, 2026-08-20).
     """
 
     unsupported: list[str] = []
@@ -272,7 +278,7 @@ def _validate_omni_video_request(
     if unsupported:
         joined = ", ".join(unsupported)
         return (
-            "Gemini Omni Flash supports text-to-video with an `aspect_ratio` only. "
+            "Gemini Omni supports text-to-video with an `aspect_ratio` only. "
             f"Remove {joined}, or choose a Veo 3.1 model for those features."
         )
     return None
@@ -375,7 +381,7 @@ async def video_command(
             image_resize_mode=image_resize_mode,
         )
 
-        is_omni = model == OMNI_VIDEO_MODEL
+        is_omni = model in OMNI_VIDEO_MODELS
         validation_error = (
             _validate_omni_video_request(video_params, attachment, last_frame)
             if is_omni

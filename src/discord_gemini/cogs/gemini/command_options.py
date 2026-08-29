@@ -65,7 +65,8 @@ IMAGE_SIZE_CHOICES = [
 ]
 
 VIDEO_MODEL_CHOICES = [
-    OptionChoice(name="Gemini Omni Flash", value="gemini-omni-flash-preview"),
+    OptionChoice(name="Gemini Omni 1.1 Flash", value="gemini-omni-1.1-flash"),
+    OptionChoice(name="Gemini Omni Flash Preview (legacy)", value="gemini-omni-flash-preview"),
     OptionChoice(name="Veo 3.1 Lite Preview", value="veo-3.1-lite-generate-preview"),
     OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
     OptionChoice(name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"),

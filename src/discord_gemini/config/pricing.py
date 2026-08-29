@@ -47,6 +47,16 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 }
 
 
+# Rate for input tokens served from a context cache. Rows with no
+# cached_input_per_million are left out so `calculate_cost` bills their cache
+# hits at the full input rate instead of an invented discount.
+CACHED_INPUT_PRICING: dict[str, float] = {
+    model_id: float(cfg["cached_input_per_million"])
+    for model_id, cfg in _MODELS.items()
+    if cfg.get("cached_input_per_million") is not None
+}
+
+
 def _build_image_pricing() -> dict[str, tuple[float, dict[str | None, float]]]:
     """Build IMAGE_PRICING. YAML 'default' key maps to Python None for legacy lookup."""
     result: dict[str, tuple[float, dict[str | None, float]]] = {}
@@ -75,7 +85,7 @@ VIDEO_PRICING: dict[str, dict[str, float]] = {
 }
 
 
-# Per-video-output-token pricing for Interactions-API video models (Omni Flash).
+# Per-video-output-token pricing for Interactions-API video models (Gemini Omni).
 VIDEO_TOKEN_PRICING: dict[str, float] = {
     model_id: float(cfg["video_output_per_million"]) for model_id, cfg in _VIDEO_TOKENIZED.items()
 }
@@ -96,9 +106,24 @@ MUSIC_PRICING: dict[str, float | None] = {
 }
 
 
-MAPS_GROUNDING_COST_PER_REQUEST: float = float(
-    (_TOOLS.get("google_maps_grounding") or {}).get("per_request", 0.025)
-)
+_MAPS_GROUNDING: dict[str, Any] = _TOOLS.get("google_maps_grounding") or {}
+
+# Maps grounding surcharge per grounded prompt, keyed by model-id prefix
+# ("gemini-3" -> $14/1K after an untracked free tier, "gemini-2.5" -> $25/1K).
+MAPS_GROUNDING_COST_BY_MODEL_PREFIX: dict[str, float] = {
+    str(prefix): float(rate)
+    for prefix, rate in (_MAPS_GROUNDING.get("per_request_by_model_prefix") or {}).items()
+}
+# Fallback for model ids that match no prefix above.
+MAPS_GROUNDING_COST_PER_REQUEST: float = float(_MAPS_GROUNDING.get("per_request", 0.025))
+
+
+def maps_grounding_cost_for_model(model: str) -> float:
+    """Per-request Maps grounding surcharge for ``model``; longest matching prefix wins."""
+    matches = [prefix for prefix in MAPS_GROUNDING_COST_BY_MODEL_PREFIX if model.startswith(prefix)]
+    if not matches:
+        return MAPS_GROUNDING_COST_PER_REQUEST
+    return MAPS_GROUNDING_COST_BY_MODEL_PREFIX[max(matches, key=len)]
 
 
 def _fallback(key: str, field: str, default: float) -> float:
@@ -123,7 +148,9 @@ UNKNOWN_TTS_MODEL_PRICING: tuple[float, float] = (
 
 
 __all__ = [
+    "CACHED_INPUT_PRICING",
     "IMAGE_PRICING",
+    "MAPS_GROUNDING_COST_BY_MODEL_PREFIX",
     "MAPS_GROUNDING_COST_PER_REQUEST",
     "MODEL_PRICING",
     "MUSIC_PRICING",
@@ -136,4 +163,5 @@ __all__ = [
     "UNKNOWN_VIDEO_TOKEN_PER_MILLION",
     "VIDEO_PRICING",
     "VIDEO_TOKEN_PRICING",
+    "maps_grounding_cost_for_model",
 ]

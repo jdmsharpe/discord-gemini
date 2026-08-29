@@ -86,6 +86,7 @@ class TestAutomaticFunctionCallingDisabled(AsyncGeminiCogTestCase):
             total_input_tokens=10,
             total_output_tokens=20,
             total_thinking_tokens=0,
+            total_cached_tokens=0,
         )
 
         with (
@@ -133,6 +134,7 @@ class TestAutomaticFunctionCallingDisabled(AsyncGeminiCogTestCase):
             total_input_tokens=10,
             total_output_tokens=20,
             total_thinking_tokens=0,
+            total_cached_tokens=0,
         )
 
         with (

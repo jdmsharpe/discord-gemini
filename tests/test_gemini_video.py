@@ -1,19 +1,27 @@
+import asyncio
 import inspect
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from discord_gemini.cogs.gemini.cog import GeminiCog
 from discord_gemini.cogs.gemini.command_options import VIDEO_MODEL_CHOICES
 from discord_gemini.cogs.gemini.video import (
-    OMNI_VIDEO_MODEL,
+    DEFAULT_OMNI_VIDEO_MODEL,
+    OMNI_VIDEO_MODELS,
     _build_veo_image,
     _generate_video_with_omni,
     _generate_video_with_veo,
     _validate_omni_video_request,
     _validate_video_request,
 )
-from tests.support import AsyncGeminiCogTestCase
+from discord_gemini.util import (
+    VIDEO_TOKEN_PRICING,
+    VideoGenerationParameters,
+    calculate_omni_video_cost,
+)
+from tests.support import AsyncGeminiCogTestCase, build_mock_bot
 
 
 def _encoded_image(fmt: str) -> bytes:
@@ -281,14 +289,16 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
         self.cog.client.files.download = MagicMock(return_value=b"mp4-bytes")
 
         params = VideoGenerationParameters(
-            prompt="A red ball rolls across a table", model=OMNI_VIDEO_MODEL, aspect_ratio="16:9"
+            prompt="A red ball rolls across a table",
+            model=DEFAULT_OMNI_VIDEO_MODEL,
+            aspect_ratio="16:9",
         )
         videos, tokens = await _generate_video_with_omni(self.cog, params)
 
         assert videos == [b"mp4-bytes"]
         assert tokens == 57920
         _, kwargs = self.cog.client.aio.interactions.create.call_args
-        assert kwargs["model"] == OMNI_VIDEO_MODEL
+        assert kwargs["model"] == DEFAULT_OMNI_VIDEO_MODEL
         assert kwargs["input"] == "A red ball rolls across a table"
         assert kwargs["response_format"] == {
             "type": "video",
@@ -307,7 +317,7 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
         )
         self.cog.client.files.download = MagicMock(return_value=b"unused")
 
-        params = VideoGenerationParameters(prompt="x", model=OMNI_VIDEO_MODEL)
+        params = VideoGenerationParameters(prompt="x", model=DEFAULT_OMNI_VIDEO_MODEL)
         videos, tokens = await _generate_video_with_omni(self.cog, params)
 
         assert videos == []
@@ -315,16 +325,111 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
         self.cog.client.files.download.assert_not_called()
 
     def test_omni_is_default_and_first_choice(self):
-        assert VIDEO_MODEL_CHOICES[0].value == OMNI_VIDEO_MODEL
+        """gemini-omni-1.1-flash (GA 2026-08-27) is the default and heads the picker."""
+        assert DEFAULT_OMNI_VIDEO_MODEL == "gemini-omni-1.1-flash"
+        assert VIDEO_MODEL_CHOICES[0].value == DEFAULT_OMNI_VIDEO_MODEL
         default = inspect.signature(self.cog.video.callback).parameters["model"].default
-        assert default == OMNI_VIDEO_MODEL
+        assert default == DEFAULT_OMNI_VIDEO_MODEL
+
+    def test_legacy_preview_stays_selectable_until_shutdown(self):
+        """gemini-omni-flash-preview shuts down 2026-09-30; keep it in the menu until then."""
+        values = [choice.value for choice in VIDEO_MODEL_CHOICES]
+        assert "gemini-omni-flash-preview" in values
+        assert values.index("gemini-omni-flash-preview") > values.index(DEFAULT_OMNI_VIDEO_MODEL)
+
+
+class TestOmniVideoModels:
+    """Both the GA id and the legacy preview id must route through the Omni path."""
+
+    def test_both_ids_are_omni(self):
+        assert {"gemini-omni-1.1-flash", "gemini-omni-flash-preview"} == OMNI_VIDEO_MODELS
+        assert DEFAULT_OMNI_VIDEO_MODEL in OMNI_VIDEO_MODELS
+        for veo in ("veo-3.1-generate-preview", "veo-3.1-lite-generate-preview"):
+            assert veo not in OMNI_VIDEO_MODELS
+
+    @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
+    def test_each_omni_id_is_priced_at_17_50_per_million(self, model):
+        # The unknown-model fallback happens to be 17.50 too, so pin the explicit
+        # row's presence as well as its rate: a dropped row must fail here.
+        assert model in VIDEO_TOKEN_PRICING
+        assert VIDEO_TOKEN_PRICING[model] == 17.50
+        assert calculate_omni_video_cost(model, 1_000_000) == pytest.approx(17.50)
+
+    @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
+    async def test_video_command_routes_each_omni_id_to_the_interactions_path(self, model):
+        """`is_omni` must key off the set, not a single id, or the legacy id would hit Veo."""
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._send_error_followup = AsyncMock()
+
+        with (
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
+                AsyncMock(return_value=([], 0)),
+            ) as omni,
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_veo",
+                AsyncMock(return_value=[]),
+            ) as veo,
+        ):
+            await cog.video.callback(cog, ctx=ctx, prompt="a red ball", model=model)
+
+        cog._send_error_followup.assert_not_awaited()
+        omni.assert_awaited_once()
+        assert omni.await_args.args[1].model == model
+        veo.assert_not_awaited()
+
+    async def test_video_command_routes_veo_to_generate_videos(self):
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._send_error_followup = AsyncMock()
+
+        with (
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
+                AsyncMock(return_value=([], 0)),
+            ) as omni,
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_veo",
+                AsyncMock(return_value=[]),
+            ) as veo,
+        ):
+            await cog.video.callback(
+                cog, ctx=ctx, prompt="a red ball", model="veo-3.1-generate-preview"
+            )
+
+        cog._send_error_followup.assert_not_awaited()
+        veo.assert_awaited_once()
+        omni.assert_not_awaited()
+
+    @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
+    def test_each_omni_id_rejects_veo_only_options(self, model):
+        params = VideoGenerationParameters(
+            prompt="x", model=model, resolution="1080p", duration_seconds=8
+        )
+        error = _validate_omni_video_request(params, None, None)
+        assert error and "resolution" in error and "duration" in error
 
 
 class TestOmniVideoValidation:
     def _params(self, **kwargs):
         from discord_gemini.util import VideoGenerationParameters
 
-        base = {"prompt": "x", "model": OMNI_VIDEO_MODEL, "aspect_ratio": "16:9"}
+        base = {"prompt": "x", "model": DEFAULT_OMNI_VIDEO_MODEL, "aspect_ratio": "16:9"}
         base.update(kwargs)
         return VideoGenerationParameters(**base)
 
@@ -356,5 +461,5 @@ class TestOmniVideoCost:
     def test_cost_is_exact_token_based(self):
         from discord_gemini.util import calculate_omni_video_cost
 
-        cost = calculate_omni_video_cost(OMNI_VIDEO_MODEL, 57920)
+        cost = calculate_omni_video_cost(DEFAULT_OMNI_VIDEO_MODEL, 57920)
         assert cost == pytest.approx(57920 * 17.5 / 1_000_000)

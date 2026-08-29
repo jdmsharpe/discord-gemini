@@ -64,6 +64,7 @@ async def _run_agentic_loop(
         result.total_input_tokens += usage_counts.input_tokens
         result.total_output_tokens += usage_counts.output_tokens
         result.total_thinking_tokens += usage_counts.thinking_tokens
+        result.total_cached_tokens += usage_counts.cached_tokens
 
         function_calls = response.function_calls
         if not function_calls:
@@ -336,6 +337,7 @@ async def handle_new_message_in_conversation(
         input_tokens = result.total_input_tokens
         output_tokens = result.total_output_tokens
         thinking_tokens = result.total_thinking_tokens
+        cached_tokens = result.total_cached_tokens
         maps_grounded = "google_maps" in tool_info.get("tools_used", [])
         cost = calculate_cost(
             params.model,
@@ -343,6 +345,7 @@ async def handle_new_message_in_conversation(
             output_tokens,
             thinking_tokens,
             maps_grounded,
+            cached_tokens=cached_tokens,
         )
         daily_cost = state._track_daily_cost(cog, message.author.id, cost)
         cog._log_cost(
@@ -354,6 +357,7 @@ async def handle_new_message_in_conversation(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             thinking_tokens=thinking_tokens,
+            cached_tokens=cached_tokens,
             google_maps_grounded=maps_grounded,
         )
         if SHOW_COST_EMBEDS:
@@ -365,6 +369,7 @@ async def handle_new_message_in_conversation(
                 daily_cost,
                 thinking_tokens,
                 maps_grounded,
+                cached_tokens=cached_tokens,
             )
 
         view = cog.views.get(message.author)
@@ -712,8 +717,16 @@ async def chat_command(
         input_tokens = result.total_input_tokens
         output_tokens = result.total_output_tokens
         thinking_tokens = result.total_thinking_tokens
+        cached_tokens = result.total_cached_tokens
         maps_grounded = "google_maps" in tool_info.get("tools_used", [])
-        cost = calculate_cost(model, input_tokens, output_tokens, thinking_tokens, maps_grounded)
+        cost = calculate_cost(
+            model,
+            input_tokens,
+            output_tokens,
+            thinking_tokens,
+            maps_grounded,
+            cached_tokens=cached_tokens,
+        )
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
             "chat",
@@ -724,6 +737,7 @@ async def chat_command(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             thinking_tokens=thinking_tokens,
+            cached_tokens=cached_tokens,
             google_maps_grounded=maps_grounded,
         )
         if SHOW_COST_EMBEDS:
@@ -735,6 +749,7 @@ async def chat_command(
                 daily_cost,
                 thinking_tokens,
                 maps_grounded,
+                cached_tokens=cached_tokens,
             )
 
         if not has_response:

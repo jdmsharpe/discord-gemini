@@ -191,6 +191,30 @@ class TestPricingEmbeds:
         assert len(embeds) == 1
         assert "Maps grounded" in embeds[0].description
 
+    def test_append_pricing_embed_with_cached_tokens(self):
+        """Cache hits are shown in the footer and billed at the cached rate."""
+        embeds = []
+        append_pricing_embed(
+            embeds,
+            "gemini-3.7-flash",
+            input_tokens=100_000,
+            output_tokens=1_000,
+            daily_cost=0.10,
+            cached_tokens=80_000,
+        )
+        assert len(embeds) == 1
+        assert "80,000 cached" in embeds[0].description
+        # 20K uncached @ $0.75/M + 80K cached @ $0.075/M + 1K out @ $3.75/M
+        expected = (20_000 / 1e6) * 0.75 + (80_000 / 1e6) * 0.075 + (1_000 / 1e6) * 3.75
+        assert f"${expected:.4f}" in embeds[0].description
+
+    def test_append_pricing_embed_without_cached_tokens_omits_label(self):
+        embeds = []
+        append_pricing_embed(
+            embeds, "gemini-3.7-flash", input_tokens=1000, output_tokens=500, daily_cost=0.10
+        )
+        assert "cached" not in embeds[0].description
+
     def test_append_pricing_embed_without_maps_grounding(self):
         """Test pricing embed omits Maps label when not grounded."""
         embeds = []
