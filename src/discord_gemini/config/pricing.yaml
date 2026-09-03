@@ -2,7 +2,7 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-08-28 (every row re-verified against the live page)
+# Last-verified: 2026-09-03 (every row re-verified against the live page)
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
 # the output-token rate. Cache hits (usage_metadata.cached_content_token_count)
@@ -23,6 +23,8 @@
 # on 2027-01-01, so re-verify every rate below in late December 2026.
 
 models:
+  # GA 2026-09-02, default chat model. Promotional; doubles to $1.50/$7.50 on 2027-01-01.
+  gemini-3.8-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
   # Promotional; doubles to $1.50/$7.50 on 2027-01-01.
   gemini-3.7-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
   # Promotional; doubles to $1.50/$7.50 on 2027-01-01.

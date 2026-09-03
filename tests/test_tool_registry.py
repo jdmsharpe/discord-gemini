@@ -50,13 +50,14 @@ def test_registry_metadata_exposes_model_constraints():
 
 
 def test_superseded_default_still_allowlisted_for_grounding_tools():
-    """gemini-3.6-flash is no longer the default but stays selectable, so it keeps its tools.
+    """3.7 and 3.6 Flash are no longer the default but stay selectable, so they keep their tools.
 
     The live default is covered by ``test_default_chat_model_is_priced_and_fully_tool_enabled``.
     """
     for tool_id in MODEL_GATED_TOOLS:
         metadata = get_tool_metadata(tool_id)
         assert metadata is not None
+        assert "gemini-3.7-flash" in metadata.model_allowlist
         assert "gemini-3.6-flash" in metadata.model_allowlist
 
 

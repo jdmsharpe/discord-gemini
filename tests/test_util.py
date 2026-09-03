@@ -803,6 +803,8 @@ class TestCacheConstants:
 
     def test_cache_min_token_count_contains_expected_models(self):
         """Test that CACHE_MIN_TOKEN_COUNT includes selected 3.x and 2.5 models."""
+        assert "gemini-3.8-flash" in CACHE_MIN_TOKEN_COUNT
+        assert "gemini-3.7-flash" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.6-flash" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.5-flash" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.5-flash-lite" in CACHE_MIN_TOKEN_COUNT
@@ -813,6 +815,9 @@ class TestCacheConstants:
 
     def test_cache_min_token_count_values(self):
         """Test that token thresholds are correct per model tier."""
+        # 3.8 Flash: caches.create accepted a 1,202-token payload on 2026-09-03.
+        assert CACHE_MIN_TOKEN_COUNT["gemini-3.8-flash"] == 1024
+        assert CACHE_MIN_TOKEN_COUNT["gemini-3.7-flash"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.6-flash"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.5-flash"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.5-flash-lite"] == 1024
@@ -932,6 +937,8 @@ class TestModelPricing:
 
     def test_calculate_cost_uses_new_ga_model_rows(self):
         """Missing pricing rows fall back silently, so price the new models explicitly."""
+        # gemini-3.8-flash (default since v1.13.0): $0.75/M input, $3.75/M output
+        assert calculate_cost("gemini-3.8-flash", 1_000_000, 1_000_000) == pytest.approx(4.50)
         # gemini-3.7-flash: $0.75/M input, $3.75/M output
         assert calculate_cost("gemini-3.7-flash", 1_000_000, 1_000_000) == pytest.approx(4.50)
         # gemini-3.6-flash: $0.75/M input, $3.75/M output
@@ -939,17 +946,23 @@ class TestModelPricing:
         # gemini-3.5-flash-lite: $0.30/M input, $2.50/M output
         assert calculate_cost("gemini-3.5-flash-lite", 1_000_000, 1_000_000) == pytest.approx(2.80)
         # None may land on UNKNOWN_CHAT_MODEL_PRICING (2.0, 12.0) == $14.00.
-        for model in ("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"):
+        for model in (
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+        ):
             assert calculate_cost(model, 1_000_000, 1_000_000) != pytest.approx(14.0)
 
     def test_flash_tier_carries_the_promotional_rate(self):
-        """3.7 and 3.6 Flash bill at the promotional rate, not the 2027 rate.
+        """3.8, 3.7 and 3.6 Flash bill at the promotional rate, not the 2027 rate.
 
         Both were priced at the post-2027 $1.50/$7.50 row while the rate in force
         was half that, so pin the current rate and keep the tier in lockstep.
         """
-        assert MODEL_PRICING["gemini-3.7-flash"] == (0.75, 3.75)
-        assert MODEL_PRICING["gemini-3.6-flash"] == MODEL_PRICING["gemini-3.7-flash"]
+        assert MODEL_PRICING["gemini-3.8-flash"] == (0.75, 3.75)
+        assert MODEL_PRICING["gemini-3.7-flash"] == MODEL_PRICING["gemini-3.8-flash"]
+        assert MODEL_PRICING["gemini-3.6-flash"] == MODEL_PRICING["gemini-3.8-flash"]
         # Strictly cheaper than the 3.5 Flash it succeeds, on both axes.
         old_input, old_output = MODEL_PRICING["gemini-3.5-flash"]
         new_input, new_output = MODEL_PRICING["gemini-3.7-flash"]

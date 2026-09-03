@@ -15,6 +15,7 @@ def _reload_pricing():
 class TestPricingLoader:
     def test_bundled_yaml_loads_model_pricing(self):
         pricing = _reload_pricing()
+        assert pricing.MODEL_PRICING["gemini-3.8-flash"] == (0.75, 3.75)
         assert pricing.MODEL_PRICING["gemini-3.7-flash"] == (0.75, 3.75)
         assert pricing.MODEL_PRICING["gemini-3.6-flash"] == (0.75, 3.75)
         assert pricing.MODEL_PRICING["gemini-3.5-flash-lite"] == (0.30, 2.50)
@@ -88,6 +89,7 @@ class TestPricingLoader:
 
     def test_cached_input_rates_match_the_live_page(self):
         pricing = _reload_pricing()
+        assert pricing.CACHED_INPUT_PRICING["gemini-3.8-flash"] == 0.075
         assert pricing.CACHED_INPUT_PRICING["gemini-3.7-flash"] == 0.075
         assert pricing.CACHED_INPUT_PRICING["gemini-3.1-pro-preview"] == 0.20
         assert pricing.CACHED_INPUT_PRICING["gemini-2.5-pro"] == 0.125

@@ -371,7 +371,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "model",
-        description="Choose from the following Gemini models. (default: Gemini 3.7 Flash)",
+        description="Choose from the following Gemini models. (default: Gemini 3.8 Flash)",
         required=False,
         choices=CHAT_MODEL_CHOICES,
         type=str,
@@ -480,7 +480,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3.7-flash",
+        model: str = "gemini-3.8-flash",
         system_instruction: str | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,
