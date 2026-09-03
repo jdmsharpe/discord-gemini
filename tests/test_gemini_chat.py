@@ -7,7 +7,9 @@ from discord_gemini.cogs.gemini import tooling as gemini_tooling
 from discord_gemini.cogs.gemini.chat import (
     _add_custom_function_tools,
     _configure_tool_context_circulation,
+    apply_agentic_video_processing,
 )
+from discord_gemini.util import AGENTIC_VIDEO_MODELS
 from tests.support import AsyncGeminiCogTestCase
 
 
@@ -64,7 +66,7 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
         assert result.total_thinking_tokens == 1
         # Cache hits are summed across iterations (the final turn reports none).
         assert result.total_cached_tokens == 6
-
+        assert result.total_tool_use_prompt_tokens == 0
         second_call_contents = self.cog.client.aio.models.generate_content.call_args_list[1].kwargs[
             "contents"
         ]
@@ -72,6 +74,160 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
         function_response = second_call_contents[-1]["parts"][0].function_response
         assert function_response is not None
         assert function_response.id == "call-123"
+
+    async def test_run_agentic_loop_sums_tool_use_prompt_tokens(self):
+        """Agentic video navigation reports its frames as `tool_use_prompt_token_count`
+        (5,847 of 6,472 total tokens on a 10-min clip, probed 2026-09-03); the loop
+        must sum it so the chat flows bill it as input instead of discarding it."""
+        response = SimpleNamespace(
+            text="Done.",
+            function_calls=[],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=197,
+                candidates_token_count=171,
+                thoughts_token_count=257,
+                tool_use_prompt_token_count=5847,
+            ),
+            candidates=[],
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+
+        result = await self.cog._run_agentic_loop(
+            "gemini-3.8-flash",
+            [{"role": "user", "parts": [{"text": "What happens at the end?"}]}],
+            None,
+        )
+
+        assert result.total_input_tokens == 197
+        assert result.total_tool_use_prompt_tokens == 5847
+        assert result.total_thinking_tokens == 257
+
+    async def test_chat_bills_tool_use_prompt_tokens_as_input(self):
+        """The cost embed's input count is prompt + tool-use prompt tokens."""
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.channel = MagicMock()
+        ctx.channel.id = 222
+        ctx.interaction = MagicMock()
+        ctx.interaction.id = 333
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock(return_value=SimpleNamespace(id=444))
+        response = SimpleNamespace(
+            text="At the end a bird lands on the squirrel.",
+            function_calls=[],
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))],
+        )
+        result = SimpleNamespace(
+            response=response,
+            tool_calls_made=[],
+            total_input_tokens=197,
+            total_output_tokens=171,
+            total_thinking_tokens=0,
+            total_cached_tokens=0,
+            total_tool_use_prompt_tokens=5847,
+        )
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch(
+                "discord_gemini.cogs.gemini.chat._run_agentic_loop",
+                AsyncMock(return_value=result),
+            ),
+            patch("discord_gemini.cogs.gemini.chat.calculate_cost", return_value=0.0) as cost,
+        ):
+            await self.cog.chat.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="hello",
+                model="gemini-3.8-flash",
+            )
+
+        assert cost.call_args.args[1] == 197 + 5847
+
+
+class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
+    def test_supported_models_are_the_four_flash_ids(self):
+        """Live-probed 2026-09-03: these accept media_processing=AGENTIC; 3.1 Pro 400s."""
+        assert {
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+        } == AGENTIC_VIDEO_MODELS
+
+    def test_tags_only_video_parts_on_supported_models(self):
+        parts = [
+            {"file_data": {"file_uri": "https://youtu.be/x", "mime_type": "video/mp4"}},
+            {"inline_data": {"mime_type": "video/webm", "data": b"v"}},
+            {"inline_data": {"mime_type": "image/png", "data": b"i"}},
+            {"file_data": {"file_uri": "files/abc", "mime_type": "application/pdf"}},
+            {"text": "describe"},
+        ]
+
+        apply_agentic_video_processing(parts, "gemini-3.8-flash")
+
+        assert parts[0]["media_processing"] == "AGENTIC"
+        assert parts[1]["media_processing"] == "AGENTIC"
+        assert "media_processing" not in parts[2]
+        assert "media_processing" not in parts[3]
+        assert "media_processing" not in parts[4]
+
+    def test_leaves_parts_unchanged_on_other_models(self):
+        """Sending the field to a model without agentic processing is a 400."""
+        parts = [{"file_data": {"file_uri": "https://youtu.be/x", "mime_type": "video/mp4"}}]
+
+        apply_agentic_video_processing(parts, "gemini-3.1-pro-preview")
+        apply_agentic_video_processing(parts, "gemini-2.5-flash")
+
+        assert "media_processing" not in parts[0]
+
+    async def test_chat_command_sends_agentic_video_part(self):
+        """A YouTube URL on 3.8 Flash reaches the API as a Part with AGENTIC processing."""
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.channel = MagicMock()
+        ctx.channel.id = 222
+        ctx.interaction = MagicMock()
+        ctx.interaction.id = 333
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock(return_value=SimpleNamespace(id=444))
+        response = SimpleNamespace(
+            text="A bunny.",
+            function_calls=[],
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))],
+        )
+        result = SimpleNamespace(
+            response=response,
+            tool_calls_made=[],
+            total_input_tokens=1,
+            total_output_tokens=1,
+            total_thinking_tokens=0,
+            total_cached_tokens=0,
+            total_tool_use_prompt_tokens=0,
+        )
+        loop = AsyncMock(return_value=result)
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="What happens at the end?",
+                model="gemini-3.8-flash",
+                url="https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            )
+
+        contents = loop.await_args.args[2]
+        video_part = contents[0]["parts"][0]
+        assert isinstance(video_part, types.Part)
+        assert video_part.file_data is not None
+        assert video_part.file_data.mime_type == "video/mp4"
+        assert video_part.media_processing == "AGENTIC"
+        assert contents[0]["parts"][1].media_processing is None
 
     async def test_chat_long_response_with_sidecars_uses_embed_batches(self):
         ctx = AsyncMock()
@@ -95,6 +251,7 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
             total_output_tokens=20,
             total_thinking_tokens=0,
             total_cached_tokens=0,
+            total_tool_use_prompt_tokens=0,
         )
 
         with (
@@ -143,6 +300,7 @@ class TestGeminiChatCachedTokenBilling(AsyncGeminiCogTestCase):
             total_output_tokens=20,
             total_thinking_tokens=0,
             total_cached_tokens=4_000,
+            total_tool_use_prompt_tokens=0,
         )
 
         with (

@@ -171,6 +171,16 @@ THINKING_LEVEL_UNSUPPORTED_MODELS = frozenset(
     {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"}
 )
 
+# Models that accept `media_processing: AGENTIC` on a video part — the model
+# requests only the video segments it needs instead of receiving every sampled
+# frame ("up to 88% fewer tokens" on long video per Google). Live-probed 2026-09-03: all four
+# accept it (a 10-min YouTube clip fell from 57,793 prompt tokens to a few
+# hundred plus ~5.8k `tool_use_prompt_token_count`); `gemini-3.1-pro-preview`
+# 400s with "Agentic video processing is not enabled for models/...".
+AGENTIC_VIDEO_MODELS = frozenset(
+    {"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"}
+)
+
 MAX_AGENTIC_ITERATIONS = 10  # Max tool-calling round-trips per user message
 TYPING_INDICATOR_INTERVAL = 5  # Seconds between typing indicator resends
 VIDEO_GENERATION_TIMEOUT = 600  # Max seconds to wait for video generation
@@ -423,6 +433,9 @@ class AgenticResult:
     total_output_tokens: int = 0
     total_thinking_tokens: int = 0
     total_cached_tokens: int = 0
+    # `tool_use_prompt_token_count`: prompt tokens the server added for
+    # its own tools (agentic video navigation, grounding). Billed as input.
+    total_tool_use_prompt_tokens: int = 0
     iterations: int = 0
     tool_calls_made: list[str] = field(default_factory=list)
 

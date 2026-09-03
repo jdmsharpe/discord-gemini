@@ -343,6 +343,35 @@ class TestGeminiThinkingResponses:
         assert result[0] is part1
         assert result[1] is part2
 
+    def test_get_response_content_parts_drops_server_side_tool_parts(self):
+        """Agentic video processing returns tool_call/tool_response parts; replaying them
+        400s ("Tool type of tool_call part does not match with tool call context"), so
+        history keeps only the model's own parts."""
+        text_part = SimpleNamespace(text="A bunny.", tool_call=None, tool_response=None)
+        call_part = SimpleNamespace(
+            text=None, tool_call=SimpleNamespace(id="c1"), tool_response=None
+        )
+        reply_part = SimpleNamespace(
+            text=None, tool_call=None, tool_response=SimpleNamespace(id="c1")
+        )
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(content=SimpleNamespace(parts=[call_part, reply_part, text_part]))
+            ]
+        )
+
+        assert _get_response_content_parts(response) == [text_part]
+
+    def test_get_response_content_parts_only_tool_parts_is_none(self):
+        call_part = SimpleNamespace(
+            text=None, tool_call=SimpleNamespace(id="c1"), tool_response=None
+        )
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[call_part]))]
+        )
+
+        assert _get_response_content_parts(response) is None
+
     def test_get_response_content_parts_empty_candidates(self):
         """Test that None is returned for empty candidates."""
         response = SimpleNamespace(candidates=[])

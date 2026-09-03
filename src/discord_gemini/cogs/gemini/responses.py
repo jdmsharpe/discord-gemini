@@ -126,8 +126,20 @@ def extract_thinking_text(response: Any) -> str:
     return "\n\n".join(thinking_parts)
 
 
+def _is_server_tool_part(part: Any) -> bool:
+    """True for the server-side `tool_call` / `tool_response` parts agentic video
+    processing emits. Replaying them on the next turn 400s ("Tool type of tool_call
+    part does not match with tool call context", probed 2026-09-03 on 2.22.0), and
+    on the next turn the model navigates the video again from the retained video part."""
+
+    return (
+        getattr(part, "tool_call", None) is not None
+        or getattr(part, "tool_response", None) is not None
+    )
+
+
 def _get_response_content_parts(response: Any) -> list[Any] | None:
-    """Get raw content parts for history storage."""
+    """Get raw content parts for history storage (server-side tool parts dropped)."""
 
     candidates = getattr(response, "candidates", None)
     if not candidates:
@@ -138,7 +150,8 @@ def _get_response_content_parts(response: Any) -> list[Any] | None:
     parts = getattr(content, "parts", None)
     if not parts:
         return None
-    return list(parts)
+    kept = [part for part in parts if not _is_server_tool_part(part)]
+    return kept or None
 
 
 def _validate_thinking_request(

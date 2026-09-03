@@ -12,6 +12,7 @@ from google.genai.errors import APIError
 
 from ...config.auth import ENABLE_CUSTOM_TOOLS, SHOW_COST_EMBEDS
 from ...util import (
+    AGENTIC_VIDEO_MODELS,
     MAX_AGENTIC_ITERATIONS,
     TYPING_INDICATOR_INTERVAL,
     AgenticResult,
@@ -65,6 +66,7 @@ async def _run_agentic_loop(
         result.total_output_tokens += usage_counts.output_tokens
         result.total_thinking_tokens += usage_counts.thinking_tokens
         result.total_cached_tokens += usage_counts.cached_tokens
+        result.total_tool_use_prompt_tokens += usage_counts.tool_use_prompt_tokens
 
         function_calls = response.function_calls
         if not function_calls:
@@ -101,6 +103,33 @@ async def _run_agentic_loop(
         cog.logger.warning("Agentic loop hit max iterations (%d)", MAX_AGENTIC_ITERATIONS)
 
     return result
+
+
+def _part_mime_type(part: Any) -> str:
+    """MIME type of a history part dict carrying `file_data` or `inline_data`."""
+
+    if not isinstance(part, dict):
+        return ""
+    media = part.get("file_data") or part.get("inline_data") or {}
+    mime_type = media.get("mime_type") if isinstance(media, dict) else None
+    return str(mime_type or "")
+
+
+def apply_agentic_video_processing(parts: list[Any], model: str) -> list[Any]:
+    """Tag every video part dict with `media_processing: AGENTIC` on supported models.
+
+    Agentic video understanding (`AGENTIC_VIDEO_MODELS`) lets the model request only
+    the video segments it needs instead of receiving every sampled frame; Google
+    recommends it and it reduces long-video prompt tokens by up to 88%. Other models
+    get the parts unchanged, because sending the field to them returns a 400.
+    """
+
+    if model not in AGENTIC_VIDEO_MODELS:
+        return parts
+    for part in parts:
+        if _part_mime_type(part).lower().startswith("video/"):
+            part["media_processing"] = "AGENTIC"
+    return parts
 
 
 async def keep_typing(cog: "GeminiCog", channel: Any) -> None:
@@ -224,6 +253,7 @@ async def handle_new_message_in_conversation(
 
         if message.content:
             user_parts.append({"text": message.content})
+        apply_agentic_video_processing(user_parts, params.model)
         history.append({"role": "user", "parts": user_parts})
 
         config_args: dict[str, Any] = {"automatic_function_calling": disable_afc()}
@@ -334,7 +364,7 @@ async def handle_new_message_in_conversation(
         embeds.append_response_embeds(response_embeds, response_text)
         embeds.append_sources_embed(response_embeds, tool_info)
 
-        input_tokens = result.total_input_tokens
+        input_tokens = result.total_input_tokens + result.total_tool_use_prompt_tokens
         output_tokens = result.total_output_tokens
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
@@ -550,6 +580,7 @@ async def chat_command(
             )
 
         parts.append({"text": prompt})
+        apply_agentic_video_processing(parts, model)
 
         selected_tool_names = {
             "google_search": google_search,
@@ -638,14 +669,20 @@ async def chat_command(
             if "text" in part:
                 formatted_parts.append(types.Part(text=part["text"]))
             elif "inline_data" in part:
-                formatted_parts.append(types.Part(inline_data=part["inline_data"]))
-            elif "file_data" in part:
                 formatted_parts.append(
-                    types.Part.from_uri(
-                        file_uri=part["file_data"]["file_uri"],
-                        mime_type=part["file_data"]["mime_type"],
+                    types.Part(
+                        inline_data=part["inline_data"],
+                        media_processing=part.get("media_processing"),
                     )
                 )
+            elif "file_data" in part:
+                typed_part = types.Part.from_uri(
+                    file_uri=part["file_data"]["file_uri"],
+                    mime_type=part["file_data"]["mime_type"],
+                )
+                if part.get("media_processing"):
+                    typed_part.media_processing = part["media_processing"]
+                formatted_parts.append(typed_part)
 
         initial_contents = [{"role": "user", "parts": formatted_parts}]
         result = await _run_agentic_loop(cog, model, initial_contents, generation_config)
@@ -714,7 +751,7 @@ async def chat_command(
         has_response = len(response_embeds) > embed_count_before_response
         embeds.append_sources_embed(response_embeds, tool_info)
 
-        input_tokens = result.total_input_tokens
+        input_tokens = result.total_input_tokens + result.total_tool_use_prompt_tokens
         output_tokens = result.total_output_tokens
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
@@ -835,6 +872,7 @@ async def chat_command(
 
 __all__ = [
     "_run_agentic_loop",
+    "apply_agentic_video_processing",
     "chat_command",
     "handle_new_message_in_conversation",
     "handle_on_message",
