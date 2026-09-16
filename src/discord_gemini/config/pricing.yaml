@@ -2,7 +2,7 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-09-03 (every row re-verified against the live page)
+# Last-verified: 2026-09-15 (every row re-verified against the live page)
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
 # the output-token rate. Cache hits (usage_metadata.cached_content_token_count)
@@ -110,6 +110,7 @@ text_to_speech:
 # lyria-realtime-exp streams audio and has no published per-song price, so it is
 # left explicitly unpriced (null) rather than billed at an invented rate.
 music_generation:
+  lyria-3.5:            { per_song: 0.08 }  # "Lyria 3.5 (Full Song)", Interactions API
   lyria-3-clip-preview: { per_song: 0.04 }
   lyria-3-pro-preview:  { per_song: 0.08 }
   lyria-realtime-exp:   { per_song: null }

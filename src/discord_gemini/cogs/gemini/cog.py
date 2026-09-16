@@ -761,13 +761,13 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "attachment",
-        description="(Lyria 3 only) Reference image for multimodal music generation. (default: not set)",
+        description="(Lyria 3 / 3.5 only) Reference image for multimodal music generation. (default: not set)",
         required=False,
         type=Attachment,
     )
     @option(
         "model",
-        description="Choose music generation model. (default: Lyria 3 Clip Preview)",
+        description="Choose music generation model. (default: Lyria 3.5)",
         required=False,
         choices=MUSIC_MODEL_CHOICES,
         type=str,
@@ -955,6 +955,13 @@ class GeminiCog(commands.Cog):
         attachment: Attachment | None = None,
     ) -> tuple[bytes | None, str | None, str | None]:
         return await music_flow._generate_music_with_lyria3(self, music_params, attachment)
+
+    async def _generate_music_with_lyria35(
+        self,
+        music_params: MusicGenerationParameters,
+        attachment: Attachment | None = None,
+    ) -> tuple[bytes | None, str | None, str | None]:
+        return await music_flow._generate_music_with_lyria35(self, music_params, attachment)
 
     def _validate_music_attachment(self, model: str, attachment: Attachment) -> str | None:
         return music_flow._validate_music_attachment(self, model, attachment)

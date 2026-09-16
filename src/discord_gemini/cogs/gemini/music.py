@@ -1,6 +1,7 @@
 """Music generation helpers for the Gemini cog."""
 
 import asyncio
+import base64
 import contextlib
 import time
 import wave
@@ -16,6 +17,7 @@ from PIL import Image
 from ...util import (
     DEFAULT_MUSIC_MODEL,
     LYRIA_3_MODELS,
+    LYRIA_INTERACTIONS_MODELS,
     LYRIA_REALTIME_MODEL,
     WS_DRAIN_INTERVAL,
     MusicGenerationParameters,
@@ -103,7 +105,8 @@ def _validate_music_attachment(
         return size_error
     if model == LYRIA_REALTIME_MODEL:
         return (
-            "Reference images are only supported for Lyria 3 Pro Preview and Lyria 3 Clip Preview."
+            "Reference images are only supported for Lyria 3.5, Lyria 3 Pro Preview and "
+            "Lyria 3 Clip Preview."
         )
 
     mime_type = attachments._guess_attachment_mime_type(attachment)
@@ -173,6 +176,77 @@ async def _generate_music_with_lyria3(
     except Exception as error:
         cog.logger.error("Error generating music with Lyria 3: %s", error)
         raise MusicGenerationError(f"Music generation failed: {error}") from error
+
+
+async def _build_lyria35_music_input(
+    cog: "GeminiCog",
+    music_params: MusicGenerationParameters,
+    attachment: Attachment | None = None,
+) -> str | list[dict[str, Any]]:
+    """Build the Interactions API ``input`` for Lyria 3.5: text, or text plus one image."""
+
+    prompt = _build_lyria3_prompt(music_params)
+    if attachment is None:
+        return prompt
+
+    attachment_data = await attachments._fetch_attachment_bytes(cog, attachment)
+    if attachment_data is None:
+        raise MusicGenerationError(
+            "Failed to read the uploaded image for music generation. Please try again."
+        )
+
+    try:
+        image = Image.open(BytesIO(attachment_data))
+        image.load()
+    except Exception as error:
+        raise MusicGenerationError(
+            "The uploaded music reference attachment could not be processed as an image."
+        ) from error
+    return [
+        {"type": "text", "text": prompt},
+        {
+            "type": "image",
+            "mime_type": attachments._guess_attachment_mime_type(attachment),
+            "data": base64.b64encode(attachment_data).decode("ascii"),
+        },
+    ]
+
+
+async def _generate_music_with_lyria35(
+    cog: "GeminiCog",
+    music_params: MusicGenerationParameters,
+    attachment: Attachment | None = None,
+) -> tuple[bytes | None, str | None, str | None]:
+    """Generate a full song with Lyria 3.5 through the Interactions API.
+
+    ``interactions.create`` completes synchronously and returns the audio as
+    base64 in ``output_audio.data`` with its MIME type, plus lyrics and structure
+    markers in ``output_text``.
+    """
+
+    try:
+        # interactions.create returns Interaction | AsyncStream; this path never
+        # streams, so narrow to Any to keep attribute access well-typed.
+        interaction: Any = await cog.client.aio.interactions.create(
+            model=music_params.model,
+            input=await _build_lyria35_music_input(cog, music_params, attachment),
+        )
+    except MusicGenerationError:
+        raise
+    except Exception as error:
+        cog.logger.error("Error generating music with Lyria 3.5: %s", error)
+        raise MusicGenerationError(f"Music generation failed: {error}") from error
+
+    output_audio = getattr(interaction, "output_audio", None)
+    raw = getattr(output_audio, "data", None)
+    audio_data: bytes | None = None
+    if isinstance(raw, str) and raw:
+        audio_data = base64.b64decode(raw)
+    elif isinstance(raw, bytes | bytearray) and raw:
+        audio_data = bytes(raw)
+    mime_type = getattr(output_audio, "mime_type", None) if audio_data else None
+    text_response = getattr(interaction, "output_text", None) or None
+    return audio_data, text_response, mime_type
 
 
 async def _generate_music_with_lyria_realtime(
@@ -329,6 +403,12 @@ async def music_command(
                 music_params,
                 attachment,
             )
+        elif model in LYRIA_INTERACTIONS_MODELS:
+            audio_data, text_response, audio_mime_type = await _generate_music_with_lyria35(
+                cog,
+                music_params,
+                attachment,
+            )
         else:
             audio_data = await _generate_music_with_lyria_realtime(cog, music_params)
 
@@ -383,7 +463,7 @@ async def music_command(
             description += "**Reference Image:** Attached\n"
         if model == "lyria-3-clip-preview":
             description += "**Mode:** Clip generation\n**Duration:** 30 seconds (fixed by model)\n"
-        elif model == "lyria-3-pro-preview":
+        elif model == "lyria-3-pro-preview" or model in LYRIA_INTERACTIONS_MODELS:
             description += "**Mode:** Song generation\n"
         else:
             description += (
@@ -447,8 +527,10 @@ async def music_command(
 __all__ = [
     "_build_lyria3_music_contents",
     "_build_lyria3_prompt",
+    "_build_lyria35_music_input",
     "_build_music_notes_file",
     "_generate_music_with_lyria3",
+    "_generate_music_with_lyria35",
     "_generate_music_with_lyria_realtime",
     "_music_file_suffix_for_mime_type",
     "_validate_music_attachment",

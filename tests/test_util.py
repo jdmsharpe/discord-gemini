@@ -561,7 +561,7 @@ class TestMusicGenerationParameters:
 
     def test_supported_music_model_constants(self):
         """Test the supported Lyria model constants."""
-        assert DEFAULT_MUSIC_MODEL == "lyria-3-clip-preview"
+        assert DEFAULT_MUSIC_MODEL == "lyria-3.5"
         assert LYRIA_REALTIME_MODEL == "lyria-realtime-exp"
         assert "lyria-3-pro-preview" in LYRIA_3_MODELS
         assert "lyria-3-clip-preview" in LYRIA_3_MODELS

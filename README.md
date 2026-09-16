@@ -27,7 +27,7 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Media Generation:**
   - **Images:** High-quality image generation and editing using Gemini Flash/Pro Image models, up to 4K, delivered as the API's original PNG/JPEG bytes.
   - **Video:** Gemini Omni 1.1 Flash (default) for fast text-to-video at 720p or 1080p via the Interactions API (the Omni Flash preview stays selectable as a legacy choice until its 2026-09-30 shutdown), plus Veo 3.1 for image-to-video, last-frame-constrained interpolation, and 4k/duration control.
-  - **Music:** Music generation using Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
+  - **Music:** Music generation using Lyria 3.5 (default; full songs through the Interactions API), Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
   - **Text-to-Speech:** Lifelike speech conversion with 25+ voice options.
 - **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
 
@@ -62,9 +62,9 @@ Generate videos from text prompts or image inputs.
 
 Create music using Google Lyria models.
 
-- **Models:** Lyria 3 Pro Preview, Lyria 3 Clip Preview, Lyria RealTime Experimental.
+- **Models:** Lyria 3.5 (default), Lyria 3 Pro Preview, Lyria 3 Clip Preview, Lyria RealTime Experimental.
 - **Options:** Customizable BPM, scale/key, density, brightness, duration (RealTime only), and reference image inputs. Long lyrics or structure notes are previewed and attached as text files.
-- **Cost:** Lyria 3 is billed per generated song and counts against the daily cost ledger. Lyria RealTime has no published per-song price, so its generations are logged as unpriced rather than at an invented rate.
+- **Cost:** Lyria 3.5 and Lyria 3 are billed per generated song and count against the daily cost ledger. Lyria RealTime has no published per-song price, so its generations are logged as unpriced rather than at an invented rate.
 
 ### `/gemini-tools tts`
 

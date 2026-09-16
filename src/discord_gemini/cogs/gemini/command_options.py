@@ -132,6 +132,7 @@ TTS_VOICE_CHOICES = [
 ]
 
 MUSIC_MODEL_CHOICES = [
+    OptionChoice(name="Lyria 3.5", value="lyria-3.5"),
     OptionChoice(name="Lyria 3 Pro Preview", value="lyria-3-pro-preview"),
     OptionChoice(name="Lyria 3 Clip Preview", value="lyria-3-clip-preview"),
     OptionChoice(name="Lyria RealTime Experimental", value=LYRIA_REALTIME_MODEL),

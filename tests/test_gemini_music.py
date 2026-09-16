@@ -1,3 +1,4 @@
+import base64
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -307,6 +308,15 @@ class TestMusicAttachmentValidation(AsyncGeminiCogTestCase):
         result = self.cog._validate_music_attachment("lyria-3-pro-preview", attachment)
         assert result is None
 
+    async def test_validate_music_attachment_accepts_lyria35_image(self):
+        attachment = MagicMock()
+        attachment.size = 1024
+        attachment.content_type = "image/png"
+        attachment.filename = "cover.png"
+
+        result = self.cog._validate_music_attachment("lyria-3.5", attachment)
+        assert result is None
+
     async def test_validate_music_attachment_rejects_realtime_image(self):
         attachment = MagicMock()
         attachment.size = 1024
@@ -334,3 +344,125 @@ class TestMusicAttachmentValidation(AsyncGeminiCogTestCase):
 
         result = self.cog._validate_music_attachment("lyria-3-clip-preview", attachment)
         assert result is None
+
+
+class TestLyria35(AsyncGeminiCogTestCase):
+    """Lyria 3.5 runs on the Interactions API and returns base64 MP3 audio plus text."""
+
+    @staticmethod
+    def _interaction(audio: bytes | None, text: str | None):
+        output_audio = (
+            SimpleNamespace(
+                data=base64.b64encode(audio).decode("ascii"),
+                mime_type="audio/mpeg",
+                type="audio",
+            )
+            if audio is not None
+            else None
+        )
+        return SimpleNamespace(output_audio=output_audio, output_text=text)
+
+    async def test_generate_music_with_lyria35_uses_interactions_create(self):
+        from discord_gemini.util import MusicGenerationParameters
+
+        audio = b"ID3\x03fake-mp3"
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=self._interaction(audio, "[[A0]]\nVerse one")
+        )
+        params = MusicGenerationParameters(prompts=["Dream pop song"], model="lyria-3.5", bpm=110)
+
+        audio_data, text_response, mime_type = await self.cog._generate_music_with_lyria35(params)
+
+        assert audio_data == audio
+        assert text_response == "[[A0]]\nVerse one"
+        assert mime_type == "audio/mpeg"
+        call_kwargs = self.cog.client.aio.interactions.create.call_args.kwargs
+        assert call_kwargs["model"] == "lyria-3.5"
+        assert isinstance(call_kwargs["input"], str)
+        assert "Tempo: 110 BPM." in call_kwargs["input"]
+        assert "30-second" not in call_kwargs["input"]
+        self.cog.client.aio.models.generate_content.assert_not_called()
+
+    async def test_generate_music_with_lyria35_with_attachment_sends_an_image_part(self):
+        from discord_gemini.util import MusicGenerationParameters
+
+        image = Image.new("RGB", (2, 2), color="blue")
+        image_bytes = BytesIO()
+        image.save(image_bytes, format="PNG")
+        png = image_bytes.getvalue()
+
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=self._interaction(None, None)
+        )
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=png)
+        attachment = MagicMock()
+        attachment.filename = "reference.png"
+        attachment.content_type = "image/png"
+        params = MusicGenerationParameters(prompts=["Dream pop song"], model="lyria-3.5")
+
+        await self.cog._generate_music_with_lyria35(params, attachment)
+
+        parts = self.cog.client.aio.interactions.create.call_args.kwargs["input"]
+        assert isinstance(parts, list) and len(parts) == 2
+        assert parts[0]["type"] == "text" and "Dream pop song" in parts[0]["text"]
+        assert parts[1] == {
+            "type": "image",
+            "mime_type": "image/png",
+            "data": base64.b64encode(png).decode("ascii"),
+        }
+
+    async def test_generate_music_with_lyria35_returns_text_without_audio(self):
+        from discord_gemini.util import MusicGenerationParameters
+
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=self._interaction(None, "Lyrics only")
+        )
+        params = MusicGenerationParameters(prompts=["Dream pop song"], model="lyria-3.5")
+
+        assert await self.cog._generate_music_with_lyria35(params) == (None, "Lyrics only", None)
+
+    async def test_generate_music_with_lyria35_wraps_api_errors(self):
+        from discord_gemini.util import MusicGenerationParameters
+
+        self.cog.client.aio.interactions.create = AsyncMock(side_effect=RuntimeError("boom"))
+        params = MusicGenerationParameters(prompts=["Dream pop song"], model="lyria-3.5")
+
+        with pytest.raises(MusicGenerationError, match="Music generation failed: boom"):
+            await self.cog._generate_music_with_lyria35(params)
+
+    async def test_music_command_for_lyria35_bills_per_song_and_reports_song_mode(self):
+        ctx = MagicMock()
+        ctx.author.id = 123
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        self.cog._log_cost = MagicMock()
+        self.cog._send_error_followup = AsyncMock()
+
+        with (
+            patch(
+                "discord_gemini.cogs.gemini.music._generate_music_with_lyria35",
+                AsyncMock(return_value=(b"audio-bytes", "Lyrics line", "audio/mpeg")),
+            ) as lyria35,
+            patch(
+                "discord_gemini.cogs.gemini.music._generate_music_with_lyria3", AsyncMock()
+            ) as lyria3,
+        ):
+            await music_command(
+                self.cog, ctx, prompt="Dream pop song", attachment=None, model="lyria-3.5"
+            )
+
+        lyria35.assert_awaited_once()
+        lyria3.assert_not_called()
+        embed = ctx.send_followup.await_args.kwargs["embed"]
+        assert "**Mode:** Song generation" in embed.description
+        assert "**Format:** MP3" in embed.description
+        call_args = self.cog._log_cost.call_args
+        assert call_args.args[3] == pytest.approx(0.08)
+        assert "unpriced" not in call_args.kwargs
+        assert "duration_seconds" not in call_args.kwargs
+
+    def test_lyria35_is_priced_per_song(self):
+        from discord_gemini.util import LYRIA_INTERACTIONS_MODELS, calculate_music_cost
+
+        assert frozenset({"lyria-3.5"}) == LYRIA_INTERACTIONS_MODELS
+        assert calculate_music_cost("lyria-3.5") == pytest.approx(0.08)

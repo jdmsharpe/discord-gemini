@@ -32,7 +32,7 @@ TOOL_URL_CONTEXT = build_runtime_tool_config("url_context") or {"url_context": {
 TOOL_FILE_SEARCH = build_runtime_tool_config("file_search") or {"file_search": {}}
 TOOL_CUSTOM_FUNCTIONS = {"_custom_functions": True}  # Sentinel for ButtonView toggle
 
-DEFAULT_MUSIC_MODEL = "lyria-3-clip-preview"
+DEFAULT_MUSIC_MODEL = "lyria-3.5"
 LYRIA_REALTIME_MODEL = "lyria-realtime-exp"
 LYRIA_3_MODELS = frozenset(
     {
@@ -40,6 +40,13 @@ LYRIA_3_MODELS = frozenset(
         "lyria-3-clip-preview",
     }
 )
+# Lyria 3.5 generates full songs through the Interactions API
+# (`interactions.create`), not `generate_content`: the response carries the audio
+# as base64 in `output_audio.data` with its MIME type, plus lyrics and structure
+# markers in `output_text`. Only the bare id resolves; the "-clip-preview" and
+# "-pro-preview" ids 404.
+LYRIA_35_MODEL = "lyria-3.5"
+LYRIA_INTERACTIONS_MODELS = frozenset({LYRIA_35_MODEL})
 
 
 def calculate_cost(
