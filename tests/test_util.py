@@ -1012,8 +1012,8 @@ class TestModelPricing:
         )
 
     def test_maps_surcharge_is_split_by_generation(self):
-        """Gemini 3.x bills $14/1K grounded prompts (an upper bound: the 5,000/month
-        free tier shared across Gemini 3 is untracked); Gemini 2.5 bills $25/1K."""
+        """Gemini 3.x bills $14/1K Maps search queries and Gemini 2.5 $25/1K grounded
+        prompts (upper bounds: both free tiers are untracked); one charge per call."""
         base_37 = calculate_cost("gemini-3.7-flash", 1000, 500)
         maps_37 = calculate_cost("gemini-3.7-flash", 1000, 500, google_maps_grounded=True)
         assert maps_37 - base_37 == pytest.approx(0.014)
@@ -1048,6 +1048,52 @@ class TestModelPricing:
         assert one - base == pytest.approx(surcharge)
         assert three - base == pytest.approx(3 * surcharge)
         assert none == pytest.approx(base)
+
+    def test_search_grounding_bills_each_query_on_gemini_3(self):
+        """Gemini 3.x bills each Google Search query at $14 / 1K (an upper bound: the
+        5,000/month free tier shared across Gemini 3 is untracked)."""
+        # gemini-3.8-flash: $0.75/M input
+        cost = calculate_cost(
+            "gemini-3.8-flash", 1_000_000, 0, google_search_queries=4, google_search_grounded=1
+        )
+        assert cost == pytest.approx(0.75 + 4 * 0.014)
+
+    def test_search_grounding_bills_each_grounded_prompt_on_gemini_2_5(self):
+        """Gemini 2.5 bills $35 / 1K grounded prompts, however many queries each ran."""
+        # gemini-2.5-flash: $0.30/M input
+        one_prompt = calculate_cost(
+            "gemini-2.5-flash", 1_000_000, 0, google_search_queries=4, google_search_grounded=True
+        )
+        assert one_prompt == pytest.approx(0.30 + 0.035)
+        two_prompts = calculate_cost(
+            "gemini-2.5-flash", 1_000_000, 0, google_search_queries=4, google_search_grounded=2
+        )
+        assert two_prompts == pytest.approx(0.30 + 2 * 0.035)
+
+    def test_search_grounding_adds_nothing_without_searches(self):
+        assert calculate_cost("gemini-3.8-flash", 1_000_000, 0) == pytest.approx(0.75)
+        assert calculate_cost(
+            "gemini-2.5-flash", 1_000_000, 0, google_search_queries=0, google_search_grounded=0
+        ) == pytest.approx(0.30)
+
+    def test_search_grounding_unknown_model_bills_the_per_prompt_fallback(self):
+        # Unknown chat models bill $2.00/M input and $0.035 per grounded prompt.
+        cost = calculate_cost(
+            "unknown-model", 1_000_000, 0, google_search_queries=3, google_search_grounded=True
+        )
+        assert cost == pytest.approx(2.0 + 0.035)
+
+    def test_search_and_maps_grounding_stack(self):
+        # gemini-3.1-pro-preview: $2.00/M input; Maps $0.014 per prompt, Search $0.014 per query
+        cost = calculate_cost(
+            "gemini-3.1-pro-preview",
+            1_000_000,
+            0,
+            google_maps_grounded=True,
+            google_search_queries=2,
+            google_search_grounded=True,
+        )
+        assert cost == pytest.approx(2.0 + 0.014 + 2 * 0.014)
 
     def test_calculate_cost_bills_cached_tokens_at_the_cached_rate(self):
         """Cache hits used to bill at the full input rate; split them at the cached rate."""
@@ -1161,6 +1207,16 @@ class TestImagePricing:
         """Test cost when images=0 but input tokens are charged."""
         cost = calculate_image_cost("gemini-3.1-flash-image", num_images=0, input_tokens=1_000_000)
         assert cost == pytest.approx(0.50)  # input cost only
+
+    def test_calculate_image_cost_bills_image_search_queries(self):
+        """Google Image Search grounding bills each web or image search query the
+        response reports at the Gemini 3 rate ($14 / 1K)."""
+        cost = calculate_image_cost(
+            "gemini-3.1-flash-image", 1, image_size="1K", google_search_queries=3
+        )
+        assert cost == pytest.approx(0.067 + 3 * 0.014)
+        without = calculate_image_cost("gemini-3.1-flash-image", 1, image_size="1K")
+        assert without == pytest.approx(0.067)
 
 
 class TestVideoPricing:

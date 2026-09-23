@@ -109,7 +109,7 @@ MUSIC_PRICING: dict[str, float | None] = {
 _MAPS_GROUNDING: dict[str, Any] = _TOOLS.get("google_maps_grounding") or {}
 
 # Maps grounding surcharge per grounded prompt, keyed by model-id prefix
-# ("gemini-3" -> $14/1K after an untracked free tier, "gemini-2.5" -> $25/1K).
+# ("gemini-3" -> $14/1K, "gemini-2.5" -> $25/1K, both after untracked free tiers).
 MAPS_GROUNDING_COST_BY_MODEL_PREFIX: dict[str, float] = {
     str(prefix): float(rate)
     for prefix, rate in (_MAPS_GROUNDING.get("per_request_by_model_prefix") or {}).items()
@@ -124,6 +124,43 @@ def maps_grounding_cost_for_model(model: str) -> float:
     if not matches:
         return MAPS_GROUNDING_COST_PER_REQUEST
     return MAPS_GROUNDING_COST_BY_MODEL_PREFIX[max(matches, key=len)]
+
+
+_SEARCH_GROUNDING: dict[str, Any] = _TOOLS.get("google_search_grounding") or {}
+
+# Google Search grounding charge, keyed by model-id prefix. Per-query prefixes
+# ("gemini-3" -> $14/1K search queries) bill each search query the model ran;
+# per-prompt prefixes ("gemini-2.5" -> $35/1K) bill each grounded prompt. Both
+# ignore the free allowances, so the charge is an upper bound.
+SEARCH_GROUNDING_COST_PER_QUERY_BY_MODEL_PREFIX: dict[str, float] = {
+    str(prefix): float(rate)
+    for prefix, rate in (_SEARCH_GROUNDING.get("per_query_by_model_prefix") or {}).items()
+}
+SEARCH_GROUNDING_COST_PER_PROMPT_BY_MODEL_PREFIX: dict[str, float] = {
+    str(prefix): float(rate)
+    for prefix, rate in (_SEARCH_GROUNDING.get("per_prompt_by_model_prefix") or {}).items()
+}
+# Per-prompt fallback for model ids that match no prefix above.
+SEARCH_GROUNDING_COST_PER_PROMPT: float = float(_SEARCH_GROUNDING.get("per_prompt", 0.035))
+
+
+def search_grounding_cost_for_model(
+    model: str, search_queries: int, grounded_prompts: int
+) -> float:
+    """Google Search grounding charge for ``model``.
+
+    The longest matching prefix across both prefix maps picks the unit: a per-query
+    prefix bills ``search_queries``, and a per-prompt prefix (or no matching prefix,
+    at ``SEARCH_GROUNDING_COST_PER_PROMPT``) bills ``grounded_prompts``.
+    """
+    per_query = SEARCH_GROUNDING_COST_PER_QUERY_BY_MODEL_PREFIX
+    per_prompt = SEARCH_GROUNDING_COST_PER_PROMPT_BY_MODEL_PREFIX
+    query_prefix = max((p for p in per_query if model.startswith(p)), key=len, default="")
+    prompt_prefix = max((p for p in per_prompt if model.startswith(p)), key=len, default="")
+    if query_prefix and len(query_prefix) >= len(prompt_prefix):
+        return max(search_queries, 0) * per_query[query_prefix]
+    rate = per_prompt[prompt_prefix] if prompt_prefix else SEARCH_GROUNDING_COST_PER_PROMPT
+    return max(grounded_prompts, 0) * rate
 
 
 def _fallback(key: str, field: str, default: float) -> float:
@@ -154,6 +191,9 @@ __all__ = [
     "MAPS_GROUNDING_COST_PER_REQUEST",
     "MODEL_PRICING",
     "MUSIC_PRICING",
+    "SEARCH_GROUNDING_COST_PER_PROMPT",
+    "SEARCH_GROUNDING_COST_PER_PROMPT_BY_MODEL_PREFIX",
+    "SEARCH_GROUNDING_COST_PER_QUERY_BY_MODEL_PREFIX",
     "TTS_PRICING",
     "UNKNOWN_CHAT_MODEL_PRICING",
     "UNKNOWN_IMAGE_MODEL_INPUT_RATE",
@@ -164,4 +204,5 @@ __all__ = [
     "VIDEO_PRICING",
     "VIDEO_TOKEN_PRICING",
     "maps_grounding_cost_for_model",
+    "search_grounding_cost_for_model",
 ]

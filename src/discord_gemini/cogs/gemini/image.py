@@ -11,7 +11,7 @@ from PIL import Image, UnidentifiedImageError
 
 from ...config.auth import SHOW_COST_EMBEDS
 from ...util import ImageGenerationParameters, calculate_image_cost, truncate_text
-from . import attachments, embeds, state, usage
+from . import attachments, embeds, responses, state, usage
 from .client import disable_afc
 from .embed_delivery import send_embed_batches
 
@@ -75,8 +75,12 @@ async def _generate_image_with_gemini(
     cog: "GeminiCog",
     image_params: ImageGenerationParameters,
     attachment: Attachment | None,
-) -> tuple[str | None, list[GeneratedImage], int]:
-    """Generate images using Gemini models with generate_content."""
+) -> tuple[str | None, list[GeneratedImage], int, int]:
+    """Generate images using Gemini models with generate_content.
+
+    Returns the text part, the image parts, the input token count, and the number of
+    Google Search queries (web plus image search) the response reports.
+    """
 
     prompt = image_params.prompt
     number_of_images = image_params.number_of_images
@@ -135,6 +139,7 @@ async def _generate_image_with_gemini(
 
     usage_counts = usage.extract_usage_counts(gemini_response)
     input_tokens = usage_counts.input_tokens
+    search_queries = responses.count_search_queries(gemini_response)
 
     text_response = None
     generated_images: list[GeneratedImage] = []
@@ -152,7 +157,7 @@ async def _generate_image_with_gemini(
                     mime_type = (part.inline_data.mime_type or "").split(";")[0].strip().lower()
                     generated_images.append(GeneratedImage(part.inline_data.data, mime_type))
 
-    return text_response, generated_images, input_tokens
+    return text_response, generated_images, input_tokens, search_queries
 
 
 async def _create_image_response_embed(
@@ -263,14 +268,17 @@ async def image_command(
             )
             return
 
-        text_response, generated_images, input_tokens = await _generate_image_with_gemini(
-            cog,
-            image_params,
-            attachment,
-        )
+        (
+            text_response,
+            generated_images,
+            input_tokens,
+            search_queries,
+        ) = await _generate_image_with_gemini(cog, image_params, attachment)
 
         num_images = len(generated_images)
-        cost = calculate_image_cost(model, num_images, input_tokens, image_size)
+        cost = calculate_image_cost(
+            model, num_images, input_tokens, image_size, google_search_queries=search_queries
+        )
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
             "image",
@@ -280,6 +288,7 @@ async def image_command(
             daily_cost,
             images=num_images,
             input_tokens=input_tokens,
+            google_search_queries=search_queries,
         )
 
         if generated_images:
@@ -295,6 +304,8 @@ async def image_command(
                 pricing_desc = f"${cost:.4f} · {num_images} image{'s' if num_images != 1 else ''}"
                 if input_tokens:
                     pricing_desc += f" · {input_tokens:,} input tokens"
+                if search_queries:
+                    pricing_desc += f" · {embeds.format_search_queries(search_queries)}"
                 pricing_desc += f" · daily ${daily_cost:.2f}"
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
             await send_embed_batches(
@@ -322,6 +333,8 @@ async def image_command(
             pricing_desc = f"${cost:.4f} · 0 images"
             if input_tokens:
                 pricing_desc += f" · {input_tokens:,} input tokens"
+            if search_queries:
+                pricing_desc += f" · {embeds.format_search_queries(search_queries)}"
             pricing_desc += f" · daily ${daily_cost:.2f}"
             response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
         await send_embed_batches(ctx.send_followup, embeds=response_embeds, logger=cog.logger)

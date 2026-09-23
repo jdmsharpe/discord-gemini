@@ -23,6 +23,7 @@ from .config.pricing import (
     VIDEO_PRICING,
     VIDEO_TOKEN_PRICING,
     maps_grounding_cost_for_model,
+    search_grounding_cost_for_model,
 )
 
 TOOL_GOOGLE_SEARCH = build_runtime_tool_config("google_search") or {"google_search": {}}
@@ -56,6 +57,8 @@ def calculate_cost(
     thinking_tokens: int = 0,
     google_maps_grounded: bool | int = False,
     cached_tokens: int = 0,
+    google_search_queries: int = 0,
+    google_search_grounded: bool | int = False,
 ) -> float:
     """Calculate the cost in dollars for a given model and token usage.
 
@@ -64,10 +67,13 @@ def calculate_cost(
     rate (``CACHED_INPUT_PRICING``, else the input rate) and the remainder at the input
     rate; the split is clamped so neither side can go negative. Thinking tokens are
     billed at the output token rate. ``google_maps_grounded`` adds the Maps surcharge
-    for the model's generation (``maps_grounding_cost_for_model``) once per grounded
-    prompt, which is how Google bills it: pass ``True`` for a single grounded request
-    (chat) or the number of grounded prompts (research, from the Interactions API's
-    ``usage.grounding_tool_count``).
+    for the model's generation (``maps_grounding_cost_for_model``) once per count:
+    pass ``True`` for a single grounded request (chat, whose response reports no Maps
+    query count although Google bills Gemini 3 per Maps query) or the Interactions
+    API's ``usage.grounding_tool_count`` for Maps (research). ``google_search_queries`` and
+    ``google_search_grounded`` (search queries run and Search-grounded prompts) add
+    the Search grounding charge through ``search_grounding_cost_for_model``, which
+    bills queries on Gemini 3.x and grounded prompts on Gemini 2.5.
     """
     input_price, output_price = MODEL_PRICING.get(model, UNKNOWN_CHAT_MODEL_PRICING)
     cached_price = CACHED_INPUT_PRICING.get(model, input_price)
@@ -81,6 +87,9 @@ def calculate_cost(
     grounded_prompts = max(int(google_maps_grounded), 0)
     if grounded_prompts:
         cost += grounded_prompts * maps_grounding_cost_for_model(model)
+    cost += search_grounding_cost_for_model(
+        model, google_search_queries, int(google_search_grounded)
+    )
     return cost
 
 
@@ -89,11 +98,14 @@ def calculate_image_cost(
     num_images: int,
     input_tokens: int = 0,
     image_size: str | None = None,
+    google_search_queries: int = 0,
 ) -> float:
     """Calculate the cost for image generation.
 
     Includes input token cost plus per-image output cost at the requested
-    resolution (image_size). Falls back to default (1K) rate.
+    resolution (image_size). Falls back to default (1K) rate. ``google_search_queries``
+    (web plus image search queries the response reports) adds the Search grounding
+    charge; one request is one grounded prompt.
     """
     default_sizes: dict[str | None, float] = {None: UNKNOWN_IMAGE_PER_IMAGE}
     input_rate, size_prices = IMAGE_PRICING.get(
@@ -102,7 +114,10 @@ def calculate_image_cost(
     # Normalize image_size to lowercase for lookup
     key = image_size.lower() if image_size else None
     per_image_cost = size_prices.get(key, size_prices.get(None, UNKNOWN_IMAGE_PER_IMAGE))
-    return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost
+    search_cost = search_grounding_cost_for_model(
+        model, google_search_queries, 1 if google_search_queries > 0 else 0
+    )
+    return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost + search_cost
 
 
 def calculate_video_cost(
@@ -443,6 +458,10 @@ class AgenticResult:
     # `tool_use_prompt_token_count`: prompt tokens the server added for
     # its own tools (agentic video navigation, grounding). Billed as input.
     total_tool_use_prompt_tokens: int = 0
+    # Google Search grounding, summed over every request in the loop: the search
+    # queries the responses report, and the requests that reported at least one.
+    total_search_queries: int = 0
+    search_grounded_prompts: int = 0
     iterations: int = 0
     tool_calls_made: list[str] = field(default_factory=list)
 

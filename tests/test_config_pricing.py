@@ -5,6 +5,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 
 def _reload_pricing():
     for mod_name in ("discord_gemini.config.pricing",):
@@ -116,6 +118,28 @@ class TestPricingLoader:
             == pricing.MAPS_GROUNDING_COST_PER_REQUEST
         )
 
+    def test_search_grounding_rows(self):
+        """Gemini 3.x: $14 / 1K search queries; Gemini 2.5: $35 / 1K grounded prompts."""
+        pricing = _reload_pricing()
+        assert pricing.SEARCH_GROUNDING_COST_PER_QUERY_BY_MODEL_PREFIX == {"gemini-3": 0.014}
+        assert pricing.SEARCH_GROUNDING_COST_PER_PROMPT_BY_MODEL_PREFIX == {"gemini-2.5": 0.035}
+        assert pricing.SEARCH_GROUNDING_COST_PER_PROMPT == 0.035
+
+    def test_search_grounding_unit_is_picked_by_model_generation(self):
+        pricing = _reload_pricing()
+        cost = pricing.search_grounding_cost_for_model
+        # Per query on Gemini 3.x, whatever the prompt count.
+        assert cost("gemini-3.8-flash", 5, 1) == pytest.approx(0.07)
+        assert cost("gemini-3.1-flash-image", 2, 1) == pytest.approx(0.028)
+        # Per grounded prompt on Gemini 2.5, whatever the query count.
+        assert cost("gemini-2.5-pro", 5, 1) == pytest.approx(0.035)
+        assert cost("gemini-2.5-flash", 5, 0) == 0.0
+        # Ids matching no prefix bill the per-prompt fallback.
+        assert cost("some-unknown-model", 5, 2) == pytest.approx(0.07)
+        # Negative counts never refund.
+        assert cost("gemini-3.8-flash", -1, 1) == 0.0
+        assert cost("gemini-2.5-flash", 1, -1) == 0.0
+
     def test_fallback_constants(self):
         pricing = _reload_pricing()
         assert pricing.UNKNOWN_CHAT_MODEL_PRICING == (2.0, 12.0)
@@ -155,6 +179,10 @@ class TestPricingLoader:
                   google_maps_grounding:
                     per_request_by_model_prefix: { custom-gemini: 0.01 }
                     per_request: 0.05
+                  google_search_grounding:
+                    per_query_by_model_prefix: { custom: 0.002 }
+                    per_prompt_by_model_prefix: { custom-gemini: 0.03 }
+                    per_prompt: 0.04
                 fallbacks:
                   unknown_chat_model: { input_per_million: 9.9, output_per_million: 99.0 }
                 """
@@ -179,4 +207,8 @@ class TestPricingLoader:
         assert pricing.MAPS_GROUNDING_COST_PER_REQUEST == 0.05
         assert pricing.maps_grounding_cost_for_model("custom-gemini-uncached") == 0.01
         assert pricing.maps_grounding_cost_for_model("other") == 0.05
+        # The longest prefix across both search maps picks the unit.
+        assert pricing.search_grounding_cost_for_model("custom-gemini-x", 3, 1) == 0.03
+        assert pricing.search_grounding_cost_for_model("custom-veo", 3, 1) == pytest.approx(0.006)
+        assert pricing.search_grounding_cost_for_model("other", 3, 2) == pytest.approx(0.08)
         assert pricing.UNKNOWN_CHAT_MODEL_PRICING == (9.9, 99.0)

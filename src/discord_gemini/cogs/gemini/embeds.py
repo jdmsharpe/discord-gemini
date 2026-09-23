@@ -115,6 +115,12 @@ def append_sources_embed(embeds: list[Embed], tool_info: ToolInfo) -> None:
         embeds.append(Embed(title="Sources", description=description, color=GEMINI_BLUE))
 
 
+def format_search_queries(count: int) -> str:
+    """Cost-embed label for the Google Search queries billed on a request."""
+
+    return f"{count:,} search {'query' if count == 1 else 'queries'}"
+
+
 def append_pricing_embed(
     embeds: list[Embed],
     model: str,
@@ -124,6 +130,8 @@ def append_pricing_embed(
     thinking_tokens: int = 0,
     google_maps_grounded: bool = False,
     cached_tokens: int = 0,
+    google_search_queries: int = 0,
+    google_search_grounded: bool | int = False,
 ) -> None:
     """Append the compact pricing footer embed."""
 
@@ -134,6 +142,8 @@ def append_pricing_embed(
         thinking_tokens,
         google_maps_grounded,
         cached_tokens=cached_tokens,
+        google_search_queries=google_search_queries,
+        google_search_grounded=google_search_grounded,
     )
     parts = [f"${cost:.4f}"]
     if thinking_tokens > 0:
@@ -144,6 +154,8 @@ def append_pricing_embed(
         parts.append(f"{cached_tokens:,} cached")
     if google_maps_grounded:
         parts.append("Maps grounded")
+    if google_search_queries > 0:
+        parts.append(format_search_queries(google_search_queries))
     parts.append(f"daily ${daily_cost:.2f}")
     embeds.append(Embed(description=" · ".join(parts), color=GEMINI_BLUE))
 
@@ -157,4 +169,5 @@ __all__ = [
     "build_error_embed",
     "error_to_user_description",
     "fit_markdown_sections",
+    "format_search_queries",
 ]

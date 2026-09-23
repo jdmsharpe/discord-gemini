@@ -206,6 +206,27 @@ def _build_thinking_config(
     return types.ThinkingConfig(**kwargs)
 
 
+def count_search_queries(response: Any) -> int:
+    """Count the Google Search queries a response reports, for Search grounding billing.
+
+    Reads the first candidate's `grounding_metadata`, as `extract_tool_info` does:
+    `web_search_queries` plus `image_search_queries`, which is only populated when the
+    Image Search search type is enabled.
+    """
+
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return 0
+    grounding_metadata = getattr(candidates[0], "grounding_metadata", None)
+    if grounding_metadata is None:
+        return 0
+    queries = [
+        *(getattr(grounding_metadata, "web_search_queries", None) or []),
+        *(getattr(grounding_metadata, "image_search_queries", None) or []),
+    ]
+    return sum(1 for query in queries if isinstance(query, str) and query)
+
+
 def extract_tool_info(response: Any) -> ToolInfo:
     """Extract tool usage and citation data from a Gemini response."""
 
@@ -333,6 +354,7 @@ __all__ = [
     "_build_thinking_config",
     "_get_response_content_parts",
     "_validate_thinking_request",
+    "count_search_queries",
     "extract_thinking_text",
     "extract_tool_info",
     "resolve_url_context_source_labels",

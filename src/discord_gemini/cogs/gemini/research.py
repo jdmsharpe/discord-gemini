@@ -30,6 +30,9 @@ class _ResearchResult:
     output_tokens: int = 0
     thinking_tokens: int = 0
     cached_tokens: int = 0
+    # `usage.total_tool_use_tokens`: tool-use prompt tokens, counted separately from
+    # `total_input_tokens`. Billed as input.
+    tool_use_prompt_tokens: int = 0
     thinking_text: str = ""
     annotations: list[Any] = field(default_factory=list)
     grounding_tool_counts: dict[str, int] = field(default_factory=dict)
@@ -235,8 +238,10 @@ def _extract_grounding_tool_counts(interaction: Any) -> dict[str, int]:
     """Extract grounding-tool usage counts (google_search/google_maps/retrieval).
 
     The Interactions API exposes `usage.grounding_tool_count: list[GroundingToolCount]`
-    with `count` and `type` fields. We collapse to a `{type: count}` map. Unknown or
-    missing counts are skipped.
+    with `count` and `type` fields. We collapse to a `{type: count}` map. A
+    `google_search` entry's `search_query_count` (the number of search queries, the
+    unit Gemini 3 bills) is used when present, else its `count`. Unknown or missing
+    counts are skipped.
     """
 
     usage_obj = getattr(interaction, "usage", None)
@@ -245,6 +250,10 @@ def _extract_grounding_tool_counts(interaction: Any) -> dict[str, int]:
     for entry in breakdown:
         kind = getattr(entry, "type", None)
         count = getattr(entry, "count", None)
+        if kind == "google_search":
+            search_query_count = getattr(entry, "search_query_count", None)
+            if search_query_count is not None:
+                count = search_query_count
         if kind and count is not None:
             result[str(kind)] = result.get(str(kind), 0) + int(count)
     return result
@@ -278,7 +287,10 @@ async def _run_deep_research(
             }
         )
     if research_params.google_maps:
-        tools.append({"google_maps": {}})
+        # Interactions tools are a union keyed on `type`; the SDK rejects a dict tool
+        # without it client-side, so the generate_content shape `{"google_maps": {}}`
+        # never reaches the API.
+        tools.append({"type": "google_maps"})
     if tools:
         kwargs["tools"] = tools
 
@@ -327,6 +339,7 @@ async def _run_deep_research(
         output_tokens=usage_counts.output_tokens,
         thinking_tokens=usage_counts.thinking_tokens,
         cached_tokens=usage_counts.cached_tokens,
+        tool_use_prompt_tokens=usage_counts.tool_use_prompt_tokens,
         thinking_text=_extract_interaction_thinking(interaction),
         annotations=_extract_interaction_annotations(interaction),
         grounding_tool_counts=_extract_grounding_tool_counts(interaction),
@@ -488,16 +501,23 @@ async def research_command(
         elapsed = int(time.time() - start_time)
 
         research_model = "gemini-3.1-pro-preview"
+        # Tool-use prompt tokens are billed as input, as in chat.
+        input_tokens = result.input_tokens + result.tool_use_prompt_tokens
         # Google bills every Maps-grounded prompt, so the API's count is billed
         # N times, not collapsed to a single surcharge.
         maps_grounded_prompts = result.grounding_tool_counts.get("google_maps", 0)
+        # Deep research always grounds on Google Search; each counted search is
+        # billed at the research model's per-query rate.
+        search_queries = result.grounding_tool_counts.get("google_search", 0)
         cost = calculate_cost(
             research_model,
-            result.input_tokens,
+            input_tokens,
             result.output_tokens,
             result.thinking_tokens,
             google_maps_grounded=maps_grounded_prompts,
             cached_tokens=result.cached_tokens,
+            google_search_queries=search_queries,
+            google_search_grounded=search_queries > 0,
         )
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
@@ -506,13 +526,14 @@ async def research_command(
             research_params.agent,
             cost,
             daily_cost,
-            input_tokens=result.input_tokens,
+            input_tokens=input_tokens,
             output_tokens=result.output_tokens,
             thinking_tokens=result.thinking_tokens,
             cached_tokens=result.cached_tokens,
             file_search=file_search,
             google_maps=google_maps,
             google_maps_grounded=maps_grounded_prompts > 0,
+            google_search_queries=search_queries,
             grounding_tool_counts=result.grounding_tool_counts or None,
         )
 
@@ -540,11 +561,11 @@ async def research_command(
             pricing_parts = [f"${cost:.2f}"]
             if result.thinking_tokens > 0:
                 pricing_parts.append(
-                    f"{result.input_tokens:,} in / {result.output_tokens:,} out / "
+                    f"{input_tokens:,} in / {result.output_tokens:,} out / "
                     f"{result.thinking_tokens:,} thinking"
                 )
             else:
-                pricing_parts.append(f"{result.input_tokens:,} in / {result.output_tokens:,} out")
+                pricing_parts.append(f"{input_tokens:,} in / {result.output_tokens:,} out")
             grounding_fragment = _format_grounding_breakdown(result.grounding_tool_counts)
             if grounding_fragment:
                 pricing_parts.append(grounding_fragment)

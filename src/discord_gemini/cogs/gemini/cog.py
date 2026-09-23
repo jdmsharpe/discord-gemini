@@ -905,7 +905,7 @@ class GeminiCog(commands.Cog):
         self,
         image_params: ImageGenerationParameters,
         attachment: Attachment | None,
-    ) -> tuple[str | None, list[image_flow.GeneratedImage], int]:
+    ) -> tuple[str | None, list[image_flow.GeneratedImage], int, int]:
         return await image_flow._generate_image_with_gemini(self, image_params, attachment)
 
     async def _create_image_response_embed(

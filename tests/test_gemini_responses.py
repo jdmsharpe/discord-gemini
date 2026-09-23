@@ -3,10 +3,40 @@ from types import SimpleNamespace
 from discord_gemini.cogs.gemini.responses import (
     _build_thinking_config,
     _get_response_content_parts,
+    count_search_queries,
     extract_thinking_text,
     extract_tool_info,
     resolve_url_context_source_labels,
 )
+
+
+class TestCountSearchQueries:
+    @staticmethod
+    def _response(**grounding):
+        return SimpleNamespace(
+            candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(**grounding))]
+        )
+
+    def test_counts_web_search_queries(self):
+        response = self._response(web_search_queries=["euro 2024 winner", "euro 2024 final"])
+        assert count_search_queries(response) == 2
+
+    def test_adds_image_search_queries(self):
+        """Image generation with the Image Search search type reports both lists."""
+        response = self._response(
+            web_search_queries=["red panda habitat"], image_search_queries=["red panda", "bamboo"]
+        )
+        assert count_search_queries(response) == 3
+
+    def test_skips_empty_and_non_string_entries(self):
+        response = self._response(web_search_queries=["q", "", None], image_search_queries=None)
+        assert count_search_queries(response) == 1
+
+    def test_no_grounding_counts_zero(self):
+        assert count_search_queries(SimpleNamespace(candidates=[])) == 0
+        assert count_search_queries(SimpleNamespace(candidates=None)) == 0
+        no_metadata = SimpleNamespace(candidates=[SimpleNamespace(grounding_metadata=None)])
+        assert count_search_queries(no_metadata) == 0
 
 
 class TestExtractToolInfo:

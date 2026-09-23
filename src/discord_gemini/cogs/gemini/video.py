@@ -27,16 +27,15 @@ if TYPE_CHECKING:
     from .cog import GeminiCog
 
 # Gemini Omni generates video via the Interactions API (not the Veo
-# generate_videos path). Both ids share this code path and the same per-token
-# price: the GA gemini-omni-1.1-flash (default since 2026-08-27) and the legacy
-# gemini-omni-flash-preview, which stays selectable until its 2026-09-30 shutdown.
+# generate_videos path). Every id in OMNI_VIDEO_MODELS takes this code path; the
+# GA gemini-omni-1.1-flash, the default video model, is the only one.
 # The request runs in background mode and is polled every OMNI_VIDEO_POLL_INTERVAL
 # seconds (see _generate_video_with_omni). Omni renders 720p unless a resolution is
 # requested. No duration is ever derived from the token count: it does not scale
 # with length (a 3 s 1080p clip billed the same 57,920 video tokens as a
 # default-length 720p clip, live probe 2026-08-28).
 DEFAULT_OMNI_VIDEO_MODEL = "gemini-omni-1.1-flash"
-OMNI_VIDEO_MODELS = frozenset({"gemini-omni-1.1-flash", "gemini-omni-flash-preview"})
+OMNI_VIDEO_MODELS = frozenset({"gemini-omni-1.1-flash"})
 OMNI_VIDEO_POLL_INTERVAL = 5
 OMNI_DEFAULT_VIDEO_RESOLUTION = "720p"
 # Interaction statuses that end polling (mirrors research.py).
@@ -60,7 +59,6 @@ VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
     # Omni 1.1 (GA) honoured 1080p with a real 1920x1080 avc1 MP4 (live probe
     # 2026-08-28). Its docs also list 360p and 4k (upscaled), but neither was probed
     # and no per-resolution price exists, so they are refused as not yet supported.
-    # The legacy preview ignored resolution (2026-08-20) and is deliberately absent.
     "gemini-omni-1.1-flash": frozenset({"720p", "1080p"}),
 }
 
@@ -215,15 +213,12 @@ async def _generate_video_with_omni(
     The request is submitted with ``background=True`` and polled through
     ``interactions.get`` every ``OMNI_VIDEO_POLL_INTERVAL`` seconds until it reaches a
     terminal status, bounded by ``VIDEO_GENERATION_TIMEOUT`` exactly like the Veo
-    poller. A synchronous ``interactions.create`` on the GA ``gemini-omni-1.1-flash``
-    is closed server-side after ~60 s ("Server disconnected without sending a
-    response", twice in a row on 2026-08-28, no interaction id returned), while the
-    same request in background mode returned an id in 0.79 s and completed after
-    ~56 s of polling; the preview id still completed synchronously on 2026-08-20.
-    The completed interaction carries a URI to the generated MP4 (downloaded first
-    try via ``files.download``, no ACTIVE polling needed) plus exact video-modality
-    output-token usage. Returns the downloaded video bytes and the video
-    output-token count (for exact costing).
+    poller. A synchronous ``interactions.create`` on ``gemini-omni-1.1-flash`` is
+    closed server-side before a typical generation finishes, with no interaction id
+    returned, so background mode is required. The completed interaction carries a URI
+    to the generated MP4 (downloaded via ``files.download`` without waiting for the
+    file to become ACTIVE) plus exact video-modality output-token usage. Returns the
+    downloaded video bytes and the video output-token count (for exact costing).
     """
 
     response_format: dict[str, Any] = {
@@ -305,16 +300,14 @@ def _validate_omni_video_request(
 ) -> str | None:
     """Reject Veo-only options Gemini Omni does not support.
 
-    Applies to every id in `OMNI_VIDEO_MODELS`. Omni (Interactions API) is exposed here
-    as text-to-video with an aspect ratio, plus a `resolution` on the ids listed in
-    `VIDEO_SUPPORTED_RESOLUTIONS`: duration, negative prompts, person-generation
-    control, image/first-or-last-frame inputs, multiple videos, and resize modes are
-    Veo-only.
+    Applies to every id in `OMNI_VIDEO_MODELS`, each of which must have a
+    `VIDEO_SUPPORTED_RESOLUTIONS` entry. Omni (Interactions API) is exposed here as
+    text-to-video with an aspect ratio and a `resolution`: duration, negative prompts,
+    person-generation control, image/first-or-last-frame inputs, multiple videos, and
+    resize modes are Veo-only.
 
-    `resolution` probes: `gemini-omni-flash-preview` ignored it and always returned
-    720p (2026-08-20), so it stays rejected there; `gemini-omni-1.1-flash` honoured
-    `1080p` with a real 1920x1080 avc1 MP4 (tkhd and stsd agree, 2026-08-28). The Omni
-    docs also list `360p` and `4k` (upscaled), but neither was probed and there is no
+    `resolution` must be one the model's `VIDEO_SUPPORTED_RESOLUTIONS` entry lists. The
+    Omni docs also list `360p` and `4k` (upscaled), but those are unverified and have no
     per-resolution pricing row, so they are refused as not yet supported.
 
     `duration` is deliberately NOT exposed although the GA id accepts it (`"<n>s"`
@@ -325,17 +318,12 @@ def _validate_omni_video_request(
 
     unsupported: list[str] = []
     supported_resolutions = VIDEO_SUPPORTED_RESOLUTIONS.get(video_params.model, frozenset())
-    if video_params.resolution:
-        if not supported_resolutions:
-            unsupported.append("`resolution`")
-        elif video_params.resolution not in supported_resolutions:
-            supported_list = ", ".join(
-                sorted(supported_resolutions, key=lambda value: int(value[:-1]))
-            )
-            return (
-                f"The `{video_params.resolution}` resolution is not yet supported for "
-                f"Gemini Omni. Supported values on `{video_params.model}`: {supported_list}."
-            )
+    if video_params.resolution and video_params.resolution not in supported_resolutions:
+        supported_list = ", ".join(sorted(supported_resolutions, key=lambda value: int(value[:-1])))
+        return (
+            f"The `{video_params.resolution}` resolution is not yet supported for "
+            f"Gemini Omni. Supported values on `{video_params.model}`: {supported_list}."
+        )
     if video_params.duration_seconds is not None:
         unsupported.append("`duration`")
     if video_params.negative_prompt:
@@ -353,13 +341,8 @@ def _validate_omni_video_request(
 
     if unsupported:
         joined = ", ".join(unsupported)
-        accepted = (
-            "an `aspect_ratio` and a `resolution`"
-            if supported_resolutions
-            else "an `aspect_ratio` only"
-        )
         return (
-            f"Gemini Omni supports text-to-video with {accepted}. "
+            "Gemini Omni supports text-to-video with an `aspect_ratio` and a `resolution`. "
             f"Remove {joined}, or choose a Veo 3.1 model for those features."
         )
     return None

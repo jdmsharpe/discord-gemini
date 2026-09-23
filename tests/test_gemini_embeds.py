@@ -215,6 +215,44 @@ class TestPricingEmbeds:
         )
         assert "cached" not in embeds[0].description
 
+    def test_append_pricing_embed_bills_and_labels_search_queries(self):
+        """Gemini 3.x bills each search query at $0.014; the footer names the count."""
+        embeds = []
+        append_pricing_embed(
+            embeds,
+            "gemini-3.8-flash",
+            input_tokens=1_000_000,
+            output_tokens=0,
+            daily_cost=0.10,
+            google_search_queries=3,
+            google_search_grounded=1,
+        )
+        # 1M input @ $0.75/M + 3 queries @ $0.014
+        assert embeds[0].description.startswith("$0.7920 · ")
+        assert "3 search queries" in embeds[0].description
+
+    def test_append_pricing_embed_bills_a_gemini_2_5_grounded_prompt(self):
+        embeds = []
+        append_pricing_embed(
+            embeds,
+            "gemini-2.5-flash",
+            input_tokens=1_000_000,
+            output_tokens=0,
+            daily_cost=0.10,
+            google_search_queries=1,
+            google_search_grounded=True,
+        )
+        # 1M input @ $0.30/M + one grounded prompt @ $0.035
+        assert embeds[0].description.startswith("$0.3350 · ")
+        assert "1 search query" in embeds[0].description
+
+    def test_append_pricing_embed_without_search_omits_label(self):
+        embeds = []
+        append_pricing_embed(
+            embeds, "gemini-3.8-flash", input_tokens=1000, output_tokens=500, daily_cost=0.10
+        )
+        assert "search" not in embeds[0].description
+
     def test_append_pricing_embed_without_maps_grounding(self):
         """Test pricing embed omits Maps label when not grounded."""
         embeds = []

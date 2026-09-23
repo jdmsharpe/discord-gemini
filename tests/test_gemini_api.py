@@ -680,7 +680,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         )
         self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
 
-        text, images, input_tokens = await self.cog._generate_image_with_gemini(
+        text, images, input_tokens, search_queries = await self.cog._generate_image_with_gemini(
             ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image"),
             attachment=None,
         )
@@ -688,6 +688,55 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         assert text is None
         assert images == [GeneratedImage(jpeg, "image/jpeg")]
         assert input_tokens == 11
+        assert search_queries == 0
+
+    async def test_image_command_bills_and_labels_search_queries(self):
+        """Google Image Search grounding bills each web or image search query the
+        response reports at the Gemini 3 rate ($0.014), on top of the image price."""
+        part = SimpleNamespace(
+            text=None,
+            inline_data=SimpleNamespace(data=_encoded_image("PNG"), mime_type="image/png"),
+        )
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(parts=[part]),
+                    grounding_metadata=SimpleNamespace(
+                        web_search_queries=["red panda habitat"],
+                        image_search_queries=["red panda", "red panda eating bamboo"],
+                    ),
+                )
+            ],
+            usage_metadata=SimpleNamespace(prompt_token_count=0),
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+
+        with (
+            patch("discord_gemini.cogs.gemini.image.SHOW_COST_EMBEDS", True),
+            patch.object(self.cog, "_log_cost") as log_cost,
+        ):
+            await self.cog.image.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="A red panda",
+                image_size="1K",
+                google_image_search=True,
+            )
+
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        for file in send_kwargs.get("files", []):
+            file.close()
+        # One 1K image @ $0.067 + 3 search queries @ $0.014
+        assert log_cost.call_args.args[3] == pytest.approx(0.109)
+        assert log_cost.call_args.kwargs["google_search_queries"] == 3
+        footer = send_kwargs["embeds"][-1].description
+        assert footer.startswith("$0.1090 · 1 image · ")
+        assert "3 search queries" in footer
 
 
 def _encoded_image(fmt: str) -> bytes:
@@ -1151,8 +1200,9 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
             await self.cog._run_deep_research(params)
 
         call_kwargs = self.cog.client.aio.interactions.create.call_args
-        assert "tools" in call_kwargs.kwargs
-        assert {"google_maps": {}} in call_kwargs.kwargs["tools"]
+        # Interactions tools are keyed on `type`; google-genai rejects the
+        # generate_content shape `{"google_maps": {}}` before any request is sent.
+        assert call_kwargs.kwargs["tools"] == [{"type": "google_maps"}]
 
     async def test_run_deep_research_with_file_search_and_google_maps(self):
         """Test _run_deep_research passes both file_search and google_maps tools."""
@@ -1185,7 +1235,13 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
         tools = call_kwargs.kwargs["tools"]
         assert len(tools) == 2
         assert tools[0]["type"] == "file_search"
-        assert {"google_maps": {}} in tools
+        assert tools[1] == {"type": "google_maps"}
+        # The same client-side validation interactions.create applies, run offline: it
+        # raises "Tool: expected object with 'type' field" for `{"google_maps": {}}`.
+        from google.genai import interactions
+        from pydantic import TypeAdapter
+
+        TypeAdapter(list[interactions.Tool]).validate_python(tools)
 
     async def test_create_research_response_embeds_with_google_maps(self):
         """Test _create_research_response_embeds shows Google Maps status."""
@@ -1444,7 +1500,8 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
         maps_twice_cost, maps_twice_grounded = await billed(
             interaction_with([SimpleNamespace(type="google_maps", count=2)]), google_maps=True
         )
-        # Enabled but never invoked: the API reports no Maps grounding, so no surcharge.
+        # Enabled but never invoked: the API reports no Maps grounding, so no surcharge
+        # (the three Google Search queries are billed on their own, at $0.014 each).
         unused_cost, unused_grounded = await billed(
             interaction_with([SimpleNamespace(type="google_search", count=3)]), google_maps=True
         )
@@ -1457,7 +1514,98 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
         assert maps_twice_grounded is True
         assert maps_twice_cost == pytest.approx(maps_off_cost + 2 * surcharge)
         assert unused_grounded is False
-        assert unused_cost == pytest.approx(maps_off_cost)
+        assert unused_cost == pytest.approx(maps_off_cost + 3 * 0.014)
+
+    async def test_research_bills_each_google_search_query(self):
+        """Deep research always grounds on Google Search, and Gemini 3.x bills each
+        search query at $14 / 1K: the research model's 1M input tokens cost $2.00 and the
+        five searches the Interactions API reports add $0.07. Two Maps calls add their
+        own $0.014 each on top."""
+
+        def interaction_with(grounding_tool_count):
+            return SimpleNamespace(
+                id="search-billing",
+                status="completed",
+                steps=[
+                    SimpleNamespace(
+                        type="model_output",
+                        content=[
+                            SimpleNamespace(type="text", text="# Report\n\nBody.", annotations=[])
+                        ],
+                    )
+                ],
+                usage=SimpleNamespace(
+                    total_input_tokens=1_000_000,
+                    total_output_tokens=0,
+                    total_thought_tokens=0,
+                    grounding_tool_count=grounding_tool_count,
+                ),
+            )
+
+        async def billed(interaction_done, **command_kwargs):
+            with patch.object(self.cog, "_log_cost") as log_cost:
+                await self._run_with_interaction(interaction_done, **command_kwargs)
+            log_cost.assert_called_once()
+            return log_cost.call_args.args[3], log_cost.call_args.kwargs
+
+        no_search_cost, no_search_log = await billed(interaction_with(None))
+        search_cost, search_log = await billed(
+            interaction_with([SimpleNamespace(type="google_search", count=5)])
+        )
+        both_cost, both_log = await billed(
+            interaction_with(
+                [
+                    SimpleNamespace(type="google_search", count=5),
+                    SimpleNamespace(type="google_maps", count=2),
+                ]
+            ),
+            google_maps=True,
+        )
+        # `search_query_count`, when the entry carries it, is the billed query count.
+        query_count_cost, query_count_log = await billed(
+            interaction_with([SimpleNamespace(type="google_search", count=2, search_query_count=6)])
+        )
+
+        assert no_search_cost == pytest.approx(2.00)
+        assert no_search_log["google_search_queries"] == 0
+        assert search_cost == pytest.approx(2.07)
+        assert search_log["google_search_queries"] == 5
+        assert both_cost == pytest.approx(2.098)
+        assert both_log["google_search_queries"] == 5
+        assert query_count_cost == pytest.approx(2.00 + 6 * 0.014)
+        assert query_count_log["google_search_queries"] == 6
+        assert query_count_log["grounding_tool_counts"] == {"google_search": 6}
+
+    async def test_research_bills_tool_use_tokens_as_input(self):
+        """Interactions reports tool-use prompt tokens in `total_tool_use_tokens`, apart
+        from `total_input_tokens`, and research bills them at the input rate as chat
+        does: 400K input + 600K tool-use tokens at gemini-3.1-pro-preview's $2.00/M is
+        $2.00, plus 100K output at $12.00/M is $3.20."""
+        interaction_done = SimpleNamespace(
+            id="tool-use-billing",
+            status="completed",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(type="text", text="# Report\n\nBody.", annotations=[])
+                    ],
+                )
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=400_000,
+                total_tool_use_tokens=600_000,
+                total_output_tokens=100_000,
+                total_thought_tokens=0,
+            ),
+        )
+
+        with patch.object(self.cog, "_log_cost") as log_cost:
+            await self._run_with_interaction(interaction_done)
+
+        log_cost.assert_called_once()
+        assert log_cost.call_args.args[3] == pytest.approx(3.20)
+        assert log_cost.call_args.kwargs["input_tokens"] == 1_000_000
 
     async def test_report_body_skips_appended_sources_when_model_footer_present(self):
         """When the model emits its own `**Sources:**` footer, the wrapper-appended

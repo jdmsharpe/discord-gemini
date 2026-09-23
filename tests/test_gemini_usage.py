@@ -53,6 +53,27 @@ class TestExtractUsageCounts:
             thinking_tokens=5_000,
         )
 
+    def test_interactions_tool_use_tokens_are_read_from_their_own_field(self):
+        """Interactions reports tool-use prompt tokens as `total_tool_use_tokens`, apart
+        from `total_input_tokens`: a live url_context call reported 25 input + 57 tool-use
+        + 78 output + 301 thought = 461 total tokens (2026-09-22)."""
+        interaction = SimpleNamespace(
+            usage=SimpleNamespace(
+                total_input_tokens=25,
+                total_tool_use_tokens=57,
+                total_output_tokens=78,
+                total_thought_tokens=301,
+                total_tokens=461,
+            )
+        )
+
+        assert extract_usage_counts(interaction) == UsageCounts(
+            input_tokens=25,
+            output_tokens=78,
+            thinking_tokens=301,
+            tool_use_prompt_tokens=57,
+        )
+
     def test_missing_usage_returns_zero_counts(self):
         assert extract_usage_counts(SimpleNamespace()) == UsageCounts()
         assert extract_usage_counts(None) == UsageCounts()

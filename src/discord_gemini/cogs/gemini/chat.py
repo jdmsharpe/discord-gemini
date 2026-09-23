@@ -67,6 +67,10 @@ async def _run_agentic_loop(
         result.total_thinking_tokens += usage_counts.thinking_tokens
         result.total_cached_tokens += usage_counts.cached_tokens
         result.total_tool_use_prompt_tokens += usage_counts.tool_use_prompt_tokens
+        search_queries = responses.count_search_queries(response)
+        result.total_search_queries += search_queries
+        if search_queries:
+            result.search_grounded_prompts += 1
 
         function_calls = response.function_calls
         if not function_calls:
@@ -369,6 +373,8 @@ async def handle_new_message_in_conversation(
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
         maps_grounded = "google_maps" in tool_info.get("tools_used", [])
+        search_queries = result.total_search_queries
+        search_grounded_prompts = result.search_grounded_prompts
         cost = calculate_cost(
             params.model,
             input_tokens,
@@ -376,6 +382,8 @@ async def handle_new_message_in_conversation(
             thinking_tokens,
             maps_grounded,
             cached_tokens=cached_tokens,
+            google_search_queries=search_queries,
+            google_search_grounded=search_grounded_prompts,
         )
         daily_cost = state._track_daily_cost(cog, message.author.id, cost)
         cog._log_cost(
@@ -389,6 +397,7 @@ async def handle_new_message_in_conversation(
             thinking_tokens=thinking_tokens,
             cached_tokens=cached_tokens,
             google_maps_grounded=maps_grounded,
+            google_search_queries=search_queries,
         )
         if SHOW_COST_EMBEDS:
             embeds.append_pricing_embed(
@@ -400,6 +409,8 @@ async def handle_new_message_in_conversation(
                 thinking_tokens,
                 maps_grounded,
                 cached_tokens=cached_tokens,
+                google_search_queries=search_queries,
+                google_search_grounded=search_grounded_prompts,
             )
 
         view = cog.views.get(message.author)
@@ -756,6 +767,8 @@ async def chat_command(
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
         maps_grounded = "google_maps" in tool_info.get("tools_used", [])
+        search_queries = result.total_search_queries
+        search_grounded_prompts = result.search_grounded_prompts
         cost = calculate_cost(
             model,
             input_tokens,
@@ -763,6 +776,8 @@ async def chat_command(
             thinking_tokens,
             maps_grounded,
             cached_tokens=cached_tokens,
+            google_search_queries=search_queries,
+            google_search_grounded=search_grounded_prompts,
         )
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
@@ -776,6 +791,7 @@ async def chat_command(
             thinking_tokens=thinking_tokens,
             cached_tokens=cached_tokens,
             google_maps_grounded=maps_grounded,
+            google_search_queries=search_queries,
         )
         if SHOW_COST_EMBEDS:
             embeds.append_pricing_embed(
@@ -787,6 +803,8 @@ async def chat_command(
                 thinking_tokens,
                 maps_grounded,
                 cached_tokens=cached_tokens,
+                google_search_queries=search_queries,
+                google_search_grounded=search_grounded_prompts,
             )
 
         if not has_response:

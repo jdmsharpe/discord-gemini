@@ -426,21 +426,28 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
         default = inspect.signature(self.cog.video.callback).parameters["model"].default
         assert default == DEFAULT_OMNI_VIDEO_MODEL
 
-    def test_legacy_preview_stays_selectable_until_shutdown(self):
-        """gemini-omni-flash-preview shuts down 2026-09-30; keep it in the menu until then."""
-        values = [choice.value for choice in VIDEO_MODEL_CHOICES]
-        assert "gemini-omni-flash-preview" in values
-        assert values.index("gemini-omni-flash-preview") > values.index(DEFAULT_OMNI_VIDEO_MODEL)
-
 
 class TestOmniVideoModels:
-    """Both the GA id and the legacy preview id must route through the Omni path."""
+    """Every id in OMNI_VIDEO_MODELS must route through the Omni path."""
 
-    def test_both_ids_are_omni(self):
-        assert {"gemini-omni-1.1-flash", "gemini-omni-flash-preview"} == OMNI_VIDEO_MODELS
+    def test_ga_id_is_the_only_omni_id(self):
+        """gemini-omni-flash-preview shuts down 2026-09-30 and was removed from routing."""
+        assert {"gemini-omni-1.1-flash"} == OMNI_VIDEO_MODELS
         assert DEFAULT_OMNI_VIDEO_MODEL in OMNI_VIDEO_MODELS
         for veo in ("veo-3.1-generate-preview", "veo-3.1-lite-generate-preview"):
             assert veo not in OMNI_VIDEO_MODELS
+
+    def test_omni_choices_match_the_routed_set(self):
+        """A menu Omni id outside the set would be sent down the Veo path."""
+        omni_choices = {
+            choice.value for choice in VIDEO_MODEL_CHOICES if choice.value.startswith("gemini-omni")
+        }
+        assert omni_choices == OMNI_VIDEO_MODELS
+        assert "gemini-omni-flash-preview" not in omni_choices
+
+    def test_retired_preview_keeps_its_pricing_row(self):
+        """Retired ids keep their pricing row so historical costs stay correct."""
+        assert VIDEO_TOKEN_PRICING["gemini-omni-flash-preview"] == 17.50
 
     @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
     def test_each_omni_id_is_priced_at_17_50_per_million(self, model):
@@ -452,7 +459,7 @@ class TestOmniVideoModels:
 
     @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
     async def test_video_command_routes_each_omni_id_to_the_interactions_path(self, model):
-        """`is_omni` must key off the set, not a single id, or the legacy id would hit Veo."""
+        """`is_omni` must key off the set, so every Omni id reaches the Interactions path."""
         ctx = AsyncMock()
         ctx.author = MagicMock()
         ctx.author.id = 111
@@ -518,21 +525,6 @@ class TestOmniVideoModels:
         )
         error = _validate_omni_video_request(params, None, None)
         assert error and "duration" in error and "negative_prompt" in error
-
-    @pytest.mark.parametrize(
-        ("model", "accepted"),
-        [("gemini-omni-1.1-flash", True), ("gemini-omni-flash-preview", False)],
-    )
-    def test_resolution_is_accepted_only_on_the_ga_id(self, model, accepted):
-        """1080p on the GA id returned a real 1920x1080 MP4 (2026-08-28); the preview
-        ignored resolution and always returned 720p (2026-08-20), so it stays rejected
-        there with the existing aspect-ratio-only message."""
-        params = VideoGenerationParameters(prompt="x", model=model, resolution="1080p")
-        error = _validate_omni_video_request(params, None, None)
-        if accepted:
-            assert error is None
-        else:
-            assert error and "`resolution`" in error and "`aspect_ratio` only" in error
 
     @pytest.mark.parametrize(("resolution", "shown"), [(None, "720p"), ("1080p", "1080p")])
     async def test_omni_cost_embed_shows_the_requested_resolution(self, resolution, shown):
@@ -606,7 +598,12 @@ class TestOmniVideoValidation:
 
     def test_ga_id_supported_resolutions_are_exactly_the_probed_pair(self):
         assert VIDEO_SUPPORTED_RESOLUTIONS[DEFAULT_OMNI_VIDEO_MODEL] == {"720p", "1080p"}
-        assert "gemini-omni-flash-preview" not in VIDEO_SUPPORTED_RESOLUTIONS
+
+    @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
+    def test_every_omni_id_declares_its_supported_resolutions(self, model):
+        """`_validate_omni_video_request` lists the entry in its error message, so an
+        Omni id without one would print an empty list of supported values."""
+        assert VIDEO_SUPPORTED_RESOLUTIONS.get(model)
 
     def test_rejected_option_message_names_resolution_as_accepted_on_the_ga_id(self):
         error = _validate_omni_video_request(self._params(duration_seconds=8), None, None)

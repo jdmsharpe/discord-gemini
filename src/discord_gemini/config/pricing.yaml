@@ -2,7 +2,7 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-09-15 (every row re-verified against the live page)
+# Last-verified: 2026-09-22 (every row re-verified against the live page)
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
 # the output-token rate. Cache hits (usage_metadata.cached_content_token_count)
@@ -94,7 +94,8 @@ video_tokenized:
   # GA 2026-08-27 (default video model); same per-token rate as the preview.
   gemini-omni-1.1-flash:
     video_output_per_million: 17.50
-  # Legacy preview id, shuts down 2026-09-30; stays selectable and priced until then.
+  # Retired preview id (shuts down 2026-09-30) and no longer selectable; its row is
+  # kept so historical costs for it stay correct.
   gemini-omni-flash-preview:
     video_output_per_million: 17.50
 
@@ -117,15 +118,32 @@ music_generation:
 
 tools:
   google_maps_grounding:
-    # Per grounded prompt, keyed by model-id prefix (longest matching prefix wins;
-    # ids matching no prefix bill at `per_request`). Gemini 3.x
-    # gets 5,000 grounded prompts per month free, shared across Gemini 3, then
-    # $14 / 1K; that free tier cannot be tracked here, so the gemini-3 rate is an
-    # UPPER BOUND. Gemini 2.5 has no free tier: $25 / 1K grounded prompts.
+    # Keyed by model-id prefix (longest matching prefix wins; ids matching no prefix
+    # bill at `per_request`). Gemini 3.x: 5,000 prompts per month free, shared across
+    # Gemini 3, then $14 / 1K SEARCH QUERIES. Gemini 2.5: 1,500 grounded prompts per
+    # day free (10,000 on 2.5 Pro), then $25 / 1K grounded prompts. Neither free tier
+    # can be tracked here, so both rates are UPPER BOUNDS. Chat bills one charge per
+    # Maps-grounded response because generate_content reports no Maps query count, so
+    # on Gemini 3 a prompt that ran several Maps queries is under-counted; research
+    # bills the Interactions API's usage.grounding_tool_count for google_maps.
     per_request_by_model_prefix:
       gemini-3:   0.014
       gemini-2.5: 0.025
     per_request: 0.025  # fallback for ids matching no prefix above
+  google_search_grounding:
+    # Keyed by model-id prefix (longest matching prefix across both maps wins; ids
+    # matching no prefix bill at `per_prompt`). Gemini 3.x bills each search query
+    # the model runs: 5,000 free per month, shared across Gemini 3, then $14 / 1K.
+    # Gemini 2.5 bills each grounded prompt: $35 / 1K after a free daily allowance.
+    # Neither free tier can be tracked here, so both rates are UPPER BOUNDS. Query
+    # counts come from grounding_metadata.web_search_queries (plus
+    # image_search_queries for image generation) and, for research, from
+    # usage.grounding_tool_count for google_search.
+    per_query_by_model_prefix:
+      gemini-3:   0.014
+    per_prompt_by_model_prefix:
+      gemini-2.5: 0.035
+    per_prompt: 0.035  # fallback for ids matching no prefix above
 
 fallbacks:
   unknown_chat_model:  { input_per_million: 2.0,  output_per_million: 12.0 }
