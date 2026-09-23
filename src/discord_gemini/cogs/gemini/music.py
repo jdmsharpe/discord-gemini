@@ -14,6 +14,8 @@ from discord.commands import ApplicationContext
 from google.genai import types
 from PIL import Image
 
+from ...config.auth import SHOW_COST_EMBEDS
+from ...cost_line import count_label, format_cost_line
 from ...util import (
     DEFAULT_MUSIC_MODEL,
     LYRIA_3_MODELS,
@@ -113,6 +115,18 @@ def _validate_music_attachment(
     if not mime_type.startswith("image/"):
         return "Music reference attachments must be image files."
     return None
+
+
+def _music_cost_line(model: str, cost: float | None, daily_cost: float, duration: int) -> str:
+    """Build the music cost line. Lyria RealTime has no published price, so its line has no cost."""
+
+    if model == LYRIA_REALTIME_MODEL:
+        details = [f"{duration}s", "no published price"]
+    elif model == "lyria-3-clip-preview":
+        details = [count_label(1, "clip")]
+    else:
+        details = [count_label(1, "song")]
+    return format_cost_line(cost, daily_cost, details=details)
 
 
 async def _build_lyria3_music_contents(
@@ -497,11 +511,19 @@ async def music_command(
         if notes_file is not None:
             files.append(notes_file)
 
+        response_embeds = [
+            Embed(title="Music Generation", description=description, color=embeds.GEMINI_BLUE)
+        ]
+        if SHOW_COST_EMBEDS:
+            response_embeds.append(
+                Embed(
+                    description=_music_cost_line(model, cost, daily_cost, duration),
+                    color=embeds.GEMINI_BLUE,
+                )
+            )
         await send_embed_batches(
             ctx.send_followup,
-            embed=Embed(
-                title="Music Generation", description=description, color=embeds.GEMINI_BLUE
-            ),
+            embeds=response_embeds,
             files=files,
             logger=cog.logger,
         )

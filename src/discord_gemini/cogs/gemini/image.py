@@ -10,6 +10,7 @@ from google.genai import types
 from PIL import Image, UnidentifiedImageError
 
 from ...config.auth import SHOW_COST_EMBEDS
+from ...cost_line import count_label, format_cost_line
 from ...util import ImageGenerationParameters, calculate_image_cost, truncate_text
 from . import attachments, embeds, responses, state, usage
 from .client import disable_afc
@@ -69,6 +70,17 @@ def _validate_image_size_request(image_params: ImageGenerationParameters) -> str
         f"`{image_params.model}` supports {supported_list}; choose a supported size or "
         "another image model."
     )
+
+
+def _image_cost_line(
+    cost: float, daily_cost: float, input_tokens: int, num_images: int, search_queries: int
+) -> str:
+    """Build the image cost line; output is billed per image, so only input tokens show."""
+
+    details = [count_label(num_images, "image")]
+    if search_queries > 0:
+        details.append(count_label(search_queries, "search", "searches"))
+    return format_cost_line(cost, daily_cost, input_tokens=input_tokens or None, details=details)
 
 
 async def _generate_image_with_gemini(
@@ -295,12 +307,9 @@ async def image_command(
             )
             response_embeds = [embed]
             if SHOW_COST_EMBEDS:
-                pricing_desc = f"${cost:.4f} · {num_images} image{'s' if num_images != 1 else ''}"
-                if input_tokens:
-                    pricing_desc += f" · {input_tokens:,} input tokens"
-                if search_queries:
-                    pricing_desc += f" · {embeds.format_search_queries(search_queries)}"
-                pricing_desc += f" · daily ${daily_cost:.2f}"
+                pricing_desc = _image_cost_line(
+                    cost, daily_cost, input_tokens, num_images, search_queries
+                )
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
             await send_embed_batches(
                 ctx.send_followup,
@@ -324,12 +333,9 @@ async def image_command(
             )
         ]
         if SHOW_COST_EMBEDS and cost > 0:
-            pricing_desc = f"${cost:.4f} · 0 images"
-            if input_tokens:
-                pricing_desc += f" · {input_tokens:,} input tokens"
-            if search_queries:
-                pricing_desc += f" · {embeds.format_search_queries(search_queries)}"
-            pricing_desc += f" · daily ${daily_cost:.2f}"
+            pricing_desc = _image_cost_line(
+                cost, daily_cost, input_tokens, num_images, search_queries
+            )
             response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
         await send_embed_batches(ctx.send_followup, embeds=response_embeds, logger=cog.logger)
     except Exception as error:

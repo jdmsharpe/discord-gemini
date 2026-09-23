@@ -429,8 +429,7 @@ class TestGeminiChatSearchBilling(AsyncGeminiCogTestCase):
         assert log_cost.call_args.args[3] == pytest.approx(0.778)
         assert log_cost.call_args.kwargs["google_search_queries"] == 2
         footer = ctx.send_followup.call_args.kwargs["embeds"][-1].description
-        assert footer.startswith("$0.7780 · ")
-        assert "2 search queries" in footer
+        assert footer == "$0.7780 · 1M in / 0 out · 2 searches · $0.78 today"
 
 
 class TestGeminiToolCombinationConfig:

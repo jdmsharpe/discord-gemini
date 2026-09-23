@@ -1,6 +1,7 @@
 from discord import Colour
 
 from discord_gemini.cogs.gemini.embeds import (
+    GEMINI_BLUE,
     append_pricing_embed,
     append_response_embeds,
     append_sources_embed,
@@ -115,7 +116,7 @@ class TestAppendSourcesEmbed:
 
 class TestPricingEmbeds:
     def test_append_pricing_embed(self):
-        """Test that append_pricing_embed creates a Gemini Blue embed with cost info."""
+        """Test that append_pricing_embed creates a Gemini Blue embed with the cost line."""
         embeds = []
         append_pricing_embed(
             embeds,
@@ -126,10 +127,8 @@ class TestPricingEmbeds:
         )
         assert len(embeds) == 1
         embed = embeds[0]
-        assert "$" in embed.description
-        assert "500,000 tokens in" in embed.description
-        assert "200,000 tokens out" in embed.description
-        assert "daily $1.25" in embed.description
+        assert embed.color == GEMINI_BLUE
+        assert embed.description == "$0.1300 · 500k in / 200k out · $1.25 today"
 
     def test_append_pricing_embed_zero_tokens(self):
         """Test pricing embed with zero tokens."""
@@ -142,12 +141,10 @@ class TestPricingEmbeds:
             daily_cost=0.0,
         )
         assert len(embeds) == 1
-        assert "$0.0000" in embeds[0].description
-        assert "0 tokens in" in embeds[0].description
-        assert "0 tokens out" in embeds[0].description
+        assert embeds[0].description == "$0.0000 · 0 in / 0 out · $0.00 today"
 
     def test_append_pricing_embed_with_thinking_tokens(self):
-        """Test pricing embed shows thinking token count."""
+        """Gemini reports thinking apart from output; the line's output count includes it."""
         embeds = []
         append_pricing_embed(
             embeds,
@@ -158,9 +155,28 @@ class TestPricingEmbeds:
             thinking_tokens=200_000,
         )
         assert len(embeds) == 1
-        assert "200,000 thinking" in embeds[0].description
-        assert "100,000 in" in embeds[0].description
-        assert "50,000 out" in embeds[0].description
+        assert embeds[0].description == (
+            "$0.8000 · 100k in / 250k out (200k thinking) · $0.50 today"
+        )
+
+    def test_append_pricing_embed_with_cached_thinking_and_search(self):
+        """Cached tokens are shown as part of the input count and thinking tokens as
+        part of the output count: 166 output + 780 thinking tokens show as 946 out."""
+        embeds = []
+        append_pricing_embed(
+            embeds,
+            "gemini-3.8-flash",
+            input_tokens=550,
+            output_tokens=166,
+            daily_cost=0.12,
+            thinking_tokens=780,
+            cached_tokens=178,
+            google_search_queries=1,
+            google_search_grounded=1,
+        )
+        assert embeds[0].description == (
+            "$0.0178 · 550 in (178 cached) / 946 out (780 thinking) · 1 search · $0.12 today"
+        )
 
     def test_append_pricing_embed_zero_thinking_tokens(self):
         """Test pricing embed omits thinking when zero."""
@@ -174,8 +190,7 @@ class TestPricingEmbeds:
             thinking_tokens=0,
         )
         assert len(embeds) == 1
-        assert "thinking" not in embeds[0].description
-        assert "tokens in" in embeds[0].description
+        assert embeds[0].description == "$0.1550 · 100k in / 50k out · $0.10 today"
 
     def test_append_pricing_embed_with_maps_grounding(self):
         """Test pricing embed includes Maps grounding surcharge."""
@@ -189,7 +204,7 @@ class TestPricingEmbeds:
             google_maps_grounded=True,
         )
         assert len(embeds) == 1
-        assert "Maps grounded" in embeds[0].description
+        assert embeds[0].description == "$0.0266 · 1k in / 500 out · maps grounded · $0.10 today"
 
     def test_append_pricing_embed_with_cached_tokens(self):
         """Cache hits are shown in the footer and billed at the cached rate."""
@@ -203,10 +218,11 @@ class TestPricingEmbeds:
             cached_tokens=80_000,
         )
         assert len(embeds) == 1
-        assert "80,000 cached" in embeds[0].description
         # 20K uncached @ $0.75/M + 80K cached @ $0.075/M + 1K out @ $3.75/M
         expected = (20_000 / 1e6) * 0.75 + (80_000 / 1e6) * 0.075 + (1_000 / 1e6) * 3.75
-        assert f"${expected:.4f}" in embeds[0].description
+        assert embeds[0].description == (
+            f"${expected:.4f} · 100k in (80k cached) / 1k out · $0.10 today"
+        )
 
     def test_append_pricing_embed_without_cached_tokens_omits_label(self):
         embeds = []
@@ -228,8 +244,7 @@ class TestPricingEmbeds:
             google_search_grounded=1,
         )
         # 1M input @ $0.75/M + 3 queries @ $0.014
-        assert embeds[0].description.startswith("$0.7920 · ")
-        assert "3 search queries" in embeds[0].description
+        assert embeds[0].description == "$0.7920 · 1M in / 0 out · 3 searches · $0.10 today"
 
     def test_append_pricing_embed_bills_a_gemini_2_5_grounded_prompt(self):
         embeds = []
@@ -243,8 +258,7 @@ class TestPricingEmbeds:
             google_search_grounded=True,
         )
         # 1M input @ $0.30/M + one grounded prompt @ $0.035
-        assert embeds[0].description.startswith("$0.3350 · ")
-        assert "1 search query" in embeds[0].description
+        assert embeds[0].description == "$0.3350 · 1M in / 0 out · 1 search · $0.10 today"
 
     def test_append_pricing_embed_without_search_omits_label(self):
         embeds = []
@@ -265,7 +279,7 @@ class TestPricingEmbeds:
             google_maps_grounded=False,
         )
         assert len(embeds) == 1
-        assert "Maps" not in embeds[0].description
+        assert "maps" not in embeds[0].description
 
 
 class TestErrorToUserDescription:

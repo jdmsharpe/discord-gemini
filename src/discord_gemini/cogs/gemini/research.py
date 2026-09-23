@@ -12,6 +12,7 @@ from discord import Colour, Embed, File
 from discord.commands import ApplicationContext
 
 from ...config.auth import GEMINI_FILE_SEARCH_STORE_IDS, SHOW_COST_EMBEDS
+from ...cost_line import count_label, format_cost_line
 from ...util import ResearchParameters, calculate_cost, truncate_text
 from . import embeds, state, usage
 from .embed_delivery import send_embed_batches
@@ -446,21 +447,26 @@ def _build_citations_embed(annotations: list[Any], report_text: str | None = Non
     )
 
 
-def _format_grounding_breakdown(grounding_tool_counts: dict[str, int]) -> str:
-    """Render grounding tool counts as a compact ' · '-joined fragment for the cost embed."""
+def _grounding_details(grounding_tool_counts: dict[str, int]) -> list[str]:
+    """Cost-line details for the grounding tool counts: searches first, then other tools.
 
-    if not grounding_tool_counts:
-        return ""
-    pretty_names = {
-        "google_search": "search",
-        "google_maps": "maps",
-        "retrieval": "file search",
+    A tool with a zero count is left out.
+    """
+
+    details: list[str] = []
+    searches = grounding_tool_counts.get("google_search", 0)
+    if searches > 0:
+        details.append(count_label(searches, "search", "searches"))
+    tool_labels = {
+        "google_maps": ("maps call", None),
+        "retrieval": ("file search", "file searches"),
     }
-    parts = [
-        f"{pretty_names.get(kind, kind)}: {count}"
-        for kind, count in sorted(grounding_tool_counts.items())
-    ]
-    return " · ".join(parts)
+    for kind, count in sorted(grounding_tool_counts.items()):
+        if kind == "google_search" or count <= 0:
+            continue
+        singular, plural = tool_labels.get(kind, (f"{kind.replace('_', ' ')} call", None))
+        details.append(count_label(count, singular, plural))
+    return details
 
 
 async def research_command(
@@ -558,21 +564,18 @@ async def research_command(
         if citations_embed is not None:
             extra_embeds.append(citations_embed)
         if SHOW_COST_EMBEDS:
-            pricing_parts = [f"${cost:.2f}"]
-            if result.thinking_tokens > 0:
-                pricing_parts.append(
-                    f"{input_tokens:,} in / {result.output_tokens:,} out / "
-                    f"{result.thinking_tokens:,} thinking"
-                )
-            else:
-                pricing_parts.append(f"{input_tokens:,} in / {result.output_tokens:,} out")
-            grounding_fragment = _format_grounding_breakdown(result.grounding_tool_counts)
-            if grounding_fragment:
-                pricing_parts.append(grounding_fragment)
-            pricing_parts.append(f"daily ${daily_cost:.2f}")
-            extra_embeds.append(
-                Embed(description=" · ".join(pricing_parts), color=embeds.GEMINI_BLUE)
+            # `output_tokens` excludes thinking tokens, so the line's output count
+            # is their sum.
+            pricing_desc = format_cost_line(
+                cost,
+                daily_cost,
+                input_tokens=input_tokens,
+                output_tokens=result.output_tokens + result.thinking_tokens,
+                cached_tokens=result.cached_tokens,
+                thinking_tokens=result.thinking_tokens,
+                details=_grounding_details(result.grounding_tool_counts),
             )
+            extra_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 
         await status_msg.edit(embed=header_embed)
 
@@ -598,7 +601,7 @@ __all__ = [
     "_extract_interaction_annotations",
     "_extract_interaction_thinking",
     "_format_citations_section",
-    "_format_grounding_breakdown",
+    "_grounding_details",
     "_has_model_sources_footer",
     "_hostname_label",
     "_model_footer_url_titles",

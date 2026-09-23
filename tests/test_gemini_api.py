@@ -186,6 +186,28 @@ class TestThinkingValidation:
         assert any(choice.value == "minimal" for choice in THINKING_LEVEL_CHOICES)
 
 
+class TestImageCostLine:
+    def test_image_count_and_searches(self):
+        from discord_gemini.cogs.gemini.image import _image_cost_line
+
+        assert _image_cost_line(0.109, 0.109, 1_290, 1, 3) == (
+            "$0.1090 · 1.3k in · 1 image · 3 searches · $0.11 today"
+        )
+
+    def test_no_images_with_billed_input_tokens(self):
+        """A response with no image still bills its input tokens; the line says 0 images."""
+        from discord_gemini.cogs.gemini.image import _image_cost_line
+
+        assert _image_cost_line(0.0004, 1.5, 1_290, 0, 0) == (
+            "$0.0004 · 1.3k in · 0 images · $1.50 today"
+        )
+
+    def test_unreported_input_tokens_are_left_out(self):
+        from discord_gemini.cogs.gemini.image import _image_cost_line
+
+        assert _image_cost_line(0.039, 0.039, 0, 1, 0) == "$0.0390 · 1 image · $0.04 today"
+
+
 class TestImageSizeValidation:
     """Per-model `image_size` support, from live requests probed 2026-08-28.
 
@@ -796,8 +818,7 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         assert log_cost.call_args.args[3] == pytest.approx(0.109)
         assert log_cost.call_args.kwargs["google_search_queries"] == 3
         footer = send_kwargs["embeds"][-1].description
-        assert footer.startswith("$0.1090 · 1 image · ")
-        assert "3 search queries" in footer
+        assert footer == "$0.1090 · 1 image · 3 searches · $0.11 today"
 
 
 def _encoded_image(fmt: str) -> bytes:
@@ -867,6 +888,31 @@ class TestGeminiImageDelivery(AsyncGeminiCogTestCase):
         embed, files = await self._deliver(GeneratedImage(b"not an image", "image/webp"))
         assert files == []
         assert "image" not in embed.to_dict()
+
+
+class TestGeminiTtsCostEmbed(AsyncGeminiCogTestCase):
+    async def test_tts_cost_line_shows_input_and_output_tokens(self, tmp_path, monkeypatch):
+        """TTS is billed per token: 12 input tokens at $1.00/M and 3,456 output tokens at
+        $20.00/M on gemini-3.1-flash-tts-preview come to $0.069132."""
+        monkeypatch.chdir(tmp_path)
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+
+        with (
+            patch("discord_gemini.cogs.gemini.speech.SHOW_COST_EMBEDS", True),
+            patch(
+                "discord_gemini.cogs.gemini.speech._generate_speech_with_gemini",
+                AsyncMock(return_value=(b"\x00\x00", 12, 3456)),
+            ),
+        ):
+            await self.cog.tts.callback(self.cog, ctx=ctx, input_text="Hello there")
+
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        send_kwargs["file"].close()
+        assert send_kwargs["embeds"][-1].description == "$0.0691 · 12 in / 3.5k out · $0.07 today"
 
 
 class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
@@ -1364,6 +1410,19 @@ class TestResearchThinkingExtraction:
         assert gemini_research._extract_interaction_thinking(SimpleNamespace(steps=None)) == ""
 
 
+class TestResearchGroundingDetails:
+    def test_no_counts_give_no_details(self):
+        assert gemini_research._grounding_details({}) == []
+
+    def test_zero_counts_are_left_out(self):
+        counts = {"google_maps": 1, "google_search": 0, "retrieval": 0}
+        assert gemini_research._grounding_details(counts) == ["1 maps call"]
+
+    def test_unknown_tool_is_named_from_its_type(self):
+        counts = {"new_tool": 2, "google_search": 1}
+        assert gemini_research._grounding_details(counts) == ["1 search", "2 new tool calls"]
+
+
 class TestResearchSourceLabeling:
     """Pure-function tests for the research source-label helpers."""
 
@@ -1464,6 +1523,7 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
             file_obj = kwargs.get("file")
             if file_obj is not None:
                 captured["report_text"] = file_obj.fp.getvalue().decode("utf-8")
+                self.report_embeds = kwargs.get("embeds", [])
             # The flow sends a green status embed first, then edits it in place to the
             # final header, so the returned message must expose an awaitable `.edit`.
             status_msg = MagicMock()
@@ -1520,6 +1580,45 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
         assert log_cost.call_args.args[3] == pytest.approx(0.0122604)
         assert log_cost.call_args.kwargs["input_tokens"] == 9804
         assert log_cost.call_args.kwargs["cached_tokens"] == 4082
+
+    async def test_research_cost_line_shows_tokens_and_grounding_counts(self):
+        """The research cost line counts tool-use tokens as input and thinking tokens
+        as output, then lists searches first and each other grounding tool as calls.
+        At gemini-3.1-pro-preview's rates: 350K uncached input at $2.00/M, 100K cached
+        at $0.20/M, 50K output at $12.00/M, 5 searches and 2 Maps calls at $0.014 each
+        come to $1.418."""
+        interaction_done = SimpleNamespace(
+            id="cost-line",
+            status="completed",
+            steps=[
+                SimpleNamespace(
+                    type="model_output",
+                    content=[
+                        SimpleNamespace(type="text", text="# Report\n\nBody.", annotations=[])
+                    ],
+                )
+            ],
+            usage=SimpleNamespace(
+                total_input_tokens=400_000,
+                total_tool_use_tokens=50_000,
+                total_cached_tokens=100_000,
+                total_output_tokens=20_000,
+                total_thought_tokens=30_000,
+                grounding_tool_count=[
+                    SimpleNamespace(type="google_search", count=5),
+                    SimpleNamespace(type="google_maps", count=2),
+                    SimpleNamespace(type="retrieval", count=1),
+                ],
+            ),
+        )
+
+        with patch("discord_gemini.cogs.gemini.research.SHOW_COST_EMBEDS", True):
+            await self._run_with_interaction(interaction_done, google_maps=True)
+
+        assert self.report_embeds[-1].description == (
+            "$1.4180 · 450k in (100k cached) / 50k out (30k thinking) · 5 searches · "
+            "2 maps calls · 1 file search · $1.42 today"
+        )
 
     async def test_research_bills_maps_grounding_surcharge_for_research_model(self):
         """A run the API reports as Maps-grounded must bill the research model's

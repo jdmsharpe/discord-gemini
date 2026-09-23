@@ -55,7 +55,7 @@ Generate images from text prompts or edit using reference images.
 Generate videos from text prompts or image inputs.
 
 - **Models:** Gemini Omni 1.1 Flash (default), Veo 3.1 Lite Preview, Veo 3.1 Preview, Veo 3.1 Fast Preview.
-- **Gemini Omni 1.1 Flash:** Google's recommended default — fast text-to-video via the Interactions API with an aspect ratio and a `720p` (default) or `1080p` resolution; `4k` is not yet supported for Omni. The request runs in background mode and is polled until the clip is ready. Billed per video output token; the token count is flat per clip, so the cost embed shows the requested resolution and the exact token count rather than an estimated duration. The other Veo-only options below are rejected for Omni with a clear message; pick a Veo 3.1 model to use them.
+- **Gemini Omni 1.1 Flash:** Google's recommended default — fast text-to-video via the Interactions API with an aspect ratio and a `720p` (default) or `1080p` resolution; `4k` is not yet supported for Omni. The request runs in background mode and is polled until the clip is ready. Billed per video output token; the token count is flat per clip, so the cost embed shows the exact token count as `N out` and the requested resolution rather than an estimated duration. The other Veo-only options below are rejected for Omni with a clear message; pick a Veo 3.1 model to use them.
 - **Options (Veo 3.1):** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation, negative prompts, and prompt enhancement control.
 - **Validation:** Veo 3.x models support 4/6/8-second outputs, `1080p` and `4k` require 8 seconds, `4k` is unavailable on Veo 3.1 Lite, and only 1 video per request is supported.
 
@@ -65,7 +65,7 @@ Create music using Google Lyria models.
 
 - **Models:** Lyria 3.5 (default), Lyria 3 Pro Preview, Lyria 3 Clip Preview, Lyria RealTime Experimental.
 - **Options:** Customizable BPM, scale/key, density, brightness, duration (RealTime only), and reference image inputs. Long lyrics or structure notes are previewed and attached as text files.
-- **Cost:** Lyria 3.5 and Lyria 3 are billed per generated song and count against the daily cost ledger. Lyria RealTime has no published per-song price, so its generations are logged as unpriced rather than at an invented rate.
+- **Cost:** Lyria 3.5 and Lyria 3 are billed per generated song, count against the daily cost ledger, and show a cost line such as `$0.0800 · 1 song · $0.12 today`. Lyria RealTime has no published per-song price, so its generations are logged as unpriced rather than at an invented rate, and its cost line shows the duration and `no published price` with no request cost.
 
 ### `/gemini-tools tts`
 
@@ -73,7 +73,7 @@ Convert text to high-quality WAV speech audio (24kHz, 16-bit). Features 25+ voic
 
 ### `/gemini-tools research`
 
-Run autonomous deep research tasks (takes 2-10 minutes) using a Gemini Deep Research agent. The default `deep-research-preview-04-2026` (Apr 2026) is tuned for low latency and cost; choose `deep-research-max-preview-04-2026` for higher-quality, more comprehensive reports at the cost of longer runtimes. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries. The research agent always grounds on Google Search, and each search the API reports (the `search: N` count in the cost embed) is billed at the Gemini 3 rate of $14 / 1K. When the agent actually grounds on Maps, each Maps call the API reports (the `maps: N` count) is billed at the underlying Gemini 3 research model's Maps rate.
+Run autonomous deep research tasks (takes 2-10 minutes) using a Gemini Deep Research agent. The default `deep-research-preview-04-2026` (Apr 2026) is tuned for low latency and cost; choose `deep-research-max-preview-04-2026` for higher-quality, more comprehensive reports at the cost of longer runtimes. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries. The research agent always grounds on Google Search, and each search the API reports (the `N searches` count in the cost embed) is billed at the Gemini 3 rate of $14 / 1K. When the agent actually grounds on Maps, each Maps call the API reports (the `N maps calls` count) is billed at the underlying Gemini 3 research model's Maps rate.
 
 ### `/gemini check_permissions`
 

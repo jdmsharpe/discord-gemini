@@ -2,6 +2,7 @@
 
 from discord import Colour, Embed
 
+from ...cost_line import count_label, format_cost_line
 from ...util import calculate_cost, chunk_text, truncate_text
 from .models import ToolInfo
 
@@ -115,12 +116,6 @@ def append_sources_embed(embeds: list[Embed], tool_info: ToolInfo) -> None:
         embeds.append(Embed(title="Sources", description=description, color=GEMINI_BLUE))
 
 
-def format_search_queries(count: int) -> str:
-    """Cost-embed label for the Google Search queries billed on a request."""
-
-    return f"{count:,} search {'query' if count == 1 else 'queries'}"
-
-
 def append_pricing_embed(
     embeds: list[Embed],
     model: str,
@@ -133,7 +128,12 @@ def append_pricing_embed(
     google_search_queries: int = 0,
     google_search_grounded: bool | int = False,
 ) -> None:
-    """Append the compact pricing footer embed."""
+    """Append the one-line pricing embed.
+
+    ``output_tokens`` excludes thinking tokens (Gemini reports them apart), so the
+    line's output count is their sum. ``cached_tokens`` is already part of
+    ``input_tokens``.
+    """
 
     cost = calculate_cost(
         model,
@@ -145,19 +145,21 @@ def append_pricing_embed(
         google_search_queries=google_search_queries,
         google_search_grounded=google_search_grounded,
     )
-    parts = [f"${cost:.4f}"]
-    if thinking_tokens > 0:
-        parts.append(f"{input_tokens:,} in / {output_tokens:,} out / {thinking_tokens:,} thinking")
-    else:
-        parts.append(f"{input_tokens:,} tokens in / {output_tokens:,} tokens out")
-    if cached_tokens > 0:
-        parts.append(f"{cached_tokens:,} cached")
-    if google_maps_grounded:
-        parts.append("Maps grounded")
+    details: list[str] = []
     if google_search_queries > 0:
-        parts.append(format_search_queries(google_search_queries))
-    parts.append(f"daily ${daily_cost:.2f}")
-    embeds.append(Embed(description=" · ".join(parts), color=GEMINI_BLUE))
+        details.append(count_label(google_search_queries, "search", "searches"))
+    if google_maps_grounded:
+        details.append("maps grounded")
+    line = format_cost_line(
+        cost,
+        daily_cost,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens + thinking_tokens,
+        cached_tokens=cached_tokens,
+        thinking_tokens=thinking_tokens,
+        details=details,
+    )
+    embeds.append(Embed(description=line, color=GEMINI_BLUE))
 
 
 __all__ = [
@@ -169,5 +171,4 @@ __all__ = [
     "build_error_embed",
     "error_to_user_description",
     "fit_markdown_sections",
-    "format_search_queries",
 ]

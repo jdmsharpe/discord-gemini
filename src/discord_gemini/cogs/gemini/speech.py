@@ -10,6 +10,7 @@ from discord.commands import ApplicationContext
 from google.genai import types
 
 from ...config.auth import SHOW_COST_EMBEDS
+from ...cost_line import format_cost_line
 from ...util import SpeechGenerationParameters, calculate_tts_cost
 from . import embeds, state, usage
 from .client import disable_afc
@@ -125,9 +126,8 @@ async def tts_command(
             )
         ]
         if SHOW_COST_EMBEDS:
-            pricing_desc = (
-                f"${cost:.4f} · {input_tokens:,} in / {output_tokens:,} out (audio) · "
-                f"daily ${daily_cost:.2f}"
+            pricing_desc = format_cost_line(
+                cost, daily_cost, input_tokens=input_tokens, output_tokens=output_tokens
             )
             response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 

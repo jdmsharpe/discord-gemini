@@ -142,7 +142,7 @@ class TestLyria3Generation(AsyncGeminiCogTestCase):
             )
 
         send_kwargs = ctx.send_followup.await_args.kwargs
-        embed = send_kwargs["embed"]
+        embed = send_kwargs["embeds"][0]
 
         assert "**Target Duration:**" not in embed.description
         assert "**Mode:** Song generation" in embed.description
@@ -446,6 +446,7 @@ class TestLyria35(AsyncGeminiCogTestCase):
             patch(
                 "discord_gemini.cogs.gemini.music._generate_music_with_lyria3", AsyncMock()
             ) as lyria3,
+            patch("discord_gemini.cogs.gemini.music.SHOW_COST_EMBEDS", True),
         ):
             await music_command(
                 self.cog, ctx, prompt="Dream pop song", attachment=None, model="lyria-3.5"
@@ -453,9 +454,11 @@ class TestLyria35(AsyncGeminiCogTestCase):
 
         lyria35.assert_awaited_once()
         lyria3.assert_not_called()
-        embed = ctx.send_followup.await_args.kwargs["embed"]
+        sent_embeds = ctx.send_followup.await_args.kwargs["embeds"]
+        embed = sent_embeds[0]
         assert "**Mode:** Song generation" in embed.description
         assert "**Format:** MP3" in embed.description
+        assert sent_embeds[1].description == "$0.0800 · 1 song · $0.08 today"
         call_args = self.cog._log_cost.call_args
         assert call_args.args[3] == pytest.approx(0.08)
         assert "unpriced" not in call_args.kwargs
@@ -466,3 +469,25 @@ class TestLyria35(AsyncGeminiCogTestCase):
 
         assert frozenset({"lyria-3.5"}) == LYRIA_INTERACTIONS_MODELS
         assert calculate_music_cost("lyria-3.5") == pytest.approx(0.08)
+
+
+class TestMusicCostLine:
+    def test_song_models_show_one_song(self):
+        from discord_gemini.cogs.gemini.music import _music_cost_line
+
+        assert _music_cost_line("lyria-3.5", 0.08, 0.12, 30) == "$0.0800 · 1 song · $0.12 today"
+
+    def test_clip_model_shows_one_clip(self):
+        from discord_gemini.cogs.gemini.music import _music_cost_line
+
+        assert _music_cost_line("lyria-3-clip-preview", 0.04, 0.04, 30) == (
+            "$0.0400 · 1 clip · $0.04 today"
+        )
+
+    def test_realtime_has_no_cost(self):
+        from discord_gemini.cogs.gemini.music import _music_cost_line
+        from discord_gemini.util import LYRIA_REALTIME_MODEL
+
+        assert _music_cost_line(LYRIA_REALTIME_MODEL, None, 0.12, 45) == (
+            "45s · no published price · $0.12 today"
+        )

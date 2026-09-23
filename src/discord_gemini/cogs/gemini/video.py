@@ -12,6 +12,7 @@ from google.genai import types
 from PIL import Image
 
 from ...config.auth import SHOW_COST_EMBEDS
+from ...cost_line import count_label, format_cost_line
 from ...util import (
     VIDEO_GENERATION_TIMEOUT,
     VideoGenerationParameters,
@@ -515,22 +516,20 @@ async def video_command(
             )
             response_embeds = [embed]
             if SHOW_COST_EMBEDS:
+                video_details = [count_label(num_videos, "video")]
                 if is_omni:
-                    pricing_desc = (
-                        f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
-                        f"· {logged_resolution} · {omni_video_tokens:,} video tokens "
-                        f"· daily ${daily_cost:.2f}"
-                    )
+                    video_details.append(logged_resolution)
                 else:
-                    pricing_desc = (
-                        f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
-                        f"× {est_duration}s · daily ${daily_cost:.2f}"
-                    )
+                    video_details.append(f"{est_duration}s")
                     if video_params.resolution:
-                        pricing_desc = (
-                            f"${cost:.2f} · {num_videos} video{'s' if num_videos != 1 else ''} "
-                            f"× {est_duration}s · {video_params.resolution} · daily ${daily_cost:.2f}"
-                        )
+                        video_details.append(video_params.resolution)
+                # Omni bills only its output video tokens; Veo bills per second.
+                pricing_desc = format_cost_line(
+                    cost,
+                    daily_cost,
+                    output_tokens=(omni_video_tokens or None) if is_omni else None,
+                    details=video_details,
+                )
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
 
             await send_embed_batches(

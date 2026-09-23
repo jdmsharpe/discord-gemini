@@ -19,6 +19,7 @@ from discord_gemini.cogs.gemini.video import (
     _validate_omni_video_request,
     _validate_video_request,
 )
+from discord_gemini.cost_line import format_daily_total, format_request_cost
 from discord_gemini.util import (
     VIDEO_GENERATION_TIMEOUT,
     VIDEO_TOKEN_PRICING,
@@ -563,15 +564,62 @@ class TestOmniVideoModels:
         for file in send_kwargs.get("files", []):
             file.close()
         pricing = send_kwargs["embeds"][-1].description
-        assert f"· {shown} ·" in pricing
-        assert "57,920 video tokens" in pricing
-        assert "~" not in pricing and "s 720p" not in pricing
-        assert pricing.startswith(
-            f"${calculate_omni_video_cost(DEFAULT_OMNI_VIDEO_MODEL, 57920):.2f}"
+        cost = calculate_omni_video_cost(DEFAULT_OMNI_VIDEO_MODEL, 57920)
+        assert pricing == (
+            f"{format_request_cost(cost)} · 57.9k out · 1 video · {shown}"
+            f" · {format_daily_total(cost)} today"
         )
         assert log_cost.call_args.kwargs["resolution"] == shown
         assert log_cost.call_args.kwargs["video_tokens"] == 57920
         assert "duration_seconds" not in log_cost.call_args.kwargs
+
+
+class TestVeoCostEmbed:
+    @pytest.mark.parametrize(
+        ("resolution", "duration_seconds", "expected"),
+        [
+            (None, None, "$0.4000 · 1 video · 8s · $0.40 today"),
+            ("720p", 4, "$0.2000 · 1 video · 4s · 720p · $0.20 today"),
+            ("1080p", 8, "$0.6400 · 1 video · 8s · 1080p · $0.64 today"),
+        ],
+    )
+    async def test_veo_cost_embed_shows_count_duration_and_resolution(
+        self, resolution, duration_seconds, expected
+    ):
+        """Veo is billed per second: the line shows the video count, the duration
+        (8 s when none is requested) and the requested resolution."""
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._send_error_followup = AsyncMock()
+
+        with (
+            patch("discord_gemini.cogs.gemini.video.SHOW_COST_EMBEDS", True),
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_veo",
+                AsyncMock(return_value=[b"mp4"]),
+            ),
+        ):
+            await cog.video.callback(
+                cog,
+                ctx=ctx,
+                prompt="a red ball",
+                model="veo-3.1-lite-generate-preview",
+                resolution=resolution,
+                duration_seconds=duration_seconds,
+            )
+
+        cog._send_error_followup.assert_not_awaited()
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        for file in send_kwargs.get("files", []):
+            file.close()
+        assert send_kwargs["embeds"][-1].description == expected
 
 
 class TestOmniVideoValidation:
