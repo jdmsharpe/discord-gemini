@@ -50,7 +50,7 @@ def extract_usage_counts(source: Any) -> UsageCounts:
             "total_output_tokens",
         ),
         thinking_tokens=_coalesce_int(usage, "thoughts_token_count", "total_thought_tokens"),
-        cached_tokens=_coalesce_int(usage, "cached_content_token_count"),
+        cached_tokens=_coalesce_int(usage, "cached_content_token_count", "total_cached_tokens"),
         tool_use_prompt_tokens=_coalesce_int(
             usage, "tool_use_prompt_token_count", "total_tool_use_tokens"
         ),

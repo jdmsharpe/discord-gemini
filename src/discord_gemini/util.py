@@ -62,7 +62,7 @@ def calculate_cost(
 ) -> float:
     """Calculate the cost in dollars for a given model and token usage.
 
-    ``cached_tokens`` (the response's ``cached_content_token_count``) is the share of
+    ``cached_tokens`` (``cached_content_token_count``, or ``total_cached_tokens``) is the share of
     ``input_tokens`` served from a context cache: it is billed at the model's cached
     rate (``CACHED_INPUT_PRICING``, else the input rate) and the remainder at the input
     rate; the split is clamped so neither side can go negative. Thinking tokens are
@@ -279,7 +279,6 @@ class ImageGenerationParameters:
 
     prompt: str
     model: str
-    number_of_images: int = 1
     aspect_ratio: str | None = None
     seed: int | None = None
     image_size: str | None = None

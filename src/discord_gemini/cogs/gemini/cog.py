@@ -533,14 +533,6 @@ class GeminiCog(commands.Cog):
         type=str,
     )
     @option(
-        "number_of_images",
-        description="Number of images to generate (1-4). (default: 1)",
-        required=False,
-        type=int,
-        min_value=1,
-        max_value=4,
-    )
-    @option(
         "aspect_ratio",
         description="Aspect ratio of the generated image. (default: 1:1)",
         required=False,
@@ -577,7 +569,6 @@ class GeminiCog(commands.Cog):
         ctx: ApplicationContext,
         prompt: str,
         model: str = "gemini-3.1-flash-image",
-        number_of_images: int = 1,
         aspect_ratio: str = "1:1",
         attachment: Attachment | None = None,
         seed: int | None = None,
@@ -589,7 +580,6 @@ class GeminiCog(commands.Cog):
             ctx,
             prompt,
             model,
-            number_of_images,
             aspect_ratio,
             attachment,
             seed,

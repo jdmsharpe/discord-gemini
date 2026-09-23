@@ -78,18 +78,17 @@ async def _generate_image_with_gemini(
 ) -> tuple[str | None, list[GeneratedImage], int, int]:
     """Generate images using Gemini models with generate_content.
 
-    Returns the text part, the image parts, the input token count, and the number of
-    Google Search queries (web plus image search) the response reports.
+    Returns the text part, the image parts, the input token count (tool-use prompt
+    tokens included), and the number of Google Search queries (web plus image search)
+    the response reports.
     """
 
     prompt = image_params.prompt
-    number_of_images = image_params.number_of_images
 
     if attachment:
         contents: str | list[str | Image.Image] = prompt
     else:
-        image_word = "image(s)" if number_of_images > 1 else "image"
-        contents = f"Create {image_word}: {prompt}"
+        contents = f"Create image: {prompt}"
 
     if attachment:
         image_data = await attachments._fetch_attachment_bytes(cog, attachment)
@@ -102,9 +101,7 @@ async def _generate_image_with_gemini(
                 contents = [prompt, image]
 
     config_kwargs: dict[str, Any] = {"response_modalities": ["TEXT", "IMAGE"]}
-    if number_of_images and number_of_images > 1:
-        config_kwargs["candidate_count"] = number_of_images
-    elif image_params.seed is not None:
+    if image_params.seed is not None:
         config_kwargs["seed"] = image_params.seed
 
     image_config_kwargs: dict[str, Any] = {}
@@ -138,7 +135,8 @@ async def _generate_image_with_gemini(
     )
 
     usage_counts = usage.extract_usage_counts(gemini_response)
-    input_tokens = usage_counts.input_tokens
+    # Tool-use prompt tokens are billed as input, as in chat.
+    input_tokens = usage_counts.input_tokens + usage_counts.tool_use_prompt_tokens
     search_queries = responses.count_search_queries(gemini_response)
 
     text_response = None
@@ -199,8 +197,6 @@ async def _create_image_response_embed(
     description += "**Mode:** Image Editing\n" if attachment else "**Mode:** Image Generation\n"
     description += f"**Number of Images:** {len(generated_images)}"
 
-    if image_params.number_of_images > 1:
-        description += f" (requested: {image_params.number_of_images})"
     if image_params.seed is not None:
         description += f"\n**Seed:** {image_params.seed}"
     if image_params.aspect_ratio != "1:1":
@@ -228,7 +224,6 @@ async def image_command(
     ctx: ApplicationContext,
     prompt: str,
     model: str,
-    number_of_images: int,
     aspect_ratio: str,
     attachment: Attachment | None,
     seed: int | None,
@@ -252,7 +247,6 @@ async def image_command(
         image_params = ImageGenerationParameters(
             prompt=prompt,
             model=model,
-            number_of_images=number_of_images,
             aspect_ratio=aspect_ratio,
             seed=seed,
             image_size=image_size,

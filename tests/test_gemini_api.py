@@ -354,6 +354,26 @@ def test_registered_command_groups_fit_discord_size_limit():
     assert payload_sizes["gemini-tools"] < 8000
 
 
+def test_image_command_offers_no_image_count_option():
+    """`candidate_count=2` returns 400 "Multiple candidates is not enabled for this
+    model" on every model in IMAGE_MODEL_CHOICES, so `/gemini-media image` has no
+    option that requests more than one image."""
+    cog = GeminiCog(bot=build_mock_bot())
+    media = next(command for command in cog.get_commands() if command.name == "gemini-media")
+    image = next(command for command in media.subcommands if command.name == "image")
+
+    registered = [option.name for option in image.options if option.input_type is not None]
+    assert registered == [
+        "prompt",
+        "model",
+        "aspect_ratio",
+        "attachment",
+        "seed",
+        "image_size",
+        "google_image_search",
+    ]
+
+
 def test_thinking_level_choice_set():
     values = {choice.value for choice in THINKING_LEVEL_CHOICES}
     assert values == {"minimal", "low", "medium", "high"}
@@ -529,6 +549,24 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         assert config.image_config.image_size is None
         assert config.tools is None
 
+    async def test_generate_image_with_gemini_sends_seed_and_one_candidate(self):
+        """A set seed always reaches the config, and no request asks for more than one
+        candidate: every image model returns 400 "Multiple candidates is not enabled for
+        this model" for `candidate_count=2`."""
+        from discord_gemini.util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image", seed=7)
+
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        config = self.cog.client.aio.models.generate_content.call_args.kwargs["config"]
+        assert config.seed == 7
+        assert config.candidate_count is None
+
     async def test_generate_image_with_gemini_image_size(self):
         """Test that image_size is passed via image_config, in the canonical spelling."""
         from discord_gemini.util import ImageGenerationParameters
@@ -690,6 +728,29 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         assert input_tokens == 11
         assert search_queries == 0
 
+    async def test_generate_image_bills_tool_use_prompt_tokens_as_input(self):
+        """`tool_use_prompt_token_count` is added to the input count, as in chat. A
+        gemini-3.1-flash-image request with the Google Search tool reported 18 prompt
+        tokens and no tool-use count (2026-09-22), so that shape bills 18."""
+        from discord_gemini.util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A red panda", model="gemini-3.1-flash-image", google_image_search=True
+        )
+
+        async def input_tokens_for(usage_metadata):
+            response = SimpleNamespace(candidates=[], usage_metadata=usage_metadata)
+            self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+            _, _, input_tokens, _ = await self.cog._generate_image_with_gemini(
+                params, attachment=None
+            )
+            return input_tokens
+
+        live = SimpleNamespace(prompt_token_count=18, tool_use_prompt_token_count=None)
+        with_tool_use = SimpleNamespace(prompt_token_count=18, tool_use_prompt_token_count=40)
+        assert await input_tokens_for(live) == 18
+        assert await input_tokens_for(with_tool_use) == 58
+
     async def test_image_command_bills_and_labels_search_queries(self):
         """Google Image Search grounding bills each web or image search query the
         response reports at the Gemini 3 rate ($0.014), on top of the image price."""
@@ -826,7 +887,7 @@ class TestGeminiDeepResearch(AsyncGeminiCogTestCase):
             total_input_tokens=250_000,
             total_output_tokens=60_000,
             total_thought_tokens=5_000,
-            cached_content_token_count=40_000,
+            total_cached_tokens=40_000,
         )
         # First call returns in_progress, second returns completed
         interaction_started = SimpleNamespace(
@@ -1428,7 +1489,11 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
         return captured["report_text"]
 
     async def test_research_bills_cached_tokens_through_calculate_cost(self):
-        """Cache hits reported on the interaction must reach the cost split, not be dropped."""
+        """The Interactions API reports cache hits as `total_cached_tokens`, a subset of
+        `total_input_tokens` (a repeated 9,804-token prompt reported 4,082 cached,
+        2026-09-22). At gemini-3.1-pro-preview's rates the 5,722 uncached tokens cost
+        $2.00/M and the 4,082 cached tokens $0.20/M: $0.0122604, not the $0.019608 the
+        full input rate would bill."""
         interaction_done = SimpleNamespace(
             id="cached",
             status="completed",
@@ -1441,21 +1506,20 @@ class TestResearchReportAssembly(AsyncGeminiCogTestCase):
                 )
             ],
             usage=SimpleNamespace(
-                total_input_tokens=10_000,
-                total_output_tokens=50,
+                total_input_tokens=9804,
+                total_output_tokens=0,
                 total_thought_tokens=0,
-                cached_content_token_count=8_000,
+                total_cached_tokens=4082,
             ),
         )
 
-        with patch(
-            "discord_gemini.cogs.gemini.research.calculate_cost", return_value=0.0
-        ) as calculate_cost:
+        with patch.object(self.cog, "_log_cost") as log_cost:
             await self._run_with_interaction(interaction_done)
 
-        calculate_cost.assert_called_once()
-        assert calculate_cost.call_args.args[1] == 10_000
-        assert calculate_cost.call_args.kwargs["cached_tokens"] == 8_000
+        log_cost.assert_called_once()
+        assert log_cost.call_args.args[3] == pytest.approx(0.0122604)
+        assert log_cost.call_args.kwargs["input_tokens"] == 9804
+        assert log_cost.call_args.kwargs["cached_tokens"] == 4082
 
     async def test_research_bills_maps_grounding_surcharge_for_research_model(self):
         """A run the API reports as Maps-grounded must bill the research model's

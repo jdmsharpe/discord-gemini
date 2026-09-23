@@ -74,6 +74,21 @@ class TestExtractUsageCounts:
             tool_use_prompt_tokens=57,
         )
 
+    def test_interactions_cached_tokens_are_read_from_total_cached_tokens(self):
+        """Interactions names the cached count `total_cached_tokens`, a subset of
+        `total_input_tokens`: the same 9,804-token prompt sent twice to
+        `interactions.create` on gemini-3.8-flash reported 0 cached tokens the first time
+        and 4,082 the second, with 9,804 input tokens both times (2026-09-22)."""
+        first = SimpleNamespace(
+            usage=SimpleNamespace(total_input_tokens=9804, total_cached_tokens=0)
+        )
+        second = SimpleNamespace(
+            usage=SimpleNamespace(total_input_tokens=9804, total_cached_tokens=4082)
+        )
+
+        assert extract_usage_counts(first) == UsageCounts(input_tokens=9804)
+        assert extract_usage_counts(second) == UsageCounts(input_tokens=9804, cached_tokens=4082)
+
     def test_missing_usage_returns_zero_counts(self):
         assert extract_usage_counts(SimpleNamespace()) == UsageCounts()
         assert extract_usage_counts(None) == UsageCounts()

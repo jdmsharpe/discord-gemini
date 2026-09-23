@@ -45,8 +45,9 @@ Start a conversation with Gemini AI models.
 Generate images from text prompts or edit using reference images.
 
 - **Models:** Gemini 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image.
-- **Options:** Multiple aspect ratios, image count (1-4), image size (`512`, `1K`, `2K`, `4K` — availability varies by model, see below), and Google Image Search grounding (Gemini 3.1 Flash Image only; each web or image search query it runs adds $0.014 to the cost embed). The chosen aspect ratio (`1:1` by default) is always sent to the API; left out, the model would pick its own ratio.
+- **Options:** Multiple aspect ratios, image size (`512`, `1K`, `2K`, `4K` — availability varies by model, see below), and Google Image Search grounding (Gemini 3.1 Flash Image only; each web or image search query it runs adds $0.014 to the cost embed). The chosen aspect ratio (`1:1` by default) is always sent to the API; left out, the model would pick its own ratio.
 - **Image sizes by model:** Gemini 3.1 Flash Image accepts `512` ($0.045), `1K` ($0.067), `2K` ($0.101) and `4K` ($0.151, 5632x3072); Gemini 3.0 Pro Image accepts `1K`/`2K` ($0.134) and `4K` ($0.24); Gemini 3.1 Flash Lite Image is the low-cost option (~$0.034) and generates `1K` only. A size a model does not support (`512` on Pro or Lite, `2K`/`4K` on Lite) is rejected before the call with the API's own "Image size X is not supported for this model" message.
+- **One image per request:** there is no image-count option. Every image model rejects a request for more than one candidate ("Multiple candidates is not enabled for this model"); to get variations, run the command again, with a different `seed` if you set one.
 - **Delivery:** generated PNG/JPEG images are attached exactly as the API returned them (a 4K JPEG is 5-7 MB, under Discord's 10 MB bot upload cap; re-encoded to PNG it would exceed it). Other formats are converted to PNG.
 
 ### `/gemini-media video`
