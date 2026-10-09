@@ -15,9 +15,6 @@ __pycache__/
 .ruff_cache/
 *.pyc
 
-# Ignore generated media artifacts
-music_output_*.mp3
-
 # Ignore system files
 .DS_Store
 Thumbs.db

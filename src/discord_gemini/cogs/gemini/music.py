@@ -6,7 +6,6 @@ import contextlib
 import time
 import wave
 from io import BytesIO
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from discord import Attachment, Colour, Embed, File
@@ -460,15 +459,15 @@ async def music_command(
             if model == LYRIA_REALTIME_MODEL
             else _music_file_suffix_for_mime_type(audio_mime_type)
         )
-        audio_file_path = Path(f"music_output_{int(time.time())}.{suffix}")
+        audio_filename = f"music_output_{int(time.time())}.{suffix}"
         if model == LYRIA_REALTIME_MODEL:
-            with wave.open(str(audio_file_path), "wb") as wav_file:
+            wav_buffer = BytesIO()
+            with wave.open(wav_buffer, "wb") as wav_file:
                 wav_file.setnchannels(2)
                 wav_file.setsampwidth(2)
                 wav_file.setframerate(48000)
                 wav_file.writeframes(audio_data)
-        else:
-            await asyncio.to_thread(audio_file_path.write_bytes, audio_data)
+            audio_data = wav_buffer.getvalue()
 
         truncated_prompt = truncate_text(prompt, 2000)
         description = f"**Prompt:** {truncated_prompt}\n"
@@ -507,7 +506,7 @@ async def music_command(
                 )
 
         notes_file = _build_music_notes_file(text_response)
-        files = [File(audio_file_path)]
+        files = [File(BytesIO(audio_data), filename=audio_filename)]
         if notes_file is not None:
             files.append(notes_file)
 
@@ -527,7 +526,6 @@ async def music_command(
             files=files,
             logger=cog.logger,
         )
-        await asyncio.to_thread(audio_file_path.unlink, missing_ok=True)
     except MusicGenerationError as error:
         cog.logger.error("Music generation error: %s", error, exc_info=True)
         description = str(error)

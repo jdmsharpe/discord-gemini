@@ -6,4 +6,3 @@ __pycache__/
 .ruff_cache/
 .git/
 *.pyc
-music_output_*.mp3

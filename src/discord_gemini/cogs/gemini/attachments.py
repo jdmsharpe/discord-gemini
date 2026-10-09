@@ -1,8 +1,8 @@
 """Attachment helpers for Gemini chat, image, music, and video flows."""
 
-import asyncio
 import mimetypes
 import re
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -139,13 +139,11 @@ async def _upload_attachment_to_file_api(
     filename: str,
     mime_type: str,
 ) -> Any | None:
-    """Upload attachment bytes to the Gemini File API."""
+    """Upload attachment bytes to the Gemini File API from memory, without writing a file."""
 
-    temp_path = Path(f"temp_upload_{filename}")
     try:
-        await asyncio.to_thread(temp_path.write_bytes, data)
         uploaded_file = await cog.client.aio.files.upload(
-            file=str(temp_path),
+            file=BytesIO(data),
             config={"mime_type": mime_type},
         )
         cog.logger.info(
@@ -158,8 +156,6 @@ async def _upload_attachment_to_file_api(
     except FILE_API_UPLOAD_EXCEPTIONS as error:
         cog.logger.warning("Failed to upload %s to File API: %s", filename, error)
         return None
-    finally:
-        await asyncio.to_thread(temp_path.unlink, missing_ok=True)
 
 
 async def _prepare_attachment_part(

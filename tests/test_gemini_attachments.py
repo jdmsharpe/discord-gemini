@@ -1,3 +1,6 @@
+import asyncio
+import io
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,6 +10,7 @@ from discord_gemini.cogs.gemini.attachments import (
     _guess_attachment_mime_type,
     _guess_url_mime_type,
     _sniff_binary_mime_type,
+    _upload_attachment_to_file_api,
 )
 from tests.support import AsyncGeminiCogTestCase
 
@@ -384,3 +388,54 @@ class TestSniffBinaryMimeType:
 
     def test_empty_returns_none(self):
         assert _sniff_binary_mime_type(b"") is None
+
+
+class TestFileApiUploadFromMemory(AsyncGeminiCogTestCase):
+    async def test_concurrent_uploads_with_the_same_filename_send_their_own_bytes(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        sent: list[bytes] = []
+
+        async def fake_upload(*, file, config):
+            # Yield before reading so the second upload starts while the first is open.
+            await asyncio.sleep(0)
+            if isinstance(file, io.IOBase):
+                data = file.read()
+            else:
+                data = await asyncio.to_thread(Path(file).read_bytes)
+            sent.append(data)
+            return SimpleNamespace(
+                name=f"files/upload-{len(sent)}",
+                uri=f"https://generativelanguage.googleapis.com/files/upload-{len(sent)}",
+                mime_type=config["mime_type"],
+            )
+
+        self.cog.client.aio.files.upload = AsyncMock(side_effect=fake_upload)
+
+        results = await asyncio.gather(
+            _upload_attachment_to_file_api(
+                self.cog, b"first user's report", "report.pdf", "application/pdf"
+            ),
+            _upload_attachment_to_file_api(
+                self.cog, b"second user's report", "report.pdf", "application/pdf"
+            ),
+        )
+
+        assert all(result is not None for result in results)
+        assert sorted(sent) == [b"first user's report", b"second user's report"]
+        for call in self.cog.client.aio.files.upload.await_args_list:
+            assert isinstance(call.kwargs["file"], io.IOBase)
+            assert call.kwargs["config"] == {"mime_type": "application/pdf"}
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_failed_upload_leaves_no_file_on_disk(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self.cog.client.aio.files.upload = AsyncMock(side_effect=APIError(500, {}))
+
+        result = await _upload_attachment_to_file_api(
+            self.cog, b"audio data", "audio.mp3", "audio/mpeg"
+        )
+
+        assert result is None
+        assert list(tmp_path.iterdir()) == []

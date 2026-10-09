@@ -1,4 +1,5 @@
 import base64
+import wave
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -228,8 +229,8 @@ class TestMusicCostTracking(AsyncGeminiCogTestCase):
         ctx.send_followup = AsyncMock()
         return ctx
 
-    async def _run_lyria3(self, model, audio=b"audio-bytes"):
-        ctx = self._ctx()
+    async def _run_lyria3(self, model, audio=b"audio-bytes", ctx=None):
+        ctx = ctx or self._ctx()
         self.cog._log_cost = MagicMock()
         self.cog._send_error_followup = AsyncMock()
 
@@ -272,6 +273,60 @@ class TestMusicCostTracking(AsyncGeminiCogTestCase):
 
         assert call_args.args[3] == pytest.approx(0.0)
         assert "unpriced" not in call_args.kwargs
+
+    async def test_music_file_is_sent_from_memory_without_writing_to_disk(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        files_on_disk_during_send = []
+        ctx = self._ctx()
+        ctx.send_followup.side_effect = lambda *_, **__: files_on_disk_during_send.extend(
+            tmp_path.iterdir()
+        )
+
+        await self._run_lyria3("lyria-3-pro-preview", ctx=ctx)
+
+        files = ctx.send_followup.await_args.kwargs["files"]
+        assert files[0].filename.startswith("music_output_")
+        assert files[0].filename.endswith(".mp3")
+        assert isinstance(files[0].fp, BytesIO)
+        assert files[0].fp.read() == b"audio-bytes"
+        assert files_on_disk_during_send == []
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_realtime_audio_is_wrapped_in_a_wav_header_in_memory(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        pcm = b"\x01\x02\x03\x04" * 4
+        files_on_disk_during_send = []
+        ctx = self._ctx()
+        ctx.send_followup.side_effect = lambda *_, **__: files_on_disk_during_send.extend(
+            tmp_path.iterdir()
+        )
+        self.cog._log_cost = MagicMock()
+        self.cog._send_error_followup = AsyncMock()
+
+        with patch(
+            "discord_gemini.cogs.gemini.music._generate_music_with_lyria_realtime",
+            AsyncMock(return_value=pcm),
+        ):
+            await music_command(
+                self.cog,
+                ctx,
+                prompt="Ambient drone",
+                attachment=None,
+                model="lyria-realtime-exp",
+                duration=30,
+            )
+
+        files = ctx.send_followup.await_args.kwargs["files"]
+        assert files[0].filename.endswith(".wav")
+        with wave.open(files[0].fp, "rb") as wav_file:
+            assert wav_file.getnchannels() == 2
+            assert wav_file.getsampwidth() == 2
+            assert wav_file.getframerate() == 48000
+            assert wav_file.readframes(wav_file.getnframes()) == pcm
+        assert files_on_disk_during_send == []
+        assert list(tmp_path.iterdir()) == []
 
     async def test_realtime_is_logged_as_unpriced(self):
         """lyria-realtime-exp has no published per-song price; never invent one."""
