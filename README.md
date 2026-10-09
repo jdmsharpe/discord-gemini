@@ -25,10 +25,10 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Thinking Configuration:** Customizable thinking levels for Gemini 3 models (Minimal, Low, Medium, High) and token budgets for Gemini 2.5 models, with thought summaries displayed in spoilered embeds. Requests the API would reject are caught before the call: a thinking level on any Gemini 2.5 model (use a budget there), Minimal on Gemini 3.8 Flash, 3.7 Flash or 3.1 Pro, or a level and a budget together.
 - **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
 - **Media Generation:**
-  - **Images:** High-quality image generation and editing using Gemini Flash/Pro Image models, up to 4K, delivered as the API's original PNG/JPEG bytes.
-  - **Video:** Gemini Omni 1.1 Flash (default) for fast text-to-video at 720p or 1080p via the Interactions API, plus Veo 3.1 for image-to-video, last-frame-constrained interpolation, and 4k/duration control.
+  - **Images:** High-quality image generation and editing using Gemini Nano Banana 2.1 (default) and the Gemini Flash/Pro Image models, up to 4K, delivered as the API's original PNG/JPEG bytes.
+  - **Video:** Gemini Omni 1.1 Flash (default) for fast text-to-video at 720p or 1080p via the Interactions API, plus Veo 3.1 for image-to-video, last-frame-constrained interpolation, and 4k/duration control until Google shuts the Veo 3.1 models down on 2026-10-22.
   - **Music:** Music generation using Lyria 3.5 (default; full songs through the Interactions API), Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
-  - **Text-to-Speech:** Lifelike speech conversion with 25+ voice options.
+  - **Text-to-Speech:** Lifelike speech conversion with Gemini 3.8 Flash TTS (default) and 25+ voice options.
 - **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
 
 ## Commands
@@ -44,17 +44,19 @@ Start a conversation with Gemini AI models.
 
 Generate images from text prompts or edit using reference images.
 
-- **Models:** Gemini 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image.
-- **Options:** Multiple aspect ratios, image size (`512`, `1K`, `2K`, `4K` — availability varies by model, see below), and Google Image Search grounding (Gemini 3.1 Flash Image only; each web or image search query it runs adds $0.014 to the cost embed). The chosen aspect ratio (`1:1` by default) is always sent to the API; left out, the model would pick its own ratio.
-- **Image sizes by model:** Gemini 3.1 Flash Image accepts `512` ($0.045), `1K` ($0.067), `2K` ($0.101) and `4K` ($0.151, 5632x3072); Gemini 3.0 Pro Image accepts `1K`/`2K` ($0.134) and `4K` ($0.24); Gemini 3.1 Flash Lite Image is the low-cost option (~$0.034) and generates `1K` only. A size a model does not support (`512` on Pro or Lite, `2K`/`4K` on Lite) is rejected before the call with the API's own "Image size X is not supported for this model" message.
+- **Models:** Gemini Nano Banana 2.1 (default), 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image. Google has deprecated 3.1 Flash Image (no shutdown date; replacement Nano Banana 2.1) and 2.5 Flash Image (shutdown 2027-03-15; replacement 3.1 Flash Lite Image).
+- **Options:** Aspect ratio (see below), image size (`512`, `1K`, `2K`, `4K` — availability varies by model, see below), and Google Image Search grounding (Nano Banana 2.1 and 3.1 Flash Image only; each web or image search query it runs adds $0.014 to the cost embed). The chosen aspect ratio (`1:1` by default) is always sent to the API; left out, the model would pick its own ratio.
+- **Image sizes by model:** Gemini Nano Banana 2.1 accepts `1K` ($0.0336), `2K` ($0.0504) and `4K` ($0.113, 4096x4096); Gemini 3.1 Flash Image accepts `512` ($0.045), `1K` ($0.067), `2K` ($0.101) and `4K` ($0.151, 5632x3072); Gemini 3.0 Pro Image accepts `1K`/`2K` ($0.134) and `4K` ($0.24); Gemini 3.1 Flash Lite Image is the low-cost option (~$0.034) and generates `1K` only. A size a model does not support (`512` on Nano Banana 2.1, Pro or Lite, `2K`/`4K` on Lite) is rejected before the call with the API's own "Image size X is not supported for this model" message.
+- **Aspect ratios by model:** every model offers `1:1`, `3:4`, `4:3`, `9:16` and `16:9`. Nano Banana 2.1, 3.1 Flash Image and 3.1 Flash Lite Image also offer the tall and wide ratios `1:4`, `4:1`, `1:8` and `8:1`, listed as Tall, Wide, Tall panoramic and Panoramic (at `1K`: 512x2064, 2064x512 and 352x2928, and 2928x352 for `8:1` on 3.1 Flash Image and 3.1 Flash Lite Image; Nano Banana 2.1 at `2K` and `8:1`: 5856x704). At every size (`512`, `1K`, `2K` and `4K`; `8:1` at `4K` is 11712x1408), an image at these ratios is billed the same image tokens as a square image of that size. 3.0 Pro Image and 2.5 Flash Image do not support them, and the bot rejects the request before the call with "Aspect ratio X is not supported for this model".
+- **Thinking and text output:** image models also produce thinking tokens and some non-image output tokens, which the per-image price does not cover. They are billed at the model's text output rate ($7.50 / 1M on Nano Banana 2.1, about $0.006-0.011 per image in test requests). The cost embed's `N out (T thinking)` counts every billed output token, image tokens included, with the thinking tokens in parentheses.
 - **One image per request:** there is no image-count option. Every image model rejects a request for more than one candidate ("Multiple candidates is not enabled for this model"); to get variations, run the command again, with a different `seed` if you set one.
-- **Delivery:** generated PNG/JPEG images are attached exactly as the API returned them (a 4K JPEG is 5-7 MB, under Discord's 10 MB bot upload cap; re-encoded to PNG it would exceed it). Other formats are converted to PNG.
+- **Delivery:** generated PNG/JPEG images are attached exactly as the API returned them (a 4K JPEG from 3.1 Flash Image is 5-7 MB, under Discord's 10 MB bot upload cap; re-encoded to PNG it would exceed it). Other formats are converted to PNG. An image larger than the server's upload limit (the limit Discord reports for the interaction: 10 MB unless the server's boost level raises it) is re-encoded as JPEG, at lower quality and if needed smaller dimensions, until it fits, and the embed says so with the old and new file sizes. JPEG has no transparency, so a transparent image re-encoded this way loses it. A 4K Nano Banana 2.1 test image went from 11.1 MB to 3.3 MB this way at the same 4096x4096 size.
 
 ### `/gemini-media video`
 
 Generate videos from text prompts or image inputs.
 
-- **Models:** Gemini Omni 1.1 Flash (default), Veo 3.1 Lite Preview, Veo 3.1 Preview, Veo 3.1 Fast Preview.
+- **Models:** Gemini Omni 1.1 Flash (default), Veo 3.1 Lite Preview, Veo 3.1 Preview, Veo 3.1 Fast Preview. Google shuts down all three Veo 3.1 models on 2026-10-22 and names Gemini Omni 1.1 Flash as their replacement.
 - **Gemini Omni 1.1 Flash:** Google's recommended default — fast text-to-video via the Interactions API with an aspect ratio and a `720p` (default) or `1080p` resolution; `4k` is not yet supported for Omni. The request runs in background mode and is polled until the clip is ready. Billed per video output token; the token count is flat per clip, so the cost embed shows the exact token count as `N out` and the requested resolution rather than an estimated duration. The other Veo-only options below are rejected for Omni with a clear message; pick a Veo 3.1 model to use them.
 - **Options (Veo 3.1):** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation, negative prompts, and prompt enhancement control.
 - **Validation:** Veo 3.x models support 4/6/8-second outputs, `1080p` and `4k` require 8 seconds, `4k` is unavailable on Veo 3.1 Lite, and only 1 video per request is supported.
@@ -69,7 +71,10 @@ Create music using Google Lyria models.
 
 ### `/gemini-tools tts`
 
-Convert text to high-quality WAV speech audio (24kHz, 16-bit). Features 25+ voice options with natural language style controls.
+Convert text to high-quality WAV speech audio (24kHz, 16-bit, mono). Features 25+ voice options with natural language style controls.
+
+- **Models:** Gemini 3.8 Flash TTS (default; $0.50 / 1M input and $9.00 / 1M audio output tokens through 2026-12-31, double from 2027-01-01), Gemini 3.8 Flash Lite TTS ($0.50 / $6.00, same promotion), and the older Gemini 3.1 Flash Preview TTS, 2.5 Flash Preview TTS and 2.5 Pro Preview TTS, which Google shuts down on 2026-11-17.
+- **Style prompt:** on the 3.8 models the `style_prompt` is sent as separate speech metadata, because they read the input text word for word and would speak a style instruction placed in front of it. The older models receive it in front of the text, as before.
 
 ### `/gemini-tools research`
 
@@ -84,7 +89,7 @@ Check if the bot has the necessary permissions in the current channel.
 ### Prerequisites
 
 - Python 3.11+
-- `google-genai` ~2.20
+- `google-genai` ~2.29
 - `py-cord` ~2.8
 - `Pillow` ~12.2
 - `aiohttp` ~3.14

@@ -44,6 +44,34 @@ class TestPricingLoader:
         assert "2k" not in size_prices
         assert set(size_prices) == {None, "default", "1k"}
 
+    def test_nano_banana_2_1_pricing_has_no_512_tier(self):
+        """Nano Banana 2.1: $1.50/M input, $7.50/M text and thinking output, images
+        at $30/M IMAGE tokens: 1K 1,120 = $0.0336, 2K 1,680 = $0.0504, 4K 3,780 =
+        $0.113. 512 is a 400, so no 512 tier exists."""
+        pricing = _reload_pricing()
+        input_rate, size_prices = pricing.IMAGE_PRICING["gemini-nano-banana-2.1"]
+        assert input_rate == 1.50
+        assert pricing.IMAGE_TEXT_OUTPUT_PRICING["gemini-nano-banana-2.1"] == 7.50
+        assert size_prices[None] == 0.0336
+        assert size_prices["1k"] == 0.0336
+        assert size_prices["2k"] == 0.0504
+        assert size_prices["4k"] == 0.113
+        assert set(size_prices) == {None, "default", "1k", "2k", "4k"}
+
+    def test_every_image_row_declares_its_text_and_thinking_output_rate(self):
+        """The pricing page's "text and thinking" output rate per image model; a row
+        without one would bill thinking and text tokens at 0."""
+        pricing = _reload_pricing()
+        assert pricing.IMAGE_TEXT_OUTPUT_PRICING == {
+            "gemini-nano-banana-2.1": 7.50,
+            "gemini-3.1-flash-image": 3.00,
+            "gemini-3.1-flash-lite-image": 1.50,
+            "gemini-3-pro-image": 12.00,
+            "gemini-2.5-flash-image": 2.50,
+        }
+        assert set(pricing.IMAGE_TEXT_OUTPUT_PRICING) == set(pricing.IMAGE_PRICING)
+        assert pricing.UNKNOWN_IMAGE_TEXT_OUTPUT_RATE == 3.00
+
     def test_gemini_2_5_pricing_only_has_its_fixed_1k_tier(self):
         """Gemini 2.5 silently renders 1K for larger requests, so only 1K is priced."""
         pricing = _reload_pricing()
@@ -100,6 +128,9 @@ class TestPricingLoader:
     def test_tts_and_maps_grounding(self):
         pricing = _reload_pricing()
         assert pricing.TTS_PRICING["gemini-2.5-flash-preview-tts"] == (0.50, 10.00)
+        # Promotional through 2026-12-31; both double on 2027-01-01.
+        assert pricing.TTS_PRICING["gemini-3.8-flash-tts"] == (0.50, 9.00)
+        assert pricing.TTS_PRICING["gemini-3.8-flash-lite-tts"] == (0.50, 6.00)
         assert pricing.MAPS_GROUNDING_COST_BY_MODEL_PREFIX == {
             "gemini-3": 0.014,
             "gemini-2.5": 0.025,
@@ -121,7 +152,10 @@ class TestPricingLoader:
     def test_search_grounding_rows(self):
         """Gemini 3.x: $14 / 1K search queries; Gemini 2.5: $35 / 1K grounded prompts."""
         pricing = _reload_pricing()
-        assert pricing.SEARCH_GROUNDING_COST_PER_QUERY_BY_MODEL_PREFIX == {"gemini-3": 0.014}
+        assert pricing.SEARCH_GROUNDING_COST_PER_QUERY_BY_MODEL_PREFIX == {
+            "gemini-3": 0.014,
+            "gemini-nano-banana": 0.014,
+        }
         assert pricing.SEARCH_GROUNDING_COST_PER_PROMPT_BY_MODEL_PREFIX == {"gemini-2.5": 0.035}
         assert pricing.SEARCH_GROUNDING_COST_PER_PROMPT == 0.035
 
@@ -131,6 +165,8 @@ class TestPricingLoader:
         # Per query on Gemini 3.x, whatever the prompt count.
         assert cost("gemini-3.8-flash", 5, 1) == pytest.approx(0.07)
         assert cost("gemini-3.1-flash-image", 2, 1) == pytest.approx(0.028)
+        # Nano Banana 2.1 shares the Gemini 3.x per-query rate.
+        assert cost("gemini-nano-banana-2.1", 2, 1) == pytest.approx(0.028)
         # Per grounded prompt on Gemini 2.5, whatever the query count.
         assert cost("gemini-2.5-pro", 5, 1) == pytest.approx(0.035)
         assert cost("gemini-2.5-flash", 5, 0) == 0.0

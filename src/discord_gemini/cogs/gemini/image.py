@@ -1,5 +1,6 @@
 """Image generation helpers for the Gemini cog."""
 
+import asyncio
 from dataclasses import dataclass
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, cast
@@ -27,8 +28,10 @@ if TYPE_CHECKING:
 # `512`, `2K` and `4K` and Pro on `512`, all with "Image size <size> is not
 # supported for this model"; `0.5K` 400s everywhere ("Supported values are: 1K, 2K,
 # 4K, 512, 512P, 512PX."). Gemini 2.5 accepts a `4K` field but still returns a
-# 1024x1024 image, so only its truthful fixed-size `1K` option is allowed.
+# 1024x1024 image, so only its truthful fixed-size `1K` option is allowed. Nano
+# Banana 2.1 400s on `512` with the same message and renders `1K`, `2K` and `4K`.
 IMAGE_SUPPORTED_SIZES: dict[str, frozenset[str]] = {
+    "gemini-nano-banana-2.1": frozenset({"1k", "2k", "4k"}),
     "gemini-2.5-flash-image": frozenset({"1k"}),
     "gemini-3.1-flash-image": frozenset({"512", "1k", "2k", "4k"}),
     "gemini-3.1-flash-lite-image": frozenset({"1k"}),
@@ -36,11 +39,50 @@ IMAGE_SUPPORTED_SIZES: dict[str, frozenset[str]] = {
 }
 _IMAGE_SIZE_DISPLAY_ORDER = ("512", "1k", "2k", "4k")
 
+# `aspect_ratio` values each model accepts. Every model takes the five standard
+# ratios; the tall and wide ratios `1:4`, `4:1`, `1:8` and `8:1` are accepted on
+# Nano Banana 2.1, 3.1 Flash Image and 3.1 Flash Lite Image (at 1K they render `1:4`
+# as 512x2064, `4:1` as 2064x512 and `1:8` as 352x2928; `8:1` renders as 1456x176 at
+# 512, 2928x352 at 1K on Flash and Flash Lite, 5856x704 at 2K and 11712x1408 at 4K),
+# and each is billed the image tokens of a square image of the same size. 3.0 Pro
+# Image and 2.5 Flash Image return 400 "Aspect ratio X is not supported for this
+# model" for each of the four.
+_STANDARD_IMAGE_ASPECT_RATIOS = frozenset({"1:1", "3:4", "4:3", "9:16", "16:9"})
+_WIDE_IMAGE_ASPECT_RATIOS = _STANDARD_IMAGE_ASPECT_RATIOS | {"1:4", "4:1", "1:8", "8:1"}
+IMAGE_SUPPORTED_ASPECT_RATIOS: dict[str, frozenset[str]] = {
+    "gemini-nano-banana-2.1": _WIDE_IMAGE_ASPECT_RATIOS,
+    "gemini-2.5-flash-image": _STANDARD_IMAGE_ASPECT_RATIOS,
+    "gemini-3.1-flash-image": _WIDE_IMAGE_ASPECT_RATIOS,
+    "gemini-3.1-flash-lite-image": _WIDE_IMAGE_ASPECT_RATIOS,
+    "gemini-3-pro-image": _STANDARD_IMAGE_ASPECT_RATIOS,
+}
+_IMAGE_ASPECT_RATIO_DISPLAY_ORDER = (
+    "1:1",
+    "3:4",
+    "4:3",
+    "9:16",
+    "16:9",
+    "1:4",
+    "4:1",
+    "1:8",
+    "8:1",
+)
+
+# Models that take the `google_image_search` option's Google Search tool (web plus
+# image search); the option is ignored for every other model.
+IMAGE_SEARCH_GROUNDING_MODELS = frozenset({"gemini-nano-banana-2.1", "gemini-3.1-flash-image"})
+
 # Discord renders these inline as-is, so the API's original bytes are attached
 # unchanged; anything else is re-encoded to PNG. Re-encoding the probe's 4K JPEGs to
 # PNG produced 10.06-12.95 MB files, over Discord's 10 MB bot upload cap, while the
 # originals were 5.5-7.1 MB (2026-08-28).
 DISCORD_NATIVE_IMAGE_EXTENSIONS: dict[str, str] = {"image/png": "png", "image/jpeg": "jpg"}
+# Discord's per-file upload limit for a bot in a guild without a raised limit and in
+# DMs; `Guild.filesize_limit` gives the real value for the guild the command runs in.
+DEFAULT_UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024
+# An image over the upload limit is re-encoded as JPEG at these qualities in turn,
+# then at half the width and height, until it fits.
+REENCODE_JPEG_QUALITIES = (90, 80, 70)
 # Sent whenever the caller leaves aspect_ratio unset, so the advertised default holds
 # at the API boundary and not only through the slash-command parameter default.
 DEFAULT_IMAGE_ASPECT_RATIO = "1:1"
@@ -52,6 +94,109 @@ class GeneratedImage:
 
     data: bytes
     mime_type: str
+
+
+@dataclass(frozen=True)
+class PreparedImage:
+    """An image file ready to attach.
+
+    ``reencoded_quality`` is set when the image was re-encoded as JPEG to fit the
+    upload limit; ``original_bytes`` and ``pixels`` then describe the change.
+    """
+
+    data: bytes
+    extension: str
+    reencoded_quality: int | None = None
+    original_bytes: int = 0
+    pixels: tuple[int, int] | None = None
+
+
+def _format_megabytes(size: int) -> str:
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _upload_limit_for(ctx: Any) -> int:
+    """Return the upload limit for this reply.
+
+    Discord sends the limit with each interaction (`attachment_size_limit`); the guild's
+    `filesize_limit` and then `DEFAULT_UPLOAD_LIMIT_BYTES` are used when it is missing.
+    """
+
+    for limit in (
+        getattr(getattr(ctx, "interaction", None), "attachment_size_limit", None),
+        getattr(getattr(ctx, "guild", None), "filesize_limit", None),
+    ):
+        if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+            return limit
+    return DEFAULT_UPLOAD_LIMIT_BYTES
+
+
+def _fit_to_upload_limit(data: bytes, upload_limit: int) -> PreparedImage:
+    """Re-encode an image as JPEG, lowering the quality and then halving the
+    dimensions, until it is no larger than ``upload_limit`` bytes.
+
+    The image is converted to RGB because JPEG has no alpha channel, so a transparent
+    image loses its transparency. Raises ``ValueError`` when even a 1-pixel image
+    does not fit.
+    """
+
+    with Image.open(BytesIO(data)) as decoded:
+        current = decoded.convert("RGB")
+    while True:
+        for quality in REENCODE_JPEG_QUALITIES:
+            buffer = BytesIO()
+            current.save(buffer, format="JPEG", quality=quality)
+            if buffer.tell() <= upload_limit:
+                return PreparedImage(
+                    buffer.getvalue(),
+                    "jpg",
+                    reencoded_quality=quality,
+                    original_bytes=len(data),
+                    pixels=current.size,
+                )
+        width, height = current.size
+        if width <= 1 and height <= 1:
+            raise ValueError(
+                f"image does not fit the {_format_megabytes(upload_limit)} upload limit"
+            )
+        current = current.resize(
+            (max(width // 2, 1), max(height // 2, 1)), Image.Resampling.LANCZOS
+        )
+
+
+def _prepare_image_file(image: "GeneratedImage", upload_limit: int) -> PreparedImage:
+    """Build the attachment bytes for one generated image.
+
+    PNG and JPEG parts keep the API's original bytes (decode-checked, so a truncated
+    payload raises instead of reaching Discord as a broken file); other formats are
+    re-encoded to PNG. A result over ``upload_limit`` is re-encoded as JPEG to fit.
+    Blocking Pillow work: run it with ``asyncio.to_thread``.
+    """
+
+    extension = DISCORD_NATIVE_IMAGE_EXTENSIONS.get(image.mime_type)
+    if extension:
+        with Image.open(BytesIO(image.data)) as native:
+            native.verify()
+        data = image.data
+    else:
+        buffer = BytesIO()
+        with Image.open(BytesIO(image.data)) as decoded:
+            decoded.save(buffer, format="PNG")
+        data = buffer.getvalue()
+        extension = "png"
+    if len(data) <= upload_limit:
+        return PreparedImage(data, extension)
+    return _fit_to_upload_limit(data, upload_limit)
+
+
+def _reencode_note(prepared: PreparedImage, upload_limit: int) -> str:
+    pixels = f" at {prepared.pixels[0]}x{prepared.pixels[1]}" if prepared.pixels else ""
+    return (
+        f"Re-encoded to fit Discord's {_format_megabytes(upload_limit)} upload limit: "
+        f"{_format_megabytes(prepared.original_bytes)} → "
+        f"{_format_megabytes(len(prepared.data))} JPEG (quality "
+        f"{prepared.reencoded_quality}){pixels}"
+    )
 
 
 def _validate_image_size_request(image_params: ImageGenerationParameters) -> str | None:
@@ -72,27 +217,111 @@ def _validate_image_size_request(image_params: ImageGenerationParameters) -> str
     )
 
 
+def _validate_image_aspect_ratio_request(image_params: ImageGenerationParameters) -> str | None:
+    """Reject `aspect_ratio` values the chosen model rejects."""
+
+    aspect_ratio = image_params.aspect_ratio or DEFAULT_IMAGE_ASPECT_RATIO
+    supported = IMAGE_SUPPORTED_ASPECT_RATIOS.get(image_params.model)
+    if supported is None or aspect_ratio in supported:
+        return None
+    supported_list = ", ".join(
+        ratio for ratio in _IMAGE_ASPECT_RATIO_DISPLAY_ORDER if ratio in supported
+    )
+    return (
+        f"Aspect ratio {aspect_ratio} is not supported for this model. "
+        f"`{image_params.model}` supports {supported_list}; choose a supported aspect "
+        "ratio or another image model."
+    )
+
+
+@dataclass(frozen=True)
+class ImageUsage:
+    """Billable counts from one image response.
+
+    ``image_tokens`` are billed through the per-image price. ``text_output_tokens``
+    is the output billed at the model's text rate: thinking tokens plus non-image
+    candidate tokens (``thinking_tokens`` is part of it). ``output_tokens`` is every
+    billed output token, the sum of the two.
+    """
+
+    input_tokens: int = 0
+    image_tokens: int = 0
+    text_output_tokens: int = 0
+    thinking_tokens: int = 0
+    search_queries: int = 0
+
+    @property
+    def output_tokens(self) -> int:
+        return self.image_tokens + self.text_output_tokens
+
+
+def _image_modality_tokens(usage_metadata: Any) -> int | None:
+    """IMAGE-modality candidate tokens, or None when the response has no breakdown
+    (the field is missing or an empty list)."""
+
+    details = getattr(usage_metadata, "candidates_tokens_details", None)
+    if not isinstance(details, list) or not details:
+        return None
+    image_tokens = 0
+    for detail in details:
+        modality = getattr(detail, "modality", None)
+        if getattr(modality, "value", modality) == "IMAGE":
+            image_tokens += int(getattr(detail, "token_count", None) or 0)
+    return image_tokens
+
+
+def _extract_image_usage(response: Any) -> ImageUsage:
+    """Split an image response's usage into the counts `calculate_image_cost` bills.
+
+    Without a per-modality breakdown every candidate token is treated as an image
+    token, so only the thinking tokens are billed at the text rate.
+    """
+
+    usage_counts = usage.extract_usage_counts(response)
+    candidate_tokens = max(usage_counts.output_tokens, 0)
+    image_tokens = _image_modality_tokens(getattr(response, "usage_metadata", None))
+    if image_tokens is None:
+        image_tokens = candidate_tokens
+    image_tokens = min(image_tokens, candidate_tokens)
+    return ImageUsage(
+        # Tool-use prompt tokens are billed as input, as in chat.
+        input_tokens=usage_counts.input_tokens + usage_counts.tool_use_prompt_tokens,
+        image_tokens=image_tokens,
+        text_output_tokens=candidate_tokens - image_tokens + usage_counts.thinking_tokens,
+        thinking_tokens=usage_counts.thinking_tokens,
+        search_queries=responses.count_search_queries(response),
+    )
+
+
 def _image_cost_line(
-    cost: float, daily_cost: float, input_tokens: int, num_images: int, search_queries: int
+    cost: float, daily_cost: float, image_usage: ImageUsage, num_images: int
 ) -> str:
-    """Build the image cost line; output is billed per image, so only input tokens show."""
+    """Build the image cost line. `out` is every billed output token (image,
+    non-image candidate and thinking tokens), as in the other bots' cost lines."""
 
     details = [count_label(num_images, "image")]
-    if search_queries > 0:
-        details.append(count_label(search_queries, "search", "searches"))
-    return format_cost_line(cost, daily_cost, input_tokens=input_tokens or None, details=details)
+    if image_usage.search_queries > 0:
+        details.append(count_label(image_usage.search_queries, "search", "searches"))
+    return format_cost_line(
+        cost,
+        daily_cost,
+        input_tokens=image_usage.input_tokens or None,
+        output_tokens=image_usage.output_tokens or None,
+        thinking_tokens=image_usage.thinking_tokens,
+        details=details,
+    )
 
 
 async def _generate_image_with_gemini(
     cog: "GeminiCog",
     image_params: ImageGenerationParameters,
     attachment: Attachment | None,
-) -> tuple[str | None, list[GeneratedImage], int, int]:
+) -> tuple[str | None, list[GeneratedImage], ImageUsage]:
     """Generate images using Gemini models with generate_content.
 
-    Returns the text part, the image parts, the input token count (tool-use prompt
-    tokens included), and the number of Google Search queries (web plus image search)
-    the response reports.
+    Returns the text part, the image parts, and the billable usage: input tokens
+    (tool-use prompt tokens included), image and text/thinking output tokens, and the
+    number of Google Search queries (web plus image search) the response reports.
     """
 
     prompt = image_params.prompt
@@ -126,7 +355,7 @@ async def _generate_image_with_gemini(
     if image_config_kwargs:
         config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
 
-    if image_params.google_image_search and image_params.model == "gemini-3.1-flash-image":
+    if image_params.google_image_search and image_params.model in IMAGE_SEARCH_GROUNDING_MODELS:
         config_kwargs["tools"] = [
             types.Tool(
                 google_search=types.GoogleSearch(
@@ -146,10 +375,7 @@ async def _generate_image_with_gemini(
         config=types.GenerateContentConfig(**cast(Any, config_kwargs)),
     )
 
-    usage_counts = usage.extract_usage_counts(gemini_response)
-    # Tool-use prompt tokens are billed as input, as in chat.
-    input_tokens = usage_counts.input_tokens + usage_counts.tool_use_prompt_tokens
-    search_queries = responses.count_search_queries(gemini_response)
+    image_usage = _extract_image_usage(gemini_response)
 
     text_response = None
     generated_images: list[GeneratedImage] = []
@@ -167,7 +393,7 @@ async def _generate_image_with_gemini(
                     mime_type = (part.inline_data.mime_type or "").split(";")[0].strip().lower()
                     generated_images.append(GeneratedImage(part.inline_data.data, mime_type))
 
-    return text_response, generated_images, input_tokens, search_queries
+    return text_response, generated_images, image_usage
 
 
 async def _create_image_response_embed(
@@ -176,32 +402,33 @@ async def _create_image_response_embed(
     generated_images: list[GeneratedImage],
     attachment: Attachment | None,
     text_response: str | None = None,
+    upload_limit: int = DEFAULT_UPLOAD_LIMIT_BYTES,
 ) -> tuple[Embed, list[File]]:
     """Create the embed and file attachments for image generation results.
 
     PNG and JPEG parts are attached exactly as the API returned them (see
-    `DISCORD_NATIVE_IMAGE_EXTENSIONS`); any other format is re-encoded to PNG.
+    `DISCORD_NATIVE_IMAGE_EXTENSIONS`); any other format is re-encoded to PNG. An
+    image larger than ``upload_limit`` bytes is re-encoded as JPEG to fit, and the
+    embed says so.
     """
 
     files: list[File] = []
+    reencode_notes: list[str] = []
     for index, image in enumerate(generated_images):
         try:
-            extension = DISCORD_NATIVE_IMAGE_EXTENSIONS.get(image.mime_type)
-            if extension:
-                # Attach untouched, but still decode-check so a truncated payload is
-                # logged and skipped instead of reaching Discord as a broken file.
-                with Image.open(BytesIO(image.data)) as native:
-                    native.verify()
-                payload = BytesIO(image.data)
-            else:
-                payload = BytesIO()
-                with Image.open(BytesIO(image.data)) as decoded:
-                    decoded.save(payload, format="PNG")
-                payload.seek(0)
-                extension = "png"
-            files.append(File(payload, filename=f"generated_image_{index + 1}.{extension}"))
+            prepared = await asyncio.to_thread(_prepare_image_file, image, upload_limit)
         except (OSError, ValueError) as error:
             cog.logger.error("Failed to save image %d: %s", index + 1, error)
+            continue
+        if prepared.reencoded_quality is not None:
+            note = _reencode_note(prepared, upload_limit)
+            reencode_notes.append(note)
+            cog.logger.info("Image %d: %s", index + 1, note)
+        files.append(
+            File(
+                BytesIO(prepared.data), filename=f"generated_image_{index + 1}.{prepared.extension}"
+            )
+        )
 
     truncated_prompt = truncate_text(image_params.prompt, 2000)
     description = f"**Prompt:** {truncated_prompt}\n"
@@ -215,8 +442,10 @@ async def _create_image_response_embed(
         description += f"\n**Aspect Ratio:** {image_params.aspect_ratio}"
     if image_params.image_size:
         description += f"\n**Image Size:** {image_params.image_size}"
-    if image_params.google_image_search:
+    if image_params.google_image_search and image_params.model in IMAGE_SEARCH_GROUNDING_MODELS:
         description += "\n**Google Image Search:** Enabled"
+    for note in reencode_notes:
+        description += f"\n**Delivery:** {note}"
 
     if text_response:
         description += f"\n\n**AI Response:** {truncate_text(text_response, 500)}"
@@ -266,6 +495,7 @@ async def image_command(
         )
 
         validation_error = _validate_image_size_request(image_params)
+        validation_error = validation_error or _validate_image_aspect_ratio_request(image_params)
         if validation_error:
             await send_embed_batches(
                 ctx.send_followup,
@@ -274,16 +504,18 @@ async def image_command(
             )
             return
 
-        (
-            text_response,
-            generated_images,
-            input_tokens,
-            search_queries,
-        ) = await _generate_image_with_gemini(cog, image_params, attachment)
+        text_response, generated_images, image_usage = await _generate_image_with_gemini(
+            cog, image_params, attachment
+        )
 
         num_images = len(generated_images)
         cost = calculate_image_cost(
-            model, num_images, input_tokens, image_size, google_search_queries=search_queries
+            model,
+            num_images,
+            image_usage.input_tokens,
+            image_size,
+            google_search_queries=image_usage.search_queries,
+            text_output_tokens=image_usage.text_output_tokens,
         )
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
@@ -293,8 +525,11 @@ async def image_command(
             cost,
             daily_cost,
             images=num_images,
-            input_tokens=input_tokens,
-            google_search_queries=search_queries,
+            input_tokens=image_usage.input_tokens,
+            output_tokens=image_usage.output_tokens,
+            text_output_tokens=image_usage.text_output_tokens,
+            thinking_tokens=image_usage.thinking_tokens,
+            google_search_queries=image_usage.search_queries,
         )
 
         if generated_images:
@@ -304,12 +539,11 @@ async def image_command(
                 generated_images=generated_images,
                 attachment=attachment,
                 text_response=text_response,
+                upload_limit=_upload_limit_for(ctx),
             )
             response_embeds = [embed]
             if SHOW_COST_EMBEDS:
-                pricing_desc = _image_cost_line(
-                    cost, daily_cost, input_tokens, num_images, search_queries
-                )
+                pricing_desc = _image_cost_line(cost, daily_cost, image_usage, num_images)
                 response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
             await send_embed_batches(
                 ctx.send_followup,
@@ -333,9 +567,7 @@ async def image_command(
             )
         ]
         if SHOW_COST_EMBEDS and cost > 0:
-            pricing_desc = _image_cost_line(
-                cost, daily_cost, input_tokens, num_images, search_queries
-            )
+            pricing_desc = _image_cost_line(cost, daily_cost, image_usage, num_images)
             response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
         await send_embed_batches(ctx.send_followup, embeds=response_embeds, logger=cog.logger)
     except Exception as error:
@@ -343,10 +575,16 @@ async def image_command(
 
 
 __all__ = [
+    "DEFAULT_UPLOAD_LIMIT_BYTES",
+    "IMAGE_SEARCH_GROUNDING_MODELS",
+    "IMAGE_SUPPORTED_ASPECT_RATIOS",
     "IMAGE_SUPPORTED_SIZES",
     "GeneratedImage",
+    "ImageUsage",
+    "PreparedImage",
     "_create_image_response_embed",
     "_generate_image_with_gemini",
+    "_validate_image_aspect_ratio_request",
     "_validate_image_size_request",
     "image_command",
 ]

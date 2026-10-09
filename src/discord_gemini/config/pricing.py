@@ -77,6 +77,16 @@ def _build_image_pricing() -> dict[str, tuple[float, dict[str | None, float]]]:
 IMAGE_PRICING: dict[str, tuple[float, dict[str | None, float]]] = _build_image_pricing()
 
 
+# "Text and thinking" output rate per image model: bills thinking tokens and
+# non-image candidate tokens, which the per-image price does not cover. A row
+# without text_output_per_million bills those tokens at 0.
+IMAGE_TEXT_OUTPUT_PRICING: dict[str, float] = {
+    model_id: float(cfg["text_output_per_million"])
+    for model_id, cfg in _IMAGE.items()
+    if cfg.get("text_output_per_million") is not None
+}
+
+
 VIDEO_PRICING: dict[str, dict[str, float]] = {
     model_id: {
         size: float(price) for size, price in (cfg.get("per_second_by_resolution") or {}).items()
@@ -174,6 +184,9 @@ UNKNOWN_CHAT_MODEL_PRICING: tuple[float, float] = (
 )
 UNKNOWN_IMAGE_MODEL_INPUT_RATE: float = _fallback("unknown_image_model", "input_per_million", 0.50)
 UNKNOWN_IMAGE_PER_IMAGE: float = _fallback("unknown_image_model", "per_image", 0.067)
+UNKNOWN_IMAGE_TEXT_OUTPUT_RATE: float = _fallback(
+    "unknown_image_model", "text_output_per_million", 3.00
+)
 UNKNOWN_VIDEO_PER_SECOND: float = _fallback("unknown_video_model", "per_second", 0.35)
 UNKNOWN_VIDEO_TOKEN_PER_MILLION: float = _fallback(
     "unknown_video_tokenized_model", "video_output_per_million", 17.50
@@ -187,6 +200,7 @@ UNKNOWN_TTS_MODEL_PRICING: tuple[float, float] = (
 __all__ = [
     "CACHED_INPUT_PRICING",
     "IMAGE_PRICING",
+    "IMAGE_TEXT_OUTPUT_PRICING",
     "MAPS_GROUNDING_COST_BY_MODEL_PREFIX",
     "MAPS_GROUNDING_COST_PER_REQUEST",
     "MODEL_PRICING",
@@ -198,6 +212,7 @@ __all__ = [
     "UNKNOWN_CHAT_MODEL_PRICING",
     "UNKNOWN_IMAGE_MODEL_INPUT_RATE",
     "UNKNOWN_IMAGE_PER_IMAGE",
+    "UNKNOWN_IMAGE_TEXT_OUTPUT_RATE",
     "UNKNOWN_TTS_MODEL_PRICING",
     "UNKNOWN_VIDEO_PER_SECOND",
     "UNKNOWN_VIDEO_TOKEN_PER_MILLION",

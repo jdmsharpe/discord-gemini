@@ -202,6 +202,20 @@ MATCHER_CASES: list[tuple[str, str, str, bool, str]] = [
         False,
         "real drift",
     ),
+    (
+        "Gemini 3.8 Flash TTS",
+        "gemini-3.8-flash-tts",
+        "Gemini 3.1 Flash Preview TTS",
+        False,
+        "stale description after a default promotion",
+    ),
+    (
+        "Gemini 3.8 Flash TTS",
+        "gemini-3.8-flash-tts",
+        "Gemini 3.8 Flash Lite TTS",
+        False,
+        "sibling model name",
+    ),
 ]
 
 MATCHER_CASE_IDS = [
@@ -217,6 +231,8 @@ MATCHER_CASE_IDS = [
     "real-drift-older-name",
     "empty-value-must-not-accept",
     "real-drift-older-tts-name",
+    "stale-tts-default-after-promotion",
+    "sibling-lite-tts-name",
 ]
 
 

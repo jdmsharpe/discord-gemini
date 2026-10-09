@@ -2,7 +2,7 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-09-22 (every row re-verified against the live page)
+# Last-verified: 2026-10-08 (every row re-verified against the live page)
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
 # the output-token rate. Cache hits (usage_metadata.cached_content_token_count)
@@ -19,8 +19,9 @@
 # long conversations may cost more in practice.
 #
 # NOTE: rows here carry the rate in force TODAY; this file cannot express a dated
-# rate. Google prices ~24 models promotionally through 2026-12-31 and doubles them
-# on 2027-01-01, so re-verify every rate below in late December 2026.
+# rate. Google prices several models promotionally through 2026-12-31 and doubles
+# them on 2027-01-01 (3.8 / 3.7 / 3.6 Flash and both 3.8 TTS models among the rows
+# below), so re-verify every rate below in late December 2026.
 
 models:
   # GA 2026-09-02, default chat model. Promotional; doubles to $1.50/$7.50 on 2027-01-01.
@@ -41,13 +42,30 @@ models:
 # Image generation pricing. Input is token-based and output is per-image with
 # size tiers ("512", "1k", "2k", "4k"). calculate_image_cost lower-cases the
 # requested size, so the canonical uppercase option values ("1K", "4K") hit these
-# rows; a size with no row bills at `default`.
+# rows; a size with no row bills at `default`. text_output_per_million is the
+# page's "text and thinking" output rate: it bills the response's thinking tokens
+# and its non-image candidate tokens, which the per-image price does not cover.
 image_generation:
+  # GA 2026-10-06, default image model; the deprecations page names it the
+  # replacement for gemini-3.1-flash-image. Images are $30/MTok of IMAGE tokens:
+  # 1K = 1,120, 2K = 1,680, 4K = 3,780 tokens. 512 is a 400 ("Image size 512 is
+  # not supported for this model"), so no 512 tier exists.
+  gemini-nano-banana-2.1:
+    input_per_million: 1.50
+    text_output_per_million: 7.50
+    per_image_by_size:
+      default: 0.0336
+      1k: 0.0336
+      2k: 0.0504
+      4k: 0.113
   # GA ids (replaced the -preview ids on 2026-05-28; previews discontinue 2026-06-25).
+  # gemini-3.1-flash-image is deprecated with no shutdown date (replacement
+  # gemini-nano-banana-2.1).
   # 512 (747 IMAGE tokens = $0.045) and 4K (2,520 tokens = $0.151, "$0.151 per 4K
   # image" on the pricing page) verified by live probe 2026-08-28.
   gemini-3.1-flash-image:
     input_per_million: 0.50
+    text_output_per_million: 3.00
     per_image_by_size:
       default: 0.067
       "512": 0.045
@@ -59,19 +77,24 @@ image_generation:
   # other tier exists to price.
   gemini-3.1-flash-lite-image:
     input_per_million: 0.25
+    text_output_per_million: 1.50
     per_image_by_size:
       default: 0.0336
       1k: 0.0336
   # 4K (2,000 IMAGE tokens = $0.24) verified by live probe 2026-08-28; 512 is a 400.
   gemini-3-pro-image:
     input_per_million: 2.00
+    text_output_per_million: 12.00
     per_image_by_size:
       default: 0.134
       1k: 0.134
       2k: 0.134
       4k: 0.24
+  # Deprecated; the deprecations page lists shutdown 2027-03-15 (replacement
+  # gemini-3.1-flash-lite-image). Its text output is "priced the same as 2.5 Flash".
   gemini-2.5-flash-image:
     input_per_million: 0.30
+    text_output_per_million: 2.50
     per_image_by_size:
       default: 0.039
       1k: 0.039
@@ -94,7 +117,7 @@ video_tokenized:
   # GA 2026-08-27 (default video model); same per-token rate as the preview.
   gemini-omni-1.1-flash:
     video_output_per_million: 17.50
-  # Retired preview id (shuts down 2026-09-30) and no longer selectable; its row is
+  # Retired preview id (shuts down 2026-10-22) and no longer selectable; its row is
   # kept so historical costs for it stay correct.
   gemini-omni-flash-preview:
     video_output_per_million: 17.50
@@ -102,6 +125,11 @@ video_tokenized:
 # TTS models — tokenized input/output like chat models.
 # Audio output tokens correspond to ~25 tokens per second of audio.
 text_to_speech:
+  # GA 2026-09-22, default TTS model. Promotional; doubles to $1.00/$18.00 on 2027-01-01.
+  gemini-3.8-flash-tts:         { input_per_million: 0.50, output_per_million: 9.00 }
+  # GA 2026-09-22. Promotional; doubles to $1.00/$12.00 on 2027-01-01.
+  gemini-3.8-flash-lite-tts:    { input_per_million: 0.50, output_per_million: 6.00 }
+  # The three ids below shut down 2026-11-17 (replacement: either 3.8 TTS model).
   gemini-3.1-flash-tts-preview: { input_per_million: 1.00, output_per_million: 20.00 }
   gemini-2.5-flash-preview-tts: { input_per_million: 0.50, output_per_million: 10.00 }
   gemini-2.5-pro-preview-tts:   { input_per_million: 1.00, output_per_million: 20.00 }
@@ -141,6 +169,8 @@ tools:
     # usage.grounding_tool_count for google_search.
     per_query_by_model_prefix:
       gemini-3:   0.014
+      # Nano Banana 2.1 shares the Gemini 3.x per-query rate and free allowance.
+      gemini-nano-banana: 0.014
     per_prompt_by_model_prefix:
       gemini-2.5: 0.035
     per_prompt: 0.035  # fallback for ids matching no prefix above
@@ -149,6 +179,7 @@ fallbacks:
   unknown_chat_model:  { input_per_million: 2.0,  output_per_million: 12.0 }
   unknown_image_model:
     input_per_million: 0.50
+    text_output_per_million: 3.00
     per_image: 0.067
   unknown_video_model: { per_second: 0.35 }
   unknown_video_tokenized_model: { video_output_per_million: 17.50 }

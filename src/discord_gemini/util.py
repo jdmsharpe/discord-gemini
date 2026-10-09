@@ -11,12 +11,14 @@ from .cogs.gemini.tool_registry import (
 from .config.pricing import (
     CACHED_INPUT_PRICING,
     IMAGE_PRICING,
+    IMAGE_TEXT_OUTPUT_PRICING,
     MODEL_PRICING,
     MUSIC_PRICING,
     TTS_PRICING,
     UNKNOWN_CHAT_MODEL_PRICING,
     UNKNOWN_IMAGE_MODEL_INPUT_RATE,
     UNKNOWN_IMAGE_PER_IMAGE,
+    UNKNOWN_IMAGE_TEXT_OUTPUT_RATE,
     UNKNOWN_TTS_MODEL_PRICING,
     UNKNOWN_VIDEO_PER_SECOND,
     UNKNOWN_VIDEO_TOKEN_PER_MILLION,
@@ -34,6 +36,12 @@ TOOL_FILE_SEARCH = build_runtime_tool_config("file_search") or {"file_search": {
 TOOL_CUSTOM_FUNCTIONS = {"_custom_functions": True}  # Sentinel for ButtonView toggle
 
 DEFAULT_MUSIC_MODEL = "lyria-3.5"
+DEFAULT_TTS_MODEL = "gemini-3.8-flash-tts"
+# Gemini 3.8 TTS reads the input as a verbatim transcript, so an inline style
+# direction ("Say cheerfully: ...") may be spoken aloud; these models take the style
+# through the part's `speech_metadata.style` instead. They also return WAV audio
+# with a RIFF header, where the older TTS models return headerless PCM.
+TTS_SPEECH_METADATA_MODELS = frozenset({"gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"})
 LYRIA_REALTIME_MODEL = "lyria-realtime-exp"
 LYRIA_3_MODELS = frozenset(
     {
@@ -99,13 +107,17 @@ def calculate_image_cost(
     input_tokens: int = 0,
     image_size: str | None = None,
     google_search_queries: int = 0,
+    text_output_tokens: int = 0,
 ) -> float:
     """Calculate the cost for image generation.
 
     Includes input token cost plus per-image output cost at the requested
     resolution (image_size). Falls back to default (1K) rate. ``google_search_queries``
     (web plus image search queries the response reports) adds the Search grounding
-    charge; one request is one grounded prompt.
+    charge; one request is one grounded prompt. ``text_output_tokens`` (thinking
+    tokens plus non-image candidate tokens) is billed at the model's "text and
+    thinking" output rate (``IMAGE_TEXT_OUTPUT_PRICING``; 0 for a priced model
+    without one).
     """
     default_sizes: dict[str | None, float] = {None: UNKNOWN_IMAGE_PER_IMAGE}
     input_rate, size_prices = IMAGE_PRICING.get(
@@ -117,7 +129,16 @@ def calculate_image_cost(
     search_cost = search_grounding_cost_for_model(
         model, google_search_queries, 1 if google_search_queries > 0 else 0
     )
-    return (input_tokens / 1_000_000) * input_rate + num_images * per_image_cost + search_cost
+    if model in IMAGE_PRICING:
+        text_output_rate = IMAGE_TEXT_OUTPUT_PRICING.get(model, 0.0)
+    else:
+        text_output_rate = UNKNOWN_IMAGE_TEXT_OUTPUT_RATE
+    return (
+        (input_tokens / 1_000_000) * input_rate
+        + num_images * per_image_cost
+        + (max(text_output_tokens, 0) / 1_000_000) * text_output_rate
+        + search_cost
+    )
 
 
 def calculate_video_cost(
@@ -338,7 +359,7 @@ class SpeechGenerationParameters:
     """A dataclass to store the parameters for a speech generation."""
 
     input_text: str
-    model: str = "gemini-3.1-flash-tts-preview"
+    model: str = DEFAULT_TTS_MODEL
     voice_name: str | None = "Kore"
     multi_speaker: bool = False
     speaker_configs: list[dict[str, str]] | None = None

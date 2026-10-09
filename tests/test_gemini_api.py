@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from google.genai import types
 
 from discord_gemini.cogs.gemini import research as gemini_research
 from discord_gemini.cogs.gemini.cog import GeminiCog
@@ -188,24 +189,111 @@ class TestThinkingValidation:
 
 class TestImageCostLine:
     def test_image_count_and_searches(self):
-        from discord_gemini.cogs.gemini.image import _image_cost_line
+        from discord_gemini.cogs.gemini.image import ImageUsage, _image_cost_line
 
-        assert _image_cost_line(0.109, 0.109, 1_290, 1, 3) == (
+        usage = ImageUsage(input_tokens=1_290, search_queries=3)
+        assert _image_cost_line(0.109, 0.109, usage, 1) == (
             "$0.1090 · 1.3k in · 1 image · 3 searches · $0.11 today"
         )
 
     def test_no_images_with_billed_input_tokens(self):
         """A response with no image still bills its input tokens; the line says 0 images."""
-        from discord_gemini.cogs.gemini.image import _image_cost_line
+        from discord_gemini.cogs.gemini.image import ImageUsage, _image_cost_line
 
-        assert _image_cost_line(0.0004, 1.5, 1_290, 0, 0) == (
+        assert _image_cost_line(0.0004, 1.5, ImageUsage(input_tokens=1_290), 0) == (
             "$0.0004 · 1.3k in · 0 images · $1.50 today"
         )
 
     def test_unreported_input_tokens_are_left_out(self):
-        from discord_gemini.cogs.gemini.image import _image_cost_line
+        from discord_gemini.cogs.gemini.image import ImageUsage, _image_cost_line
 
-        assert _image_cost_line(0.039, 0.039, 0, 1, 0) == "$0.0390 · 1 image · $0.04 today"
+        assert _image_cost_line(0.039, 0.039, ImageUsage(), 1) == "$0.0390 · 1 image · $0.04 today"
+
+    def test_out_counts_every_billed_output_token(self):
+        """`out` is every billed output token, as cost_line.py defines it: 1,680
+        IMAGE + 295 non-image candidate + 858 thinking = 2,833, thinking in
+        parentheses."""
+        from discord_gemini.cogs.gemini.image import ImageUsage, _image_cost_line
+
+        usage = ImageUsage(
+            input_tokens=14, image_tokens=1_680, text_output_tokens=1_153, thinking_tokens=858
+        )
+        assert usage.output_tokens == 2_833
+        assert _image_cost_line(0.0591, 0.0591, usage, 1) == (
+            "$0.0591 · 14 in / 2.8k out (858 thinking) · 1 image · $0.06 today"
+        )
+
+
+class TestImageUsageExtraction:
+    """`_extract_image_usage` splits candidate tokens into IMAGE tokens (billed per
+    image) and the rest (billed at the text rate, with the thinking tokens)."""
+
+    def test_non_image_candidate_tokens_and_thinking_are_text_output(self):
+        """The shape of a 2K `gemini-nano-banana-2.1` response: 1,975 candidate
+        tokens of which 1,680 are IMAGE, plus 858 thinking tokens."""
+        from discord_gemini.cogs.gemini.image import ImageUsage, _extract_image_usage
+
+        response = SimpleNamespace(
+            candidates=[],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=14,
+                candidates_token_count=1_975,
+                candidates_tokens_details=[
+                    SimpleNamespace(modality=types.MediaModality.IMAGE, token_count=1_680)
+                ],
+                thoughts_token_count=858,
+            ),
+        )
+        assert _extract_image_usage(response) == ImageUsage(
+            input_tokens=14, image_tokens=1_680, text_output_tokens=295 + 858, thinking_tokens=858
+        )
+
+    def test_without_a_modality_breakdown_only_thinking_is_text_output(self):
+        """With no per-modality counts the candidate tokens cannot be split, so they
+        are all treated as image tokens and none is billed twice."""
+        from discord_gemini.cogs.gemini.image import _extract_image_usage
+
+        response = SimpleNamespace(
+            candidates=[],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=12, candidates_token_count=1_290, thoughts_token_count=40
+            ),
+        )
+        usage = _extract_image_usage(response)
+        assert (usage.image_tokens, usage.text_output_tokens) == (1_290, 40)
+        assert usage.output_tokens == 1_330
+
+    def test_an_empty_modality_breakdown_counts_as_missing(self):
+        """`candidates_tokens_details == []` cannot split the candidate tokens either,
+        so it must not bill them all at the text rate."""
+        from discord_gemini.cogs.gemini.image import _extract_image_usage
+
+        response = SimpleNamespace(
+            candidates=[],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=12,
+                candidates_token_count=1_290,
+                candidates_tokens_details=[],
+                thoughts_token_count=40,
+            ),
+        )
+        usage = _extract_image_usage(response)
+        assert (usage.image_tokens, usage.text_output_tokens) == (1_290, 40)
+
+    def test_an_image_only_response_has_no_text_output(self):
+        """`gemini-2.5-flash-image` reports every candidate token as IMAGE."""
+        from discord_gemini.cogs.gemini.image import _extract_image_usage
+
+        response = SimpleNamespace(
+            candidates=[],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=12,
+                candidates_token_count=1_290,
+                candidates_tokens_details=[SimpleNamespace(modality="IMAGE", token_count=1_290)],
+            ),
+        )
+        usage = _extract_image_usage(response)
+        assert (usage.image_tokens, usage.text_output_tokens) == (1_290, 0)
 
 
 class TestImageSizeValidation:
@@ -247,6 +335,7 @@ class TestImageSizeValidation:
             ("gemini-3.1-flash-lite-image", "4K"),
             ("gemini-3.1-flash-lite-image", "512"),
             ("gemini-3-pro-image", "512"),
+            ("gemini-nano-banana-2.1", "512"),
         ],
     )
     def test_rejects_sizes_the_api_400s_on_verbatim(self, model, size):
@@ -263,6 +352,8 @@ class TestImageSizeValidation:
             ("gemini-3.1-flash-image", "4K"),
             ("gemini-3-pro-image", "4K"),
             ("gemini-3-pro-image", "2K"),
+            ("gemini-nano-banana-2.1", "2K"),
+            ("gemini-nano-banana-2.1", "4K"),
         ],
     )
     def test_accepts_sizes_the_api_rendered(self, model, size):
@@ -274,11 +365,18 @@ class TestImageSizeValidation:
         from discord_gemini.cogs.gemini.image import IMAGE_SUPPORTED_SIZES
 
         assert {
+            "gemini-nano-banana-2.1": {"1k", "2k", "4k"},
             "gemini-2.5-flash-image": {"1k"},
             "gemini-3.1-flash-image": {"512", "1k", "2k", "4k"},
             "gemini-3.1-flash-lite-image": {"1k"},
             "gemini-3-pro-image": {"1k", "2k", "4k"},
         } == IMAGE_SUPPORTED_SIZES
+
+    def test_every_menu_image_model_declares_its_sizes(self):
+        """A menu model missing from the table would pass any size through."""
+        from discord_gemini.cogs.gemini.image import IMAGE_SUPPORTED_SIZES
+
+        assert {choice.value for choice in IMAGE_MODEL_CHOICES} == set(IMAGE_SUPPORTED_SIZES)
 
     def test_gemini_2_5_only_accepts_its_fixed_1k_size(self):
         from discord_gemini.cogs.gemini.image import _validate_image_size_request
@@ -305,15 +403,177 @@ class TestImageSizeValidation:
         assert [choice.value for choice in IMAGE_SIZE_CHOICES] == ["512", "1K", "2K", "4K"]
 
 
+class TestImageAspectRatioValidation:
+    """Per-model `aspect_ratio` support, from live requests with the bot's shape.
+
+    Nano Banana 2.1, 3.1 Flash Image and 3.1 Flash Lite Image rendered all four wide
+    ratios: at 1K, `1:4` 512x2064, `4:1` 2064x512, `1:8` 352x2928, and `8:1` 2928x352
+    on Flash and Flash Lite; Nano Banana 2.1 `8:1` was requested at 2K (5856x704,
+    1,680 IMAGE tokens) and 4K (11712x1408, 3,780), and 3.1 Flash Image `8:1` at 512
+    (1456x176, 747) and 4K (11712x1408, 2,520). 3.0 Pro Image and 2.5 Flash Image
+    returned 400 "Aspect ratio X is not supported for this model" for each of the four.
+    Every accepted wide ratio billed the IMAGE tokens of a square image of its size.
+    """
+
+    STANDARD = frozenset({"1:1", "3:4", "4:3", "9:16", "16:9"})
+    WIDE = frozenset({"1:4", "4:1", "1:8", "8:1"})
+
+    @staticmethod
+    def _params(model="gemini-nano-banana-2.1", **kwargs):
+        from discord_gemini.util import ImageGenerationParameters
+
+        return ImageGenerationParameters(prompt="x", model=model, **kwargs)
+
+    def test_supported_aspect_ratios_table_matches_the_probes(self):
+        from discord_gemini.cogs.gemini.image import IMAGE_SUPPORTED_ASPECT_RATIOS
+
+        wide = self.STANDARD | self.WIDE
+        assert {
+            "gemini-nano-banana-2.1": wide,
+            "gemini-2.5-flash-image": self.STANDARD,
+            "gemini-3.1-flash-image": wide,
+            "gemini-3.1-flash-lite-image": wide,
+            "gemini-3-pro-image": self.STANDARD,
+        } == IMAGE_SUPPORTED_ASPECT_RATIOS
+
+    def test_every_menu_image_model_declares_its_aspect_ratios(self):
+        """A menu model missing from the table would pass any aspect ratio through."""
+        from discord_gemini.cogs.gemini.image import IMAGE_SUPPORTED_ASPECT_RATIOS
+
+        assert {choice.value for choice in IMAGE_MODEL_CHOICES} == set(
+            IMAGE_SUPPORTED_ASPECT_RATIOS
+        )
+
+    def test_every_menu_ratio_is_supported_by_some_model_and_every_model_takes_1_1(self):
+        from discord_gemini.cogs.gemini.command_options import IMAGE_ASPECT_RATIO_CHOICES
+        from discord_gemini.cogs.gemini.image import IMAGE_SUPPORTED_ASPECT_RATIOS
+
+        menu = {choice.value for choice in IMAGE_ASPECT_RATIO_CHOICES}
+        assert menu == self.STANDARD | self.WIDE
+        assert menu == set().union(*IMAGE_SUPPORTED_ASPECT_RATIOS.values())
+        assert all("1:1" in ratios for ratios in IMAGE_SUPPORTED_ASPECT_RATIOS.values())
+
+    @pytest.mark.parametrize(
+        "model",
+        ["gemini-nano-banana-2.1", "gemini-3.1-flash-image", "gemini-3.1-flash-lite-image"],
+    )
+    @pytest.mark.parametrize("ratio", ["1:4", "4:1", "1:8", "8:1", "16:9"])
+    def test_accepts_wide_ratios_on_the_models_that_render_them(self, model, ratio):
+        from discord_gemini.cogs.gemini.image import _validate_image_aspect_ratio_request
+
+        params = self._params(model=model, aspect_ratio=ratio)
+        assert _validate_image_aspect_ratio_request(params) is None
+
+    @pytest.mark.parametrize("model", ["gemini-3-pro-image", "gemini-2.5-flash-image"])
+    @pytest.mark.parametrize("ratio", ["1:4", "4:1", "1:8", "8:1"])
+    def test_rejects_wide_ratios_on_pro_and_2_5_with_the_api_wording(self, model, ratio):
+        from discord_gemini.cogs.gemini.image import _validate_image_aspect_ratio_request
+
+        error = _validate_image_aspect_ratio_request(self._params(model=model, aspect_ratio=ratio))
+        assert error is not None
+        assert error.startswith(f"Aspect ratio {ratio} is not supported for this model")
+        assert f"`{model}` supports 1:1, 3:4, 4:3, 9:16, 16:9;" in error
+
+    @pytest.mark.parametrize("model", ["gemini-3-pro-image", "gemini-2.5-flash-image"])
+    def test_accepts_standard_ratios_and_the_unset_default_on_pro_and_2_5(self, model):
+        from discord_gemini.cogs.gemini.image import _validate_image_aspect_ratio_request
+
+        assert _validate_image_aspect_ratio_request(self._params(model=model)) is None
+        for ratio in sorted(self.STANDARD):
+            params = self._params(model=model, aspect_ratio=ratio)
+            assert _validate_image_aspect_ratio_request(params) is None
+
+    def test_does_not_constrain_unknown_future_image_models(self):
+        from discord_gemini.cogs.gemini.image import _validate_image_aspect_ratio_request
+
+        params = self._params(model="gemini-future-image", aspect_ratio="8:1")
+        assert _validate_image_aspect_ratio_request(params) is None
+
+    def test_option_description_and_choice_names_fit_discord_limits(self):
+        """Discord caps option descriptions and choice names at 100 characters."""
+        from discord_gemini.cogs.gemini.command_options import IMAGE_ASPECT_RATIO_CHOICES
+
+        cog = GeminiCog(bot=build_mock_bot())
+        media = next(command for command in cog.get_commands() if command.name == "gemini-media")
+        image = next(command for command in media.subcommands if command.name == "image")
+        option = next(option for option in image.options if option.name == "aspect_ratio")
+        assert len(option.description) <= 100
+        assert len(option.choices) == len(IMAGE_ASPECT_RATIO_CHOICES) <= 25
+        assert all(len(choice.name) <= 100 for choice in option.choices)
+        assert option.default == "1:1"
+
+    def test_wide_choice_names_are_plain_labels_and_the_description_names_their_models(self):
+        """The option description, not each choice name, says which models take them."""
+        from discord_gemini.cogs.gemini.command_options import IMAGE_ASPECT_RATIO_CHOICES
+
+        names = {choice.value: choice.name for choice in IMAGE_ASPECT_RATIO_CHOICES}
+        assert [names[ratio] for ratio in ("1:4", "4:1", "1:8", "8:1")] == [
+            "Tall (1:4)",
+            "Wide (4:1)",
+            "Tall panoramic (1:8)",
+            "Panoramic (8:1)",
+        ]
+        cog = GeminiCog(bot=build_mock_bot())
+        media = next(command for command in cog.get_commands() if command.name == "gemini-media")
+        image = next(command for command in media.subcommands if command.name == "image")
+        option = next(option for option in image.options if option.name == "aspect_ratio")
+        assert "Nano Banana 2.1, 3.1 Flash or 3.1 Flash Lite" in option.description
+
+
+class TestImageAspectRatioCommand(AsyncGeminiCogTestCase):
+    def _ctx(self):
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        return ctx
+
+    async def test_refused_ratio_sends_no_request(self):
+        self.cog.client.aio.models.generate_content = AsyncMock()
+        ctx = self._ctx()
+
+        await self.cog.image.callback(
+            self.cog, ctx=ctx, prompt="a lighthouse", model="gemini-3-pro-image", aspect_ratio="8:1"
+        )
+
+        self.cog.client.aio.models.generate_content.assert_not_awaited()
+        embed = ctx.send_followup.call_args.kwargs["embed"]
+        assert "Aspect ratio 8:1 is not supported for this model" in embed.description
+
+    async def test_default_command_call_sends_1_1(self):
+        response = SimpleNamespace(candidates=[], usage_metadata=None)
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+        ctx = self._ctx()
+
+        await self.cog.image.callback(self.cog, ctx=ctx, prompt="a lighthouse")
+
+        config = self.cog.client.aio.models.generate_content.call_args.kwargs["config"]
+        assert config.image_config.aspect_ratio == "1:1"
+
+    async def test_wide_ratio_reaches_the_request_on_nano_banana(self):
+        response = SimpleNamespace(candidates=[], usage_metadata=None)
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+        ctx = self._ctx()
+
+        await self.cog.image.callback(self.cog, ctx=ctx, prompt="a lighthouse", aspect_ratio="8:1")
+
+        config = self.cog.client.aio.models.generate_content.call_args.kwargs["config"]
+        assert config.image_config.aspect_ratio == "8:1"
+
+
 def test_critical_choice_values_present():
     assert any(choice.value == "gemini-3.6-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.5-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.5-flash-lite" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
+    assert any(choice.value == "gemini-nano-banana-2.1" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-image" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-lite-image" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-lite-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "veo-3.1-generate-preview" for choice in VIDEO_MODEL_CHOICES)
+    assert any(choice.value == "gemini-3.8-flash-tts" for choice in TTS_MODEL_CHOICES)
+    assert any(choice.value == "gemini-3.8-flash-lite-tts" for choice in TTS_MODEL_CHOICES)
     assert any(choice.value == "gemini-2.5-flash-preview-tts" for choice in TTS_MODEL_CHOICES)
     assert any(choice.value == "Kore" for choice in TTS_VOICE_CHOICES)
     assert any(choice.value == "lyria-3-clip-preview" for choice in MUSIC_MODEL_CHOICES)
@@ -677,8 +937,26 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         assert tool.google_search.search_types.image_search is not None
         assert tool.google_search.search_types.web_search is not None
 
+    async def test_generate_image_with_gemini_image_search_on_nano_banana(self):
+        """Nano Banana 2.1 takes the same Google Search tool (web plus image search)."""
+        from discord_gemini.util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(
+            prompt="A cat", model="gemini-nano-banana-2.1", google_image_search=True
+        )
+        mock_response = MagicMock()
+        mock_response.candidates = []
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await self.cog._generate_image_with_gemini(params, attachment=None)
+
+        config = self.cog.client.aio.models.generate_content.call_args.kwargs["config"]
+        assert len(config.tools) == 1
+        assert config.tools[0].google_search.search_types.web_search is not None
+        assert config.tools[0].google_search.search_types.image_search is not None
+
     async def test_generate_image_with_gemini_image_search_wrong_model(self):
-        """Test that google_image_search is ignored for non-3.1-flash-image models."""
+        """google_image_search is ignored for models outside IMAGE_SEARCH_GROUNDING_MODELS."""
         from discord_gemini.util import ImageGenerationParameters
 
         params = ImageGenerationParameters(
@@ -740,15 +1018,15 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         )
         self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
 
-        text, images, input_tokens, search_queries = await self.cog._generate_image_with_gemini(
+        text, images, image_usage = await self.cog._generate_image_with_gemini(
             ImageGenerationParameters(prompt="A cat", model="gemini-3.1-flash-image"),
             attachment=None,
         )
 
         assert text is None
         assert images == [GeneratedImage(jpeg, "image/jpeg")]
-        assert input_tokens == 11
-        assert search_queries == 0
+        assert image_usage.input_tokens == 11
+        assert image_usage.search_queries == 0
 
     async def test_generate_image_bills_tool_use_prompt_tokens_as_input(self):
         """`tool_use_prompt_token_count` is added to the input count, as in chat. A
@@ -763,10 +1041,8 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         async def input_tokens_for(usage_metadata):
             response = SimpleNamespace(candidates=[], usage_metadata=usage_metadata)
             self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
-            _, _, input_tokens, _ = await self.cog._generate_image_with_gemini(
-                params, attachment=None
-            )
-            return input_tokens
+            _, _, image_usage = await self.cog._generate_image_with_gemini(params, attachment=None)
+            return image_usage.input_tokens
 
         live = SimpleNamespace(prompt_token_count=18, tool_use_prompt_token_count=None)
         with_tool_use = SimpleNamespace(prompt_token_count=18, tool_use_prompt_token_count=40)
@@ -775,7 +1051,8 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
 
     async def test_image_command_bills_and_labels_search_queries(self):
         """Google Image Search grounding bills each web or image search query the
-        response reports at the Gemini 3 rate ($0.014), on top of the image price."""
+        response reports at the Gemini 3 rate ($0.014), on top of the image price.
+        The command's default model is gemini-nano-banana-2.1."""
         part = SimpleNamespace(
             text=None,
             inline_data=SimpleNamespace(data=_encoded_image("PNG"), mime_type="image/png"),
@@ -814,11 +1091,54 @@ class TestGeminiImageGeneration(AsyncGeminiCogTestCase):
         send_kwargs = ctx.send_followup.call_args.kwargs
         for file in send_kwargs.get("files", []):
             file.close()
-        # One 1K image @ $0.067 + 3 search queries @ $0.014
-        assert log_cost.call_args.args[3] == pytest.approx(0.109)
+        # One 1K image @ $0.0336 + 3 search queries @ $0.014
+        assert log_cost.call_args.args[2] == "gemini-nano-banana-2.1"
+        assert log_cost.call_args.args[3] == pytest.approx(0.0756)
         assert log_cost.call_args.kwargs["google_search_queries"] == 3
         footer = send_kwargs["embeds"][-1].description
-        assert footer == "$0.1090 · 1 image · 3 searches · $0.11 today"
+        assert footer == "$0.0756 · 1 image · 3 searches · $0.08 today"
+
+    async def test_image_command_bills_text_and_thinking_output(self):
+        """Thinking tokens and non-image candidate tokens are billed at the model's
+        "text and thinking" rate in addition to the per-image price. The usage is a 2K
+        gemini-nano-banana-2.1 response: 14 prompt tokens @ $1.50/M, one 2K image
+        @ $0.0504, and 295 + 858 tokens @ $7.50/M."""
+        part = SimpleNamespace(
+            text=None,
+            inline_data=SimpleNamespace(data=_encoded_image("JPEG"), mime_type="image/jpeg"),
+        )
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=14,
+                candidates_token_count=1_975,
+                candidates_tokens_details=[SimpleNamespace(modality="IMAGE", token_count=1_680)],
+                thoughts_token_count=858,
+            ),
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+
+        with (
+            patch("discord_gemini.cogs.gemini.image.SHOW_COST_EMBEDS", True),
+            patch.object(self.cog, "_log_cost") as log_cost,
+        ):
+            await self.cog.image.callback(self.cog, ctx=ctx, prompt="A lighthouse", image_size="2K")
+
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        for file in send_kwargs.get("files", []):
+            file.close()
+        expected = 14 * 1.50 / 1e6 + 0.0504 + (295 + 858) * 7.50 / 1e6
+        assert log_cost.call_args.args[3] == pytest.approx(expected)
+        assert log_cost.call_args.kwargs["output_tokens"] == 2_833
+        assert log_cost.call_args.kwargs["text_output_tokens"] == 1_153
+        assert log_cost.call_args.kwargs["thinking_tokens"] == 858
+        footer = send_kwargs["embeds"][-1].description
+        assert footer == "$0.0591 · 14 in / 2.8k out (858 thinking) · 1 image · $0.06 today"
 
 
 def _encoded_image(fmt: str) -> bytes:
@@ -882,6 +1202,28 @@ class TestGeminiImageDelivery(AsyncGeminiCogTestCase):
             for file in files:
                 file.close()
 
+    @pytest.mark.parametrize(
+        ("model", "shown"),
+        [
+            ("gemini-nano-banana-2.1", True),
+            ("gemini-3.1-flash-image", True),
+            ("gemini-3-pro-image", False),
+        ],
+    )
+    async def test_search_line_only_for_models_that_send_the_tool(self, model, shown):
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+        from discord_gemini.util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(prompt="x", model=model, google_image_search=True)
+        embed, files = await self.cog._create_image_response_embed(
+            image_params=params,
+            generated_images=[GeneratedImage(_encoded_image("PNG"), "image/png")],
+            attachment=None,
+        )
+        for file in files:
+            file.close()
+        assert ("**Google Image Search:** Enabled" in embed.description) is shown
+
     async def test_undecodable_bytes_are_skipped_not_fatal(self):
         from discord_gemini.cogs.gemini.image import GeneratedImage
 
@@ -890,11 +1232,204 @@ class TestGeminiImageDelivery(AsyncGeminiCogTestCase):
         assert "image" not in embed.to_dict()
 
 
+def _noise_image(fmt: str, size: tuple[int, int] = (256, 256)) -> bytes:
+    """A deterministic random-pixel image: noise compresses poorly, so small byte
+    limits force real re-encoding and downscaling."""
+    import random
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    pixels = random.Random(0).randbytes(size[0] * size[1] * 3)
+    buffer = BytesIO()
+    save_kwargs = {"quality": 95} if fmt == "JPEG" else {}
+    PILImage.frombytes("RGB", size, pixels).save(buffer, format=fmt, **save_kwargs)
+    return buffer.getvalue()
+
+
+class TestImageUploadLimit(AsyncGeminiCogTestCase):
+    """An image over the destination's upload limit is re-encoded as JPEG (quality
+    90, 80, 70, then half the width and height) until it fits; anything under the
+    limit is attached byte for byte. A 4K gemini-nano-banana-2.1 JPEG was 11,676,850
+    bytes (2026-10-08), over the 10 MB default. Limits here are small and synthetic."""
+
+    async def _deliver(self, image, upload_limit):
+        from discord_gemini.util import ImageGenerationParameters
+
+        params = ImageGenerationParameters(prompt="x", model="gemini-nano-banana-2.1")
+        return await self.cog._create_image_response_embed(
+            image_params=params,
+            generated_images=[image],
+            attachment=None,
+            upload_limit=upload_limit,
+        )
+
+    @staticmethod
+    def _read_and_close(files):
+        try:
+            return [file.fp.read() for file in files]
+        finally:
+            for file in files:
+                file.close()
+
+    async def test_oversize_jpeg_is_reencoded_under_the_limit(self):
+        from io import BytesIO
+
+        from PIL import Image as PILImage
+
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _noise_image("JPEG")
+        limit = len(data) * 3 // 4
+        embed, files = await self._deliver(GeneratedImage(data, "image/jpeg"), limit)
+
+        assert [file.filename for file in files] == ["generated_image_1.jpg"]
+        (delivered,) = self._read_and_close(files)
+        assert len(delivered) <= limit
+        assert delivered != data
+        with PILImage.open(BytesIO(delivered)) as decoded:
+            assert decoded.format == "JPEG"
+            assert decoded.size == (256, 256)
+        assert "**Delivery:** Re-encoded to fit Discord's" in embed.description
+        assert "(quality 90) at 256x256" in embed.description
+
+    async def test_downscales_when_no_quality_fits(self):
+        from io import BytesIO
+
+        from PIL import Image as PILImage
+
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _noise_image("JPEG")
+        embed, files = await self._deliver(GeneratedImage(data, "image/jpeg"), 8_000)
+
+        (delivered,) = self._read_and_close(files)
+        assert len(delivered) <= 8_000
+        with PILImage.open(BytesIO(delivered)) as decoded:
+            assert max(decoded.size) < 256
+        assert "**Delivery:** Re-encoded" in embed.description
+
+    async def test_a_panoramic_8_1_image_keeps_its_shape_when_downscaled(self):
+        from io import BytesIO
+
+        from PIL import Image as PILImage
+
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _noise_image("JPEG", size=(1024, 128))
+        embed, files = await self._deliver(GeneratedImage(data, "image/jpeg"), 8_000)
+
+        (delivered,) = self._read_and_close(files)
+        assert len(delivered) <= 8_000
+        with PILImage.open(BytesIO(delivered)) as decoded:
+            width, height = decoded.size
+        assert width < 1024
+        assert width == height * 8
+        assert f"at {width}x{height}" in embed.description
+
+    async def test_oversize_png_becomes_a_jpeg(self):
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _noise_image("PNG")
+        embed, files = await self._deliver(GeneratedImage(data, "image/png"), len(data) // 2)
+
+        assert [file.filename for file in files] == ["generated_image_1.jpg"]
+        (delivered,) = self._read_and_close(files)
+        assert len(delivered) <= len(data) // 2
+        assert "**Delivery:** Re-encoded" in embed.description
+
+    @pytest.mark.parametrize(
+        ("fmt", "mime", "extension"),
+        [("JPEG", "image/jpeg", "jpg"), ("PNG", "image/png", "png")],
+    )
+    async def test_an_image_at_the_limit_is_attached_unchanged(self, fmt, mime, extension):
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _noise_image(fmt)
+        embed, files = await self._deliver(GeneratedImage(data, mime), len(data))
+
+        assert [file.filename for file in files] == [f"generated_image_1.{extension}"]
+        assert self._read_and_close(files) == [data]
+        assert "Delivery" not in embed.description
+
+    async def test_an_image_that_cannot_fit_is_skipped_and_logged(self):
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        with patch.object(self.cog.logger, "error") as log_error:
+            embed, files = await self._deliver(
+                GeneratedImage(_noise_image("JPEG"), "image/jpeg"), 10
+            )
+
+        assert files == []
+        assert "image" not in embed.to_dict()
+        assert "upload limit" in str(log_error.call_args)
+
+    async def test_reencoding_is_logged(self):
+        from discord_gemini.cogs.gemini.image import GeneratedImage
+
+        data = _noise_image("JPEG")
+        with patch.object(self.cog.logger, "info") as log_info:
+            _, files = await self._deliver(GeneratedImage(data, "image/jpeg"), len(data) // 2)
+        self._read_and_close(files)
+
+        assert any("Re-encoded to fit" in str(call) for call in log_info.call_args_list)
+
+    def test_upload_limit_comes_from_the_guild_else_the_default(self):
+        from discord_gemini.cogs.gemini.image import DEFAULT_UPLOAD_LIMIT_BYTES, _upload_limit_for
+
+        assert DEFAULT_UPLOAD_LIMIT_BYTES == 10_485_760
+        boosted = SimpleNamespace(guild=SimpleNamespace(filesize_limit=52_428_800))
+        assert _upload_limit_for(boosted) == 52_428_800
+        assert _upload_limit_for(SimpleNamespace(guild=None)) == DEFAULT_UPLOAD_LIMIT_BYTES
+        assert _upload_limit_for(MagicMock()) == DEFAULT_UPLOAD_LIMIT_BYTES
+
+    def test_upload_limit_prefers_the_interaction_value(self):
+        from discord_gemini.cogs.gemini.image import _upload_limit_for
+
+        ctx = SimpleNamespace(
+            interaction=SimpleNamespace(attachment_size_limit=26_214_400),
+            guild=SimpleNamespace(filesize_limit=10_485_760),
+        )
+        assert _upload_limit_for(ctx) == 26_214_400
+        dm = SimpleNamespace(
+            interaction=SimpleNamespace(attachment_size_limit=8_388_608), guild=None
+        )
+        assert _upload_limit_for(dm) == 8_388_608
+        no_value = SimpleNamespace(
+            interaction=SimpleNamespace(attachment_size_limit=None),
+            guild=SimpleNamespace(filesize_limit=52_428_800),
+        )
+        assert _upload_limit_for(no_value) == 52_428_800
+
+    async def test_image_command_uses_the_guild_upload_limit(self):
+        data = _noise_image("JPEG")
+        part = SimpleNamespace(
+            text=None, inline_data=SimpleNamespace(data=data, mime_type="image/jpeg")
+        )
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))],
+            usage_metadata=SimpleNamespace(prompt_token_count=10),
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.guild = SimpleNamespace(filesize_limit=len(data) // 2)
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+
+        await self.cog.image.callback(self.cog, ctx=ctx, prompt="noise")
+
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        (delivered,) = self._read_and_close(send_kwargs["files"])
+        assert len(delivered) <= len(data) // 2
+        assert "**Delivery:** Re-encoded" in send_kwargs["embeds"][0].description
+
+
 class TestGeminiTtsCostEmbed(AsyncGeminiCogTestCase):
-    async def test_tts_cost_line_shows_input_and_output_tokens(self, tmp_path, monkeypatch):
-        """TTS is billed per token: 12 input tokens at $1.00/M and 3,456 output tokens at
-        $20.00/M on gemini-3.1-flash-tts-preview come to $0.069132."""
-        monkeypatch.chdir(tmp_path)
+    async def test_tts_cost_line_shows_input_and_output_tokens(self):
+        """TTS is billed per token: 12 input tokens at $0.50/M and 3,456 output tokens at
+        $9.00/M on the default gemini-3.8-flash-tts come to $0.031110."""
         ctx = AsyncMock()
         ctx.author = MagicMock()
         ctx.author.id = 111
@@ -912,7 +1447,160 @@ class TestGeminiTtsCostEmbed(AsyncGeminiCogTestCase):
 
         send_kwargs = ctx.send_followup.call_args.kwargs
         send_kwargs["file"].close()
-        assert send_kwargs["embeds"][-1].description == "$0.0691 · 12 in / 3.5k out · $0.07 today"
+        assert send_kwargs["embeds"][-1].description == "$0.0311 · 12 in / 3.5k out · $0.03 today"
+
+
+def _riff_wav(frames: bytes = b"\x01\x00" * 8) -> bytes:
+    import wave
+    from io import BytesIO
+
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(24000)
+        wav_file.writeframes(frames)
+    return buffer.getvalue()
+
+
+class TestSpeechRequestShape:
+    """Gemini 3.8 TTS reads the input as a verbatim transcript: a `"<style>: <text>"`
+    prefix was spoken aloud on gemini-3.8-flash-lite-tts (2026-10-08), while the same
+    style in `speech_metadata.style` was applied and not spoken. The older models
+    keep the prefix."""
+
+    @staticmethod
+    def _params(model, style=None):
+        from discord_gemini.util import SpeechGenerationParameters
+
+        return SpeechGenerationParameters(input_text="Hello there", model=model, style_prompt=style)
+
+    @pytest.mark.parametrize("model", ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"])
+    def test_gemini_3_8_sends_the_style_as_speech_metadata(self, model):
+        from discord_gemini.cogs.gemini.speech import _build_speech_contents
+
+        contents = _build_speech_contents(self._params(model, "Say it in a whisper"))
+        assert isinstance(contents, list)
+        (content,) = contents
+        assert content.role == "user"
+        (part,) = content.parts
+        assert part.text == "Hello there"
+        assert part.speech_metadata == types.SpeechMetadata(style="Say it in a whisper")
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gemini-3.1-flash-tts-preview",
+            "gemini-2.5-flash-preview-tts",
+            "gemini-2.5-pro-preview-tts",
+        ],
+    )
+    def test_older_models_keep_the_style_prefix(self, model):
+        from discord_gemini.cogs.gemini.speech import _build_speech_contents
+
+        contents = _build_speech_contents(self._params(model, "Say it in a whisper"))
+        assert contents == "Say it in a whisper: Hello there"
+
+    @pytest.mark.parametrize("model", ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview"])
+    def test_no_style_sends_the_plain_text(self, model):
+        from discord_gemini.cogs.gemini.speech import _build_speech_contents
+
+        assert _build_speech_contents(self._params(model)) == "Hello there"
+
+    def test_speech_metadata_models_are_the_3_8_menu_entries(self):
+        from discord_gemini.util import TTS_SPEECH_METADATA_MODELS
+
+        menu = {choice.value for choice in TTS_MODEL_CHOICES}
+        assert {"gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"} == TTS_SPEECH_METADATA_MODELS
+        assert menu >= TTS_SPEECH_METADATA_MODELS
+
+
+class TestSpeechWav:
+    """Gemini 3.8 TTS returns `audio/wav` with a RIFF header; older models return
+    headerless 24 kHz 16-bit mono PCM (`audio/l16`)."""
+
+    def test_riff_audio_is_returned_unchanged(self):
+        from discord_gemini.cogs.gemini.speech import _to_wav
+
+        wav = _riff_wav()
+        assert _to_wav(wav) == wav
+
+    def test_riff_that_is_not_wave_is_treated_as_pcm(self):
+        """A RIFF container of another form type (e.g. `AVI `) is not a WAV file."""
+        from discord_gemini.cogs.gemini.speech import _to_wav
+
+        riff_avi = b"RIFF\x10\x00\x00\x00AVI " + b"\x00" * 8
+        wav = _to_wav(riff_avi)
+        assert wav[8:12] == b"WAVE"
+        assert wav.endswith(riff_avi)
+
+    def test_pcm_is_wrapped_in_one_wav_header(self):
+        import wave
+        from io import BytesIO
+
+        from discord_gemini.cogs.gemini.speech import _to_wav
+
+        pcm = b"\x01\x00" * 8
+        wav = _to_wav(pcm)
+        assert wav.count(b"RIFF") == 1
+        with wave.open(BytesIO(wav), "rb") as wav_file:
+            assert wav_file.getframerate() == 24000
+            assert wav_file.getsampwidth() == 2
+            assert wav_file.getnchannels() == 1
+            assert wav_file.readframes(wav_file.getnframes()) == pcm
+
+    def test_format_line_is_read_from_the_header(self):
+        from discord_gemini.cogs.gemini.speech import _describe_wav_format
+
+        assert _describe_wav_format(_riff_wav()) == "WAV (24kHz, 16-bit, Mono)"
+        assert _describe_wav_format(b"not a wav") == "WAV"
+
+
+class TestGeminiTtsCommand(AsyncGeminiCogTestCase):
+    async def _run_tts(self, audio: bytes, **kwargs):
+        part = SimpleNamespace(inline_data=SimpleNamespace(data=audio, mime_type="audio/wav"))
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))],
+            usage_metadata=SimpleNamespace(prompt_token_count=11, candidates_token_count=101),
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(return_value=response)
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        await self.cog.tts.callback(self.cog, ctx=ctx, input_text="Hello there", **kwargs)
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        file = send_kwargs["file"]
+        data = file.fp.read()
+        file.close()
+        return send_kwargs, data
+
+    async def test_default_model_attaches_the_returned_wav_without_a_second_header(self):
+        wav = _riff_wav()
+        send_kwargs, data = await self._run_tts(wav, style_prompt="Say it in a whisper")
+
+        assert data == wav
+        assert data.count(b"RIFF") == 1
+        call = self.cog.client.aio.models.generate_content.call_args.kwargs
+        assert call["model"] == "gemini-3.8-flash-tts"
+        (part,) = call["contents"][0].parts
+        assert part.text == "Hello there"
+        assert part.speech_metadata.style == "Say it in a whisper"
+        description = send_kwargs["embeds"][0].description
+        assert "**Style Instructions:** Say it in a whisper" in description
+        assert "**Format:** WAV (24kHz, 16-bit, Mono)" in description
+
+    async def test_legacy_model_pcm_is_wrapped_and_keeps_the_style_prefix(self):
+        pcm = b"\x01\x00" * 8
+        _, data = await self._run_tts(
+            pcm, model="gemini-3.1-flash-tts-preview", style_prompt="Say it in a whisper"
+        )
+
+        assert data.count(b"RIFF") == 1
+        assert data.endswith(pcm)
+        call = self.cog.client.aio.models.generate_content.call_args.kwargs
+        assert call["contents"] == "Say it in a whisper: Hello there"
 
 
 class TestGeminiDeepResearch(AsyncGeminiCogTestCase):

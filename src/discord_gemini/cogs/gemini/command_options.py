@@ -40,6 +40,7 @@ RESEARCH_AGENT_CHOICES = [
 ]
 
 IMAGE_MODEL_CHOICES = [
+    OptionChoice(name="Gemini Nano Banana 2.1", value="gemini-nano-banana-2.1"),
     OptionChoice(name="Gemini 3.1 Flash Image", value="gemini-3.1-flash-image"),
     OptionChoice(name="Gemini 3.1 Flash Lite Image", value="gemini-3.1-flash-lite-image"),
     OptionChoice(name="Gemini 3.0 Pro Image", value="gemini-3-pro-image"),
@@ -52,6 +53,11 @@ IMAGE_ASPECT_RATIO_CHOICES = [
     OptionChoice(name="Landscape (4:3)", value="4:3"),
     OptionChoice(name="Portrait (9:16)", value="9:16"),
     OptionChoice(name="Landscape (16:9)", value="16:9"),
+    # Per-model support lives in `image.IMAGE_SUPPORTED_ASPECT_RATIOS`.
+    OptionChoice(name="Tall (1:4)", value="1:4"),
+    OptionChoice(name="Wide (4:1)", value="4:1"),
+    OptionChoice(name="Tall panoramic (1:8)", value="1:8"),
+    OptionChoice(name="Panoramic (8:1)", value="8:1"),
 ]
 
 PERSON_GENERATION_CHOICES = [
@@ -70,7 +76,7 @@ IMAGE_SIZE_CHOICES = [
     OptionChoice(name="512 (0.5K, Flash Image only)", value="512"),
     OptionChoice(name="1K", value="1K"),
     OptionChoice(name="2K", value="2K"),
-    OptionChoice(name="4K (Flash Image, Pro)", value="4K"),
+    OptionChoice(name="4K (Nano Banana 2.1, Flash Image, Pro)", value="4K"),
 ]
 
 VIDEO_MODEL_CHOICES = [
@@ -96,7 +102,10 @@ VIDEO_IMAGE_RESIZE_MODE_CHOICES = [
     OptionChoice(name="Pad (preserve content, add letterbox)", value="PAD"),
 ]
 
+# The three preview ids shut down 2026-11-17 (replacement: either 3.8 model).
 TTS_MODEL_CHOICES = [
+    OptionChoice(name="Gemini 3.8 Flash TTS", value="gemini-3.8-flash-tts"),
+    OptionChoice(name="Gemini 3.8 Flash Lite TTS", value="gemini-3.8-flash-lite-tts"),
     OptionChoice(name="Gemini 3.1 Flash Preview TTS", value="gemini-3.1-flash-tts-preview"),
     OptionChoice(name="Gemini 2.5 Flash Preview TTS", value="gemini-2.5-flash-preview-tts"),
     OptionChoice(name="Gemini 2.5 Pro Preview TTS", value="gemini-2.5-pro-preview-tts"),

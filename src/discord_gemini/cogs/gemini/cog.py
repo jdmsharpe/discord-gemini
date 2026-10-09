@@ -15,6 +15,7 @@ from ...config.auth import GUILD_IDS
 from ...logging_setup import bind_request_id
 from ...util import (
     DEFAULT_MUSIC_MODEL,
+    DEFAULT_TTS_MODEL,
     ChatCompletionParameters,
     ImageGenerationParameters,
     MusicGenerationParameters,
@@ -527,14 +528,14 @@ class GeminiCog(commands.Cog):
     @option("prompt", description="Prompt", required=True, type=str)
     @option(
         "model",
-        description="Gemini image model to use. (default: Gemini 3.1 Flash Image)",
+        description="Gemini image model to use. (default: Gemini Nano Banana 2.1)",
         required=False,
         choices=IMAGE_MODEL_CHOICES,
         type=str,
     )
     @option(
         "aspect_ratio",
-        description="Aspect ratio of the generated image. (default: 1:1)",
+        description="Aspect ratio; 1:4, 4:1, 1:8, 8:1 need Nano Banana 2.1, 3.1 Flash or 3.1 Flash Lite. (default: 1:1)",
         required=False,
         choices=IMAGE_ASPECT_RATIO_CHOICES,
         type=str,
@@ -560,7 +561,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "google_image_search",
-        description="(Gemini 3.1 Flash Image only) Ground image generation with Google Image Search. (default: False)",
+        description="(Nano Banana 2.1 and 3.1 Flash Image only) Ground the image with Google Search. (default: False)",
         required=False,
         type=bool,
     )
@@ -568,7 +569,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3.1-flash-image",
+        model: str = "gemini-nano-banana-2.1",
         aspect_ratio: str = "1:1",
         attachment: Attachment | None = None,
         seed: int | None = None,
@@ -712,7 +713,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "model",
-        description="Choose Gemini text-to-speech model. (default: Gemini 3.1 Flash Preview TTS)",
+        description="Choose Gemini text-to-speech model. (default: Gemini 3.8 Flash TTS)",
         required=False,
         choices=TTS_MODEL_CHOICES,
         type=str,
@@ -734,7 +735,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         input_text: str,
-        model: str = "gemini-3.1-flash-tts-preview",
+        model: str = DEFAULT_TTS_MODEL,
         voice_name: str = "Kore",
         style_prompt: str | None = None,
     ) -> None:
@@ -895,7 +896,7 @@ class GeminiCog(commands.Cog):
         self,
         image_params: ImageGenerationParameters,
         attachment: Attachment | None,
-    ) -> tuple[str | None, list[image_flow.GeneratedImage], int, int]:
+    ) -> tuple[str | None, list[image_flow.GeneratedImage], image_flow.ImageUsage]:
         return await image_flow._generate_image_with_gemini(self, image_params, attachment)
 
     async def _create_image_response_embed(
@@ -904,6 +905,7 @@ class GeminiCog(commands.Cog):
         generated_images: list[image_flow.GeneratedImage],
         attachment: Attachment | None,
         text_response: str | None = None,
+        upload_limit: int = image_flow.DEFAULT_UPLOAD_LIMIT_BYTES,
     ) -> tuple[Embed, list[discord.File]]:
         return await image_flow._create_image_response_embed(
             self,
@@ -911,6 +913,7 @@ class GeminiCog(commands.Cog):
             generated_images,
             attachment,
             text_response,
+            upload_limit,
         )
 
     async def _generate_video_with_veo(

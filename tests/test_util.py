@@ -496,7 +496,7 @@ class TestSpeechGenerationParameters:
     def test_defaults(self):
         params = SpeechGenerationParameters(input_text="Hello world")
         assert params.input_text == "Hello world"
-        assert params.model == "gemini-3.1-flash-tts-preview"
+        assert params.model == "gemini-3.8-flash-tts"
         assert params.voice_name == "Kore"
         assert params.multi_speaker is False
         assert params.speaker_configs is None
@@ -1139,6 +1139,7 @@ class TestImagePricing:
     def test_pricing_contains_all_image_models(self):
         """Test that IMAGE_PRICING includes all image generation models."""
         expected_models = [
+            "gemini-nano-banana-2.1",
             "gemini-3.1-flash-image",
             "gemini-3-pro-image",
             "gemini-2.5-flash-image",
@@ -1218,6 +1219,31 @@ class TestImagePricing:
         without = calculate_image_cost("gemini-3.1-flash-image", 1, image_size="1K")
         assert without == pytest.approx(0.067)
 
+    def test_calculate_image_cost_nano_banana_tiers(self):
+        """Nano Banana 2.1: 1K $0.0336, 2K $0.0504, 4K $0.113."""
+        for size, price in (("1K", 0.0336), ("2K", 0.0504), ("4K", 0.113)):
+            cost = calculate_image_cost("gemini-nano-banana-2.1", 1, image_size=size)
+            assert cost == pytest.approx(price)
+
+    def test_calculate_image_cost_bills_text_output_at_the_model_text_rate(self):
+        """Thinking plus non-image candidate tokens bill at the image model's "text
+        and thinking" output rate: $7.50/M on Nano Banana 2.1, $3.00/M on 3.1 Flash
+        Image."""
+        nano = calculate_image_cost(
+            "gemini-nano-banana-2.1", 1, image_size="2K", text_output_tokens=1_000_000
+        )
+        assert nano == pytest.approx(0.0504 + 7.50)
+        flash = calculate_image_cost("gemini-3.1-flash-image", 0, text_output_tokens=1_000_000)
+        assert flash == pytest.approx(3.00)
+
+    def test_calculate_image_cost_unknown_model_bills_text_output_at_the_fallback(self):
+        cost = calculate_image_cost("unknown-image-model", 0, text_output_tokens=1_000_000)
+        assert cost == pytest.approx(3.00)
+
+    def test_calculate_image_cost_ignores_negative_text_output(self):
+        cost = calculate_image_cost("gemini-nano-banana-2.1", 1, text_output_tokens=-5)
+        assert cost == pytest.approx(0.0336)
+
 
 class TestVideoPricing:
     """Tests for VIDEO_PRICING and calculate_video_cost."""
@@ -1296,6 +1322,9 @@ class TestTtsPricing:
     def test_pricing_contains_all_tts_models(self):
         """Test that TTS_PRICING includes all TTS models."""
         expected_models = [
+            "gemini-3.8-flash-tts",
+            "gemini-3.8-flash-lite-tts",
+            "gemini-3.1-flash-tts-preview",
             "gemini-2.5-flash-preview-tts",
             "gemini-2.5-pro-preview-tts",
         ]

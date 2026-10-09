@@ -432,7 +432,7 @@ class TestOmniVideoModels:
     """Every id in OMNI_VIDEO_MODELS must route through the Omni path."""
 
     def test_ga_id_is_the_only_omni_id(self):
-        """gemini-omni-flash-preview shuts down 2026-09-30 and was removed from routing."""
+        """gemini-omni-flash-preview shuts down 2026-10-22 and was removed from routing."""
         assert {"gemini-omni-1.1-flash"} == OMNI_VIDEO_MODELS
         assert DEFAULT_OMNI_VIDEO_MODEL in OMNI_VIDEO_MODELS
         for veo in ("veo-3.1-generate-preview", "veo-3.1-lite-generate-preview"):
