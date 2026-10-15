@@ -1105,8 +1105,8 @@ class TestOmniVideoValidation:
         ctx.send_followup = AsyncMock()
         bot = build_mock_bot()
         bot.loop = asyncio.get_running_loop()
-        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
-            cog = GeminiCog(bot=bot)
+        cog = GeminiCog(bot=bot)
+        cog._client = MagicMock()
         cog._fetch_attachment_bytes = AsyncMock()
         cog.client.aio.interactions.create = AsyncMock()
 
