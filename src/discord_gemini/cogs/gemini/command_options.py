@@ -3,10 +3,9 @@ from discord.commands import OptionChoice
 from ...util import LYRIA_REALTIME_MODEL
 
 CHAT_MODEL_CHOICES = [
+    OptionChoice(name="Gemini 4 Argon", value="gemini-4-argon"),
     OptionChoice(name="Gemini 3.8 Flash", value="gemini-3.8-flash"),
-    OptionChoice(name="Gemini 3.7 Flash", value="gemini-3.7-flash"),
     OptionChoice(name="Gemini 3.6 Flash", value="gemini-3.6-flash"),
-    OptionChoice(name="Gemini 3.5 Flash", value="gemini-3.5-flash"),
     OptionChoice(name="Gemini 3.5 Flash Lite", value="gemini-3.5-flash-lite"),
     OptionChoice(name="Gemini 3.1 Pro", value="gemini-3.1-pro-preview"),
     OptionChoice(name="Gemini 3.1 Flash Lite", value="gemini-3.1-flash-lite"),

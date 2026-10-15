@@ -21,9 +21,13 @@ from .config.pricing import (
     UNKNOWN_IMAGE_TEXT_OUTPUT_RATE,
     UNKNOWN_TTS_MODEL_PRICING,
     UNKNOWN_VIDEO_PER_SECOND,
+    UNKNOWN_VIDEO_TOKEN_INPUT_PER_MILLION,
     UNKNOWN_VIDEO_TOKEN_PER_MILLION,
+    UNKNOWN_VIDEO_TOKEN_TEXT_OUTPUT_PER_MILLION,
     VIDEO_PRICING,
+    VIDEO_TOKEN_INPUT_PRICING,
     VIDEO_TOKEN_PRICING,
+    VIDEO_TOKEN_TEXT_OUTPUT_PRICING,
     maps_grounding_cost_for_model,
     search_grounding_cost_for_model,
 )
@@ -156,14 +160,32 @@ def calculate_video_cost(
     return duration_seconds * num_videos * price_per_second
 
 
-def calculate_omni_video_cost(model: str, video_output_tokens: int) -> float:
+def calculate_omni_video_cost(
+    model: str,
+    video_output_tokens: int,
+    input_tokens: int = 0,
+    text_output_tokens: int = 0,
+) -> float:
     """Cost for Interactions-API token-billed video generation (Gemini Omni).
 
-    Unlike Veo (per-second-by-resolution estimate), the Interactions API returns the
-    exact video-modality output token count, so this cost is exact, not estimated.
+    Unlike Veo (per-second-by-resolution estimate), the Interactions API returns
+    exact token counts, so this cost is exact, not estimated. Video output tokens
+    bill at the video rate, ``input_tokens`` (the prompt plus any input images) at the
+    input rate, and ``text_output_tokens`` (thinking plus non-video output) at the
+    text output rate.
     """
-    rate = VIDEO_TOKEN_PRICING.get(model, UNKNOWN_VIDEO_TOKEN_PER_MILLION)
-    return (video_output_tokens / 1_000_000) * rate
+    video_rate = VIDEO_TOKEN_PRICING.get(model, UNKNOWN_VIDEO_TOKEN_PER_MILLION)
+    if model in VIDEO_TOKEN_PRICING:
+        input_rate = VIDEO_TOKEN_INPUT_PRICING.get(model, 0.0)
+        text_output_rate = VIDEO_TOKEN_TEXT_OUTPUT_PRICING.get(model, 0.0)
+    else:
+        input_rate = UNKNOWN_VIDEO_TOKEN_INPUT_PER_MILLION
+        text_output_rate = UNKNOWN_VIDEO_TOKEN_TEXT_OUTPUT_PER_MILLION
+    return (
+        (max(video_output_tokens, 0) / 1_000_000) * video_rate
+        + (max(input_tokens, 0) / 1_000_000) * input_rate
+        + (max(text_output_tokens, 0) / 1_000_000) * text_output_rate
+    )
 
 
 def calculate_tts_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -187,12 +209,11 @@ def calculate_music_cost(model: str, num_songs: int = 1) -> float | None:
 
 # Minimum input token counts required for this bot's explicit context caching policy.
 # Gemini 2.5 and newer models also support implicit caching automatically.
-# Models not listed here fall back to implicit caching only.
+# Models not listed here fall back to implicit caching only. gemini-4-argon must
+# stay out: it supports implicit caching only and rejects explicit cache creation.
 CACHE_MIN_TOKEN_COUNT: dict[str, int] = {
     "gemini-3.8-flash": 1024,
-    "gemini-3.7-flash": 1024,
     "gemini-3.6-flash": 1024,
-    "gemini-3.5-flash": 1024,
     "gemini-3.5-flash-lite": 1024,
     "gemini-3.1-pro-preview": 4096,
     "gemini-3-flash-preview": 1024,
@@ -205,7 +226,7 @@ CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches
 # Models that 400 on `thinking_level="minimal"`. "Minimal" is an unconditional
 # slash-command choice, so it must be gated here rather than in the menu.
 MINIMAL_THINKING_UNSUPPORTED_MODELS = frozenset(
-    {"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-pro-preview"}
+    {"gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview"}
 )
 
 # Models that 400 on EVERY `thinking_level` ("Thinking level is not supported for
@@ -216,12 +237,13 @@ THINKING_LEVEL_UNSUPPORTED_MODELS = frozenset(
 
 # Models that accept `media_processing: AGENTIC` on a video part — the model
 # requests only the video segments it needs instead of receiving every sampled
-# frame ("up to 88% fewer tokens" on long video per Google). Live-probed 2026-09-03: all four
-# accept it (a 10-min YouTube clip fell from 57,793 prompt tokens to a few
-# hundred plus ~5.8k `tool_use_prompt_token_count`); `gemini-3.1-pro-preview`
-# 400s with "Agentic video processing is not enabled for models/...".
+# frame ("up to 88% fewer tokens" on long video per Google). Every listed model
+# accepted it in a live request (a 10-min YouTube clip fell from 57,793 prompt
+# tokens to a few hundred plus ~5.8k `tool_use_prompt_token_count`);
+# `gemini-3.1-pro-preview` 400s with "Agentic video processing is not enabled for
+# models/...".
 AGENTIC_VIDEO_MODELS = frozenset(
-    {"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"}
+    {"gemini-4-argon", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"}
 )
 
 MAX_AGENTIC_ITERATIONS = 10  # Max tool-calling round-trips per user message
@@ -546,10 +568,19 @@ def has_server_side_tools(tools: list[Any]) -> bool:
     return any(resolve_tool_name(tool_config) in SERVER_SIDE_TOOLS for tool_config in tools)
 
 
+# Model-id prefixes of the generations that accept built-in and custom tools in
+# one request (Gemini 3 and Gemini 4).
+TOOL_COMBINATION_MODEL_PREFIXES = ("gemini-3", "gemini-4")
+
+# Model-id prefixes whose models accept `temperature` and `top_p` without error but
+# ignore them (Gemini 4 model docs: "If provided, they are ignored").
+SAMPLING_IGNORED_MODEL_PREFIXES = ("gemini-4",)
+
+
 def model_supports_tool_combinations(model: str) -> bool:
     """Return True when the model supports built-in/custom tool combinations."""
 
-    return model.startswith("gemini-3")
+    return model.startswith(TOOL_COMBINATION_MODEL_PREFIXES)
 
 
 def validate_builtin_custom_tool_combination(
@@ -565,7 +596,7 @@ def validate_builtin_custom_tool_combination(
         return None
     return (
         f"Built-in tools and custom functions cannot be combined on `{model}`. "
-        "Tool combination preview requires a Gemini 3 model."
+        "Tool combination requires a Gemini 3 or newer model."
     )
 
 

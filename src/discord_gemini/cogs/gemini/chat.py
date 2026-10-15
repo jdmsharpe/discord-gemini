@@ -14,6 +14,7 @@ from ...config.auth import ENABLE_CUSTOM_TOOLS, SHOW_COST_EMBEDS
 from ...util import (
     AGENTIC_VIDEO_MODELS,
     MAX_AGENTIC_ITERATIONS,
+    SAMPLING_IGNORED_MODEL_PREFIXES,
     TYPING_INDICATOR_INTERVAL,
     AgenticResult,
     ChatCompletionParameters,
@@ -109,6 +110,17 @@ async def _run_agentic_loop(
     return result
 
 
+def _search_tool_enabled(tools: list[Any]) -> bool:
+    """Whether the request carried the `google_search` tool.
+
+    Maps grounding also lists the Maps queries it ran in
+    `grounding_metadata.web_search_queries`, so the Search grounding charge applies
+    only when `google_search` was in the request; Maps is billed separately.
+    """
+
+    return any(resolve_tool_name(tool) == "google_search" for tool in tools)
+
+
 def _part_mime_type(part: Any) -> str:
     """MIME type of a history part dict carrying `file_data` or `inline_data`."""
 
@@ -197,7 +209,7 @@ def _configure_tool_context_circulation(
     model: str,
     custom_functions_enabled: bool,
 ) -> None:
-    """Enable server-side tool circulation for supported Gemini 3 tool setups."""
+    """Enable server-side tool circulation for supported Gemini 3 and Gemini 4 tool setups."""
 
     tools = list(config_args.get("tools", []))
     if not tools or not has_server_side_tools(tools) or not model_supports_tool_combinations(model):
@@ -373,8 +385,9 @@ async def handle_new_message_in_conversation(
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
         maps_grounded = "google_maps" in tool_info.get("tools_used", [])
-        search_queries = result.total_search_queries
-        search_grounded_prompts = result.search_grounded_prompts
+        search_billed = _search_tool_enabled(config_args.get("tools", []))
+        search_queries = result.total_search_queries if search_billed else 0
+        search_grounded_prompts = result.search_grounded_prompts if search_billed else 0
         cost = calculate_cost(
             params.model,
             input_tokens,
@@ -719,12 +732,19 @@ async def chat_command(
         description += f"**Frequency Penalty:** {frequency_penalty}\n" if frequency_penalty else ""
         description += f"**Presence Penalty:** {presence_penalty}\n" if presence_penalty else ""
         description += f"**Seed:** {seed}\n" if seed else ""
+        ignores_sampling = model.startswith(SAMPLING_IGNORED_MODEL_PREFIXES)
         if temperature is not None:
             description += f"**Temperature:** {temperature}"
-            if model.startswith("gemini-3") and temperature != 1.0:
+            if ignores_sampling:
+                description += " (ignored: Gemini 4 models do not use temperature)"
+            elif model.startswith("gemini-3") and temperature != 1.0:
                 description += " (warning: Gemini 3 recommends 1.0; lower values may cause looping)"
             description += "\n"
-        description += f"**Nucleus Sampling:** {top_p}\n" if top_p else ""
+        if top_p:
+            description += f"**Nucleus Sampling:** {top_p}"
+            if ignores_sampling:
+                description += " (ignored: Gemini 4 models do not use top_p)"
+            description += "\n"
         description += f"**Media Resolution:** {media_resolution}\n" if media_resolution else ""
         description += (
             f"**Thinking Level:** {thinking_level.capitalize()}\n" if thinking_level else ""
@@ -767,8 +787,9 @@ async def chat_command(
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
         maps_grounded = "google_maps" in tool_info.get("tools_used", [])
-        search_queries = result.total_search_queries
-        search_grounded_prompts = result.search_grounded_prompts
+        search_billed = _search_tool_enabled(tools)
+        search_queries = result.total_search_queries if search_billed else 0
+        search_grounded_prompts = result.search_grounded_prompts if search_billed else 0
         cost = calculate_cost(
             model,
             input_tokens,

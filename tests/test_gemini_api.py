@@ -98,14 +98,25 @@ def test_cog_init_does_not_configure_root_logger():
 
 
 def test_default_chat_model_is_first_choice():
-    """gemini-3.8-flash is the default chat model and is shown first in the picker."""
-    assert CHAT_MODEL_CHOICES[0].value == "gemini-3.8-flash"
+    """gemini-4-argon is the default chat model and is shown first in the picker."""
+    assert CHAT_MODEL_CHOICES[0].value == "gemini-4-argon"
+    assert CHAT_MODEL_CHOICES[0].name == "Gemini 4 Argon"
 
 
 def test_chat_command_default_model_param():
-    """The /gemini chat `model` parameter defaults to gemini-3.8-flash."""
+    """The /gemini chat `model` parameter defaults to gemini-4-argon."""
     signature = inspect.signature(GeminiCog.chat.callback)
-    assert signature.parameters["model"].default == "gemini-3.8-flash"
+    assert signature.parameters["model"].default == "gemini-4-argon"
+
+
+def test_routed_aliases_are_off_the_chat_menu():
+    """Google routes gemini-3.7-flash to 3.8 Flash and gemini-3.5-flash to 3.6 Flash."""
+    values = [choice.value for choice in CHAT_MODEL_CHOICES]
+    assert "gemini-3.7-flash" not in values
+    assert "gemini-3.5-flash" not in values
+    assert "gemini-3.8-flash" in values
+    assert "gemini-3.6-flash" in values
+    assert len(values) == len(set(values))
 
 
 class TestThinkingValidation:
@@ -118,17 +129,20 @@ class TestThinkingValidation:
         return _validate_thinking_request(model, level, budget)
 
     def test_accepts_a_level_alone(self):
-        assert self._validate("gemini-3.7-flash", level="low") is None
+        assert self._validate("gemini-3.8-flash", level="low") is None
+        assert self._validate("gemini-4-argon", level="high") is None
 
     def test_accepts_a_budget_alone(self):
-        assert self._validate("gemini-3.7-flash", budget=1024) is None
+        assert self._validate("gemini-3.8-flash", budget=1024) is None
+        assert self._validate("gemini-4-argon", budget=1024) is None
 
     def test_accepts_nothing_set(self):
-        assert self._validate("gemini-3.7-flash") is None
+        assert self._validate("gemini-3.8-flash") is None
+        assert self._validate("gemini-4-argon") is None
 
     def test_rejects_level_and_budget_together(self):
         """`400 You can only set only one of thinking budget and thinking level`."""
-        error = self._validate("gemini-3.7-flash", level="low", budget=1024)
+        error = self._validate("gemini-3.8-flash", level="low", budget=1024)
         assert error is not None
         assert "cannot be combined" in error
 
@@ -137,8 +151,11 @@ class TestThinkingValidation:
             assert self._validate(model, level="high", budget=512) is not None
 
     def test_rejects_minimal_on_models_that_do_not_support_it(self):
-        """3.8 Flash, 3.7 Flash and 3.1 Pro 400 on MINIMAL while the menu offers it."""
-        for model in ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-pro-preview"):
+        """4 Argon, 3.8 Flash and 3.1 Pro 400 on MINIMAL while the menu offers it.
+
+        Argon: "Thinking level MINIMAL is not supported for this model."
+        """
+        for model in ("gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview"):
             error = self._validate(model, level="minimal")
             assert error is not None, model
             assert "Minimal" in error
@@ -563,8 +580,9 @@ class TestImageAspectRatioCommand(AsyncGeminiCogTestCase):
 
 
 def test_critical_choice_values_present():
+    assert any(choice.value == "gemini-4-argon" for choice in CHAT_MODEL_CHOICES)
+    assert any(choice.value == "gemini-3.8-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.6-flash" for choice in CHAT_MODEL_CHOICES)
-    assert any(choice.value == "gemini-3.5-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.5-flash-lite" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-pro-preview" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-nano-banana-2.1" for choice in IMAGE_MODEL_CHOICES)
@@ -2536,10 +2554,17 @@ class TestTemperatureWarning:
         description = ""
         if temperature is not None:
             description += f"**Temperature:** {temperature}"
-            if model.startswith("gemini-3") and temperature != 1.0:
+            if model.startswith("gemini-4"):
+                description += " (ignored: Gemini 4 models do not use temperature)"
+            elif model.startswith("gemini-3") and temperature != 1.0:
                 description += " (warning: Gemini 3 recommends 1.0; lower values may cause looping)"
             description += "\n"
         return description
+
+    def test_gemini4_temperature_is_marked_ignored(self):
+        desc = self._build_temperature_description("gemini-4-argon", 0.5)
+        assert "ignored" in desc
+        assert "looping" not in desc
 
     def test_gemini3_temperature_warning_low(self):
         """Temperature below 1.0 on Gemini 3 triggers warning."""

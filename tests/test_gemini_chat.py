@@ -197,14 +197,23 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
 
 
 class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
-    def test_supported_models_are_the_four_flash_ids(self):
-        """Live-probed 2026-09-03: these accept media_processing=AGENTIC; 3.1 Pro 400s."""
+    def test_supported_models_are_the_probed_ids(self):
+        """These accepted media_processing=AGENTIC in live requests; 3.1 Pro 400s."""
         assert {
+            "gemini-4-argon",
             "gemini-3.8-flash",
-            "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
         } == AGENTIC_VIDEO_MODELS
+
+    def test_the_default_chat_model_uses_agentic_video(self):
+        """Argon accepted AGENTIC on a YouTube part, so the default model gets it."""
+        import inspect
+
+        from discord_gemini import GeminiCog
+
+        default = inspect.signature(GeminiCog.chat.callback).parameters["model"].default
+        assert default in AGENTIC_VIDEO_MODELS
 
     def test_tags_only_video_parts_on_supported_models(self):
         parts = [
@@ -331,6 +340,143 @@ class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
             assert not str(call.kwargs.get("content", "")).startswith("**Response:**")
 
 
+def _chat_ctx() -> AsyncMock:
+    ctx = AsyncMock()
+    ctx.author = MagicMock()
+    ctx.author.id = 111
+    ctx.channel = MagicMock()
+    ctx.channel.id = 222
+    ctx.interaction = MagicMock()
+    ctx.interaction.id = 333
+    ctx.defer = AsyncMock()
+    ctx.send_followup = AsyncMock(return_value=SimpleNamespace(id=444))
+    return ctx
+
+
+def _loop_result(text: str = "ok") -> SimpleNamespace:
+    response = SimpleNamespace(
+        text=text,
+        function_calls=[],
+        candidates=[SimpleNamespace(content=SimpleNamespace(parts=[]))],
+    )
+    return SimpleNamespace(
+        response=response,
+        tool_calls_made=[],
+        total_input_tokens=38,
+        total_output_tokens=5,
+        total_thinking_tokens=0,
+        total_cached_tokens=0,
+        total_tool_use_prompt_tokens=0,
+        total_search_queries=0,
+        search_grounded_prompts=0,
+    )
+
+
+class TestGemini4ArgonDefault(AsyncGeminiCogTestCase):
+    async def test_default_chat_request_sends_only_what_argon_accepts(self):
+        """With every option left blank the request goes to Argon with no thinking
+        config (minimal would 400), no sampling parameters, no tools and AFC off."""
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(self.cog, ctx=ctx, prompt="hello")
+
+        model = loop.await_args.args[1]
+        config = loop.await_args.args[3]
+        assert model == "gemini-4-argon"
+        assert config.thinking_config is None
+        assert config.temperature is None
+        assert config.top_p is None
+        assert config.tools is None
+        assert config.tool_config is None
+        assert config.media_resolution is None
+        assert config.max_output_tokens is None
+        assert config.cached_content is None
+        assert config.automatic_function_calling.disable is True
+
+    async def test_argon_marks_temperature_and_top_p_as_ignored(self):
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="hello",
+                model="gemini-4-argon",
+                temperature=0.5,
+                top_p=0.9,
+            )
+
+        description = ctx.send_followup.await_args_list[0].kwargs["embeds"][0].description
+        assert "**Temperature:** 0.5 (ignored: Gemini 4 models do not use temperature)" in (
+            description
+        )
+        assert "**Nucleus Sampling:** 0.9 (ignored: Gemini 4 models do not use top_p)" in (
+            description
+        )
+        assert "looping" not in description
+
+    async def test_gemini_3_keeps_the_temperature_warning(self):
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="hello",
+                model="gemini-3.8-flash",
+                temperature=0.5,
+                top_p=0.9,
+            )
+
+        description = ctx.send_followup.await_args_list[0].kwargs["embeds"][0].description
+        assert "(warning: Gemini 3 recommends 1.0; lower values may cause looping)" in description
+        assert "**Nucleus Sampling:** 0.9\n" in description
+
+    async def test_argon_rejects_minimal_thinking_before_the_request(self):
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog, ctx=ctx, prompt="hello", thinking_level="minimal"
+            )
+
+        loop.assert_not_awaited()
+        embed = ctx.send_followup.await_args_list[0].kwargs["embed"]
+        assert "gemini-4-argon" in embed.description
+        assert "Minimal" in embed.description
+
+    def test_argon_combines_builtin_and_custom_tools(self):
+        """The combination gate checked startswith("gemini-3") and refused Gemini 4."""
+        config_args = {"tools": [{"google_search": {}}]}
+
+        _configure_tool_context_circulation(
+            config_args,
+            model="gemini-4-argon",
+            custom_functions_enabled=True,
+        )
+
+        tool_config = config_args["tool_config"]
+        assert tool_config.include_server_side_tool_invocations is True
+        assert tool_config.function_calling_config.mode == types.FunctionCallingConfigMode.VALIDATED
+
+
 class TestGeminiChatCachedTokenBilling(AsyncGeminiCogTestCase):
     async def test_chat_passes_cached_tokens_to_calculate_cost(self):
         """Cache hits summed by the agentic loop must reach the cost split, not be dropped."""
@@ -373,11 +519,11 @@ class TestGeminiChatCachedTokenBilling(AsyncGeminiCogTestCase):
                 self.cog,
                 ctx=ctx,
                 prompt="hello",
-                model="gemini-3.7-flash",
+                model="gemini-3.8-flash",
             )
 
         calculate_cost.assert_called_once()
-        assert calculate_cost.call_args.args[:2] == ("gemini-3.7-flash", 5_000)
+        assert calculate_cost.call_args.args[:2] == ("gemini-3.8-flash", 5_000)
         assert calculate_cost.call_args.kwargs["cached_tokens"] == 4_000
 
 
@@ -423,6 +569,7 @@ class TestGeminiChatSearchBilling(AsyncGeminiCogTestCase):
                 ctx=ctx,
                 prompt="Who won Euro 2024?",
                 model="gemini-3.8-flash",
+                google_search=True,
             )
 
         # 1M input @ $0.75/M + 2 search queries @ $0.014
@@ -430,6 +577,101 @@ class TestGeminiChatSearchBilling(AsyncGeminiCogTestCase):
         assert log_cost.call_args.kwargs["google_search_queries"] == 2
         footer = ctx.send_followup.call_args.kwargs["embeds"][-1].description
         assert footer == "$0.7780 · 1M in / 0 out · 2 searches · $0.78 today"
+
+    async def test_maps_queries_are_not_billed_as_search_queries(self):
+        """A Maps-only response lists its Maps query in `web_search_queries`; it is
+        billed once as Maps grounding, not again as a Google Search query."""
+        ctx = _chat_ctx()
+        result = _loop_result("Red Bay Coffee and Philz Coffee.")
+        result.total_input_tokens = 1_000_000
+        result.total_output_tokens = 0
+        result.total_search_queries = 1
+        result.search_grounded_prompts = 1
+        result.response.candidates[0].grounding_metadata = SimpleNamespace(
+            grounding_chunks=[
+                SimpleNamespace(
+                    web=None,
+                    maps=SimpleNamespace(uri="https://maps.google.com/?cid=1", title="Red Bay"),
+                    retrieved_context=None,
+                )
+            ],
+            web_search_queries=["coffee shops near Ferry Building"],
+            image_search_queries=None,
+            grounding_supports=None,
+            search_entry_point=None,
+        )
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch(
+                "discord_gemini.cogs.gemini.chat._run_agentic_loop",
+                AsyncMock(return_value=result),
+            ),
+            patch("discord_gemini.cogs.gemini.chat.SHOW_COST_EMBEDS", True),
+            patch.object(self.cog, "_log_cost") as log_cost,
+        ):
+            await self.cog.chat.callback(
+                self.cog,
+                ctx=ctx,
+                prompt="Coffee near the Ferry Building?",
+                model="gemini-4-argon",
+                google_maps=True,
+            )
+
+        assert log_cost.call_args.kwargs["google_search_queries"] == 0
+        assert log_cost.call_args.kwargs["google_maps_grounded"] is True
+        # 1M input @ $2.00/M + one Maps grounding charge @ $0.014, no Search charge.
+        assert log_cost.call_args.args[3] == pytest.approx(2.014)
+        footer = ctx.send_followup.call_args.kwargs["embeds"][-1].description
+        assert "search" not in footer
+
+    @pytest.mark.parametrize(("tool", "billed_queries"), [("google_search", 2), ("google_maps", 0)])
+    async def test_follow_up_bills_search_queries_only_with_the_search_tool(
+        self, tool, billed_queries
+    ):
+        from discord_gemini.cogs.gemini.chat import handle_new_message_in_conversation
+        from discord_gemini.cogs.gemini.models import Conversation
+        from discord_gemini.util import ChatCompletionParameters
+
+        author = MagicMock()
+        message = MagicMock()
+        message.author = author
+        message.attachments = []
+        message.content = "follow-up"
+        message.channel = MagicMock()
+        message.reply = AsyncMock(return_value=MagicMock(id=555, edit=AsyncMock()))
+        conversation = Conversation(
+            params=ChatCompletionParameters(
+                model="gemini-4-argon",
+                conversation_id=100,
+                conversation_starter=author,
+                tools=[{tool: {}}],
+            ),
+            history=[],
+        )
+        result = _loop_result()
+        result.total_search_queries = 2
+        result.search_grounded_prompts = 1
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch(
+                "discord_gemini.cogs.gemini.chat._run_agentic_loop",
+                AsyncMock(return_value=result),
+            ),
+            patch.object(self.cog, "_log_cost") as log_cost,
+        ):
+            await handle_new_message_in_conversation(self.cog, message, conversation)
+
+        assert log_cost.call_args.kwargs["google_search_queries"] == billed_queries
+
+    def test_search_tool_detection(self):
+        from discord_gemini.cogs.gemini.chat import _search_tool_enabled
+
+        assert _search_tool_enabled([{"google_search": {}}]) is True
+        assert _search_tool_enabled([{"google_maps": {}}]) is False
+        assert _search_tool_enabled([{"url_context": {}}, {"function_declarations": []}]) is False
+        assert _search_tool_enabled([]) is False
 
 
 class TestGeminiToolCombinationConfig:

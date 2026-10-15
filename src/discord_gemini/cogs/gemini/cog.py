@@ -372,7 +372,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "model",
-        description="Choose from the following Gemini models. (default: Gemini 3.8 Flash)",
+        description="Choose from the following Gemini models. (default: Gemini 4 Argon)",
         required=False,
         choices=CHAT_MODEL_CHOICES,
         type=str,
@@ -409,13 +409,13 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "temperature",
-        description="(Advanced) Controls randomness. Gemini 3 recommends 1.0. (default: not set)",
+        description="(Advanced) Controls randomness. Gemini 3 recommends 1.0; Gemini 4 ignores it. (default: not set)",
         required=False,
         type=float,
     )
     @option(
         "top_p",
-        description="(Advanced) Nucleus sampling. (default: not set)",
+        description="(Advanced) Nucleus sampling. Gemini 4 ignores it. (default: not set)",
         required=False,
         type=float,
     )
@@ -428,7 +428,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "thinking_level",
-        description="Thinking depth for Gemini 3 models: Minimal, Low, Medium, High. (default: not set / model default)",
+        description="Thinking depth for Gemini 3 and 4: Minimal, Low, Medium, High. (default: not set / model default)",
         required=False,
         choices=THINKING_LEVEL_CHOICES,
         type=str,
@@ -481,7 +481,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-3.8-flash",
+        model: str = "gemini-4-argon",
         system_instruction: str | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,
@@ -616,7 +616,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "person_generation",
-        description="Control generation of people in videos. (default: allow_adult)",
+        description="(Veo only) Control generation of people in videos. (default: allow_adult)",
         required=False,
         choices=PERSON_GENERATION_CHOICES,
         type=str,
@@ -629,13 +629,13 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "last_frame",
-        description="(Veo 3.1 only) Image to use as the last frame for interpolation. (default: not set)",
+        description="Image to use as the last frame; Gemini Omni also needs `attachment`. (default: not set)",
         required=False,
         type=Attachment,
     )
     @option(
         "number_of_videos",
-        description="Number of videos to generate. (Veo 3.x and Veo 3.1 only support 1 per request.)",
+        description="Number of videos to generate. Every video model supports only 1 per request.",
         required=False,
         type=int,
         min_value=1,
@@ -651,19 +651,19 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "negative_prompt",
-        description="(Advanced) Description of what to discourage. (default: not set)",
+        description="(Veo only) Description of what to discourage. (default: not set)",
         required=False,
         type=str,
     )
     @option(
         "enhance_prompt",
-        description="(Advanced) Enable or disable the prompt rewriter. (default: True)",
+        description="(Veo only) Enable or disable the prompt rewriter. (default: True)",
         required=False,
         type=bool,
     )
     @option(
         "image_resize_mode",
-        description="How to fit `attachment`/`last_frame` images to the target resolution. (default: model default)",
+        description="(Veo only) How to fit `attachment`/`last_frame` images to the frame. (default: model default)",
         required=False,
         choices=VIDEO_IMAGE_RESIZE_MODE_CHOICES,
         type=str,

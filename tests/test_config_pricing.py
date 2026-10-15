@@ -17,6 +17,8 @@ def _reload_pricing():
 class TestPricingLoader:
     def test_bundled_yaml_loads_model_pricing(self):
         pricing = _reload_pricing()
+        # Rates through 2026-11-30; Google doubles them to 4.00 / 20.00 on 2026-12-01.
+        assert pricing.MODEL_PRICING["gemini-4-argon"] == (2.00, 10.00)
         assert pricing.MODEL_PRICING["gemini-3.8-flash"] == (0.75, 3.75)
         assert pricing.MODEL_PRICING["gemini-3.7-flash"] == (0.75, 3.75)
         assert pricing.MODEL_PRICING["gemini-3.6-flash"] == (0.75, 3.75)
@@ -119,6 +121,7 @@ class TestPricingLoader:
 
     def test_cached_input_rates_match_the_live_page(self):
         pricing = _reload_pricing()
+        assert pricing.CACHED_INPUT_PRICING["gemini-4-argon"] == 0.10
         assert pricing.CACHED_INPUT_PRICING["gemini-3.8-flash"] == 0.075
         assert pricing.CACHED_INPUT_PRICING["gemini-3.7-flash"] == 0.075
         assert pricing.CACHED_INPUT_PRICING["gemini-3.1-pro-preview"] == 0.20
@@ -132,6 +135,7 @@ class TestPricingLoader:
         assert pricing.TTS_PRICING["gemini-3.8-flash-tts"] == (0.50, 9.00)
         assert pricing.TTS_PRICING["gemini-3.8-flash-lite-tts"] == (0.50, 6.00)
         assert pricing.MAPS_GROUNDING_COST_BY_MODEL_PREFIX == {
+            "gemini-4": 0.014,
             "gemini-3": 0.014,
             "gemini-2.5": 0.025,
         }
@@ -140,7 +144,8 @@ class TestPricingLoader:
     def test_maps_grounding_rate_is_picked_by_model_generation(self):
         """Gemini 3.x: $14/1K (upper bound, free tier untracked); 2.5: $25/1K; else fallback."""
         pricing = _reload_pricing()
-        assert pricing.maps_grounding_cost_for_model("gemini-3.7-flash") == 0.014
+        assert pricing.maps_grounding_cost_for_model("gemini-4-argon") == 0.014
+        assert pricing.maps_grounding_cost_for_model("gemini-3.8-flash") == 0.014
         assert pricing.maps_grounding_cost_for_model("gemini-3-flash-preview") == 0.014
         assert pricing.maps_grounding_cost_for_model("gemini-2.5-flash") == 0.025
         assert pricing.maps_grounding_cost_for_model("gemini-2.5-pro") == 0.025
@@ -153,6 +158,7 @@ class TestPricingLoader:
         """Gemini 3.x: $14 / 1K search queries; Gemini 2.5: $35 / 1K grounded prompts."""
         pricing = _reload_pricing()
         assert pricing.SEARCH_GROUNDING_COST_PER_QUERY_BY_MODEL_PREFIX == {
+            "gemini-4": 0.014,
             "gemini-3": 0.014,
             "gemini-nano-banana": 0.014,
         }
@@ -165,6 +171,8 @@ class TestPricingLoader:
         # Per query on Gemini 3.x, whatever the prompt count.
         assert cost("gemini-3.8-flash", 5, 1) == pytest.approx(0.07)
         assert cost("gemini-3.1-flash-image", 2, 1) == pytest.approx(0.028)
+        # Gemini 4 shares the rate ("shared across all Gemini 3 and newer models").
+        assert cost("gemini-4-argon", 3, 1) == pytest.approx(0.042)
         # Nano Banana 2.1 shares the Gemini 3.x per-query rate.
         assert cost("gemini-nano-banana-2.1", 2, 1) == pytest.approx(0.028)
         # Per grounded prompt on Gemini 2.5, whatever the query count.
@@ -183,7 +191,17 @@ class TestPricingLoader:
         assert pricing.UNKNOWN_IMAGE_PER_IMAGE == 0.067
         assert pricing.UNKNOWN_VIDEO_PER_SECOND == 0.35
         assert pricing.UNKNOWN_VIDEO_TOKEN_PER_MILLION == 17.50
+        assert pricing.UNKNOWN_VIDEO_TOKEN_INPUT_PER_MILLION == 1.50
+        assert pricing.UNKNOWN_VIDEO_TOKEN_TEXT_OUTPUT_PER_MILLION == 9.00
         assert pricing.UNKNOWN_TTS_MODEL_PRICING == (0.50, 10.00)
+
+    def test_omni_rows_bill_input_video_and_text_output_tokens(self):
+        """Pricing page: $1.50 input (text / image / video / audio), $9.00 (text) and
+        $17.50 (video) output per 1M tokens, output "including thinking tokens"."""
+        pricing = _reload_pricing()
+        assert pricing.VIDEO_TOKEN_PRICING["gemini-omni-1.1-flash"] == 17.50
+        assert pricing.VIDEO_TOKEN_INPUT_PRICING["gemini-omni-1.1-flash"] == 1.50
+        assert pricing.VIDEO_TOKEN_TEXT_OUTPUT_PRICING["gemini-omni-1.1-flash"] == 9.00
 
     def test_video_tokenized_fallback_is_declared_in_yaml(self):
         """pricing.py read a fallbacks key the yaml never declared; the code default hid it."""

@@ -216,6 +216,14 @@ MATCHER_CASES: list[tuple[str, str, str, bool, str]] = [
         False,
         "sibling model name",
     ),
+    (
+        "Gemini 4 Argon",
+        "gemini-4-argon",
+        "Gemini 3.8 Flash",
+        False,
+        "stale chat description after the Argon promotion",
+    ),
+    ("Gemini 4 Argon", "gemini-4-argon", "Gemini 4 Argon", True, "honest chat default"),
 ]
 
 MATCHER_CASE_IDS = [
@@ -233,6 +241,8 @@ MATCHER_CASE_IDS = [
     "real-drift-older-tts-name",
     "stale-tts-default-after-promotion",
     "sibling-lite-tts-name",
+    "stale-chat-default-after-argon-promotion",
+    "honest-argon-chat-default",
 ]
 
 

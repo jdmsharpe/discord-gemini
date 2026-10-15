@@ -100,6 +100,20 @@ VIDEO_TOKEN_PRICING: dict[str, float] = {
     model_id: float(cfg["video_output_per_million"]) for model_id, cfg in _VIDEO_TOKENIZED.items()
 }
 
+# Input-token (prompt and input images) and text-output-token (thinking and
+# non-video output) rates for the same models. A row without one bills those
+# tokens at 0.
+VIDEO_TOKEN_INPUT_PRICING: dict[str, float] = {
+    model_id: float(cfg["input_per_million"])
+    for model_id, cfg in _VIDEO_TOKENIZED.items()
+    if cfg.get("input_per_million") is not None
+}
+VIDEO_TOKEN_TEXT_OUTPUT_PRICING: dict[str, float] = {
+    model_id: float(cfg["text_output_per_million"])
+    for model_id, cfg in _VIDEO_TOKENIZED.items()
+    if cfg.get("text_output_per_million") is not None
+}
+
 
 TTS_PRICING: dict[str, tuple[float, float]] = {
     model_id: (float(cfg["input_per_million"]), float(cfg["output_per_million"]))
@@ -191,6 +205,12 @@ UNKNOWN_VIDEO_PER_SECOND: float = _fallback("unknown_video_model", "per_second",
 UNKNOWN_VIDEO_TOKEN_PER_MILLION: float = _fallback(
     "unknown_video_tokenized_model", "video_output_per_million", 17.50
 )
+UNKNOWN_VIDEO_TOKEN_INPUT_PER_MILLION: float = _fallback(
+    "unknown_video_tokenized_model", "input_per_million", 1.50
+)
+UNKNOWN_VIDEO_TOKEN_TEXT_OUTPUT_PER_MILLION: float = _fallback(
+    "unknown_video_tokenized_model", "text_output_per_million", 9.00
+)
 UNKNOWN_TTS_MODEL_PRICING: tuple[float, float] = (
     _fallback("unknown_tts_model", "input_per_million", 0.50),
     _fallback("unknown_tts_model", "output_per_million", 10.00),
@@ -215,9 +235,13 @@ __all__ = [
     "UNKNOWN_IMAGE_TEXT_OUTPUT_RATE",
     "UNKNOWN_TTS_MODEL_PRICING",
     "UNKNOWN_VIDEO_PER_SECOND",
+    "UNKNOWN_VIDEO_TOKEN_INPUT_PER_MILLION",
     "UNKNOWN_VIDEO_TOKEN_PER_MILLION",
+    "UNKNOWN_VIDEO_TOKEN_TEXT_OUTPUT_PER_MILLION",
     "VIDEO_PRICING",
+    "VIDEO_TOKEN_INPUT_PRICING",
     "VIDEO_TOKEN_PRICING",
+    "VIDEO_TOKEN_TEXT_OUTPUT_PRICING",
     "maps_grounding_cost_for_model",
     "search_grounding_cost_for_model",
 ]

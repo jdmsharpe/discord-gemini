@@ -198,6 +198,23 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         assert params.cache_name is None
         self.cog.client.aio.caches.create.assert_not_called()
 
+    async def test_argon_never_creates_an_explicit_cache(self):
+        """gemini-4-argon supports implicit caching only; caches.create is not supported."""
+        from discord_gemini.util import ChatCompletionParameters
+
+        params = ChatCompletionParameters(model="gemini-4-argon", conversation_id=100)
+        history = [
+            {"role": "user", "parts": [{"text": "long prompt " * 5000}]},
+            {"role": "model", "parts": [{"text": "long response " * 5000}]},
+        ]
+        response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=200_000))
+
+        await self.cog._maybe_create_cache(params, history, response)
+
+        assert params.cache_name is None
+        self.cog.client.aio.models.count_tokens.assert_not_called()
+        self.cog.client.aio.caches.create.assert_not_called()
+
     async def test_maybe_create_cache_no_usage_metadata(self):
         """Test that _maybe_create_cache handles missing usage_metadata."""
         from discord_gemini.util import ChatCompletionParameters
@@ -232,7 +249,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         """Test that a prompt inflated by tool declarations does not trigger a doomed create."""
         from discord_gemini.util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(model="gemini-3.7-flash", conversation_id=100)
+        params = ChatCompletionParameters(model="gemini-3.8-flash", conversation_id=100)
         history = [
             {"role": "user", "parts": [{"text": "hi"}]},
             {"role": "model", "parts": [{"text": "hello"}]},
@@ -252,7 +269,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-3.7-flash",
+            model="gemini-3.8-flash",
             conversation_id=100,
             system_instruction="Be terse.",
         )
@@ -268,7 +285,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         await self.cog._maybe_create_cache(params, history, response)
 
         count_kwargs = self.cog.client.aio.models.count_tokens.call_args.kwargs
-        assert count_kwargs["model"] == "gemini-3.7-flash"
+        assert count_kwargs["model"] == "gemini-3.8-flash"
         assert count_kwargs["contents"] == [
             {"role": "user", "parts": [{"text": "Be terse."}]},
             *history,
@@ -279,7 +296,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         """Test that an unavailable token count still allows the create attempt."""
         from discord_gemini.util import ChatCompletionParameters
 
-        params = ChatCompletionParameters(model="gemini-3.7-flash", conversation_id=100)
+        params = ChatCompletionParameters(model="gemini-3.8-flash", conversation_id=100)
         history = [
             {"role": "user", "parts": [{"text": "long prompt " * 200}]},
             {"role": "model", "parts": [{"text": "long response " * 200}]},
@@ -301,7 +318,7 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         from discord_gemini.util import ChatCompletionParameters
 
         params = ChatCompletionParameters(
-            model="gemini-3.7-flash",
+            model="gemini-3.8-flash",
             conversation_id=100,
             cache_name="cachedContents/old-cache",
             cached_history_length=4,

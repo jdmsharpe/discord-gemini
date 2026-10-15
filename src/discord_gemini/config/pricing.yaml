@@ -2,7 +2,10 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-10-08 (every row re-verified against the live page)
+# Last-verified: 2026-10-15 (every row re-verified against the live page, except
+# gemini-3.7-flash and gemini-3.5-flash: the page no longer lists them, and their
+# rates are those of the models Google routes them to, gemini-3.8-flash and
+# gemini-3.6-flash)
 #
 # Chat-model prices are USD per million tokens. Thinking tokens are billed at
 # the output-token rate. Cache hits (usage_metadata.cached_content_token_count)
@@ -19,18 +22,30 @@
 # long conversations may cost more in practice.
 #
 # NOTE: rows here carry the rate in force TODAY; this file cannot express a dated
-# rate. Google prices several models promotionally through 2026-12-31 and doubles
-# them on 2027-01-01 (3.8 / 3.7 / 3.6 Flash and both 3.8 TTS models among the rows
-# below), so re-verify every rate below in late December 2026.
+# rate. Google doubles gemini-4-argon on 2026-12-01, and prices several models
+# promotionally through 2026-12-31 and doubles them on 2027-01-01 (3.8 / 3.6 Flash,
+# the routed 3.7 / 3.5 Flash rows that follow them, and both 3.8 TTS models among
+# the rows below), so re-verify the Argon row in late November 2026 and every rate
+# below in late December 2026.
 
 models:
-  # GA 2026-09-02, default chat model. Promotional; doubles to $1.50/$7.50 on 2027-01-01.
+  # GA 2026-10-13, default chat model. Rates through 2026-11-30; Google doubles them
+  # to $4.00 in / $20.00 out / $0.20 cached on 2026-12-01. Implicit caching only
+  # (explicit caching is not supported), so the cached rate applies to implicit hits.
+  gemini-4-argon:                { input_per_million: 2.00,  output_per_million: 10.00, cached_input_per_million: 0.10 }
+  # GA 2026-09-02. Promotional; doubles to $1.50/$7.50 on 2027-01-01.
   gemini-3.8-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
-  # Promotional; doubles to $1.50/$7.50 on 2027-01-01.
+  # Deprecated and off the chat menu: Google routes requests for this id to
+  # gemini-3.8-flash, so it is priced as gemini-3.8-flash, including its
+  # promotional rate that doubles to $1.50/$7.50 on 2027-01-01.
   gemini-3.7-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
   # Promotional; doubles to $1.50/$7.50 on 2027-01-01.
   gemini-3.6-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
-  gemini-3.5-flash:              { input_per_million: 1.50,  output_per_million: 9.0,   cached_input_per_million: 0.15 }
+  # Deprecated and off the chat menu: Google routes requests for this id to
+  # gemini-3.6-flash, so it is priced as gemini-3.6-flash, including its
+  # promotional rate that doubles to $1.50/$7.50 on 2027-01-01 (the pricing page
+  # no longer lists Gemini 3.5 Flash).
+  gemini-3.5-flash:              { input_per_million: 0.75,  output_per_million: 3.75,  cached_input_per_million: 0.075 }
   gemini-3.5-flash-lite:         { input_per_million: 0.30,  output_per_million: 2.50,  cached_input_per_million: 0.03 }
   gemini-3.1-pro-preview:        { input_per_million: 2.0,   output_per_million: 12.0,  cached_input_per_million: 0.20 }
   gemini-3.1-flash-lite:         { input_per_million: 0.25,  output_per_million: 1.50,  cached_input_per_million: 0.025 }
@@ -108,19 +123,27 @@ video_generation:
   veo-3.1-fast-generate-preview:
     per_second_by_resolution: { default: 0.10, 720p: 0.10, 1080p: 0.12, 4k: 0.30 }
 
-# Interactions-API video generation billed per video-modality OUTPUT token
-# (not per second). A default 720p clip bills ~57,920 video tokens (~$1.01 at
-# 17.50/MTok), and a 3 s 1080p clip on gemini-omni-1.1-flash billed the SAME
-# 57,920 (live probe 2026-08-28): the count is flat per clip, not per second or
-# per resolution, so never derive a duration or a per-resolution rate from it.
+# Interactions-API video generation billed per token (not per second). Video
+# output tokens bill at video_output_per_million: a default 720p clip bills ~57,920
+# video tokens (~$1.01 at 17.50/MTok), and a 3 s 1080p clip on
+# gemini-omni-1.1-flash billed the SAME 57,920 (live probe 2026-08-28): the count is
+# flat per clip, not per second or per resolution, so never derive a duration or a
+# per-resolution rate from it. Input tokens (the prompt and any first/last-frame
+# images) bill at input_per_million, and thinking plus non-video output at
+# text_output_per_million (the page's "$9.00 (text)" output rate, "including
+# thinking tokens").
 video_tokenized:
-  # GA 2026-08-27 (default video model); same per-token rate as the preview.
+  # GA 2026-08-27 (default video model); same per-token rates as the preview.
   gemini-omni-1.1-flash:
+    input_per_million: 1.50
     video_output_per_million: 17.50
+    text_output_per_million: 9.00
   # Retired preview id (shuts down 2026-10-22) and no longer selectable; its row is
   # kept so historical costs for it stay correct.
   gemini-omni-flash-preview:
+    input_per_million: 1.50
     video_output_per_million: 17.50
+    text_output_per_million: 9.00
 
 # TTS models — tokenized input/output like chat models.
 # Audio output tokens correspond to ~25 tokens per second of audio.
@@ -155,6 +178,7 @@ tools:
     # on Gemini 3 a prompt that ran several Maps queries is under-counted; research
     # bills the Interactions API's usage.grounding_tool_count for google_maps.
     per_request_by_model_prefix:
+      gemini-4:   0.014  # the Gemini 3 rate covers "Gemini 3 and newer models"
       gemini-3:   0.014
       gemini-2.5: 0.025
     per_request: 0.025  # fallback for ids matching no prefix above
@@ -168,6 +192,7 @@ tools:
     # image_search_queries for image generation) and, for research, from
     # usage.grounding_tool_count for google_search.
     per_query_by_model_prefix:
+      gemini-4:   0.014  # the Gemini 3 rate covers "Gemini 3 and newer models"
       gemini-3:   0.014
       # Nano Banana 2.1 shares the Gemini 3.x per-query rate and free allowance.
       gemini-nano-banana: 0.014
@@ -182,5 +207,8 @@ fallbacks:
     text_output_per_million: 3.00
     per_image: 0.067
   unknown_video_model: { per_second: 0.35 }
-  unknown_video_tokenized_model: { video_output_per_million: 17.50 }
+  unknown_video_tokenized_model:
+    input_per_million: 1.50
+    video_output_per_million: 17.50
+    text_output_per_million: 9.00
   unknown_tts_model:   { input_per_million: 0.50, output_per_million: 10.00 }

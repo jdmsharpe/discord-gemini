@@ -1,5 +1,6 @@
 import pytest
 
+from discord_gemini.cogs.gemini.command_options import CHAT_MODEL_CHOICES
 from discord_gemini.util import (
     ATTACHMENT_FILE_API_MAX_SIZE,
     ATTACHMENT_FILE_API_THRESHOLD,
@@ -253,6 +254,15 @@ class TestToolCombinationSupport:
         assert model_supports_tool_combinations("gemini-3-flash-preview") is True
         assert model_supports_tool_combinations("gemini-3.1-pro-preview") is True
         assert model_supports_tool_combinations("gemini-2.5-flash") is False
+
+    def test_model_supports_tool_combinations_for_gemini_4(self):
+        assert model_supports_tool_combinations("gemini-4-argon") is True
+        assert (
+            validate_builtin_custom_tool_combination(
+                "gemini-4-argon", [TOOL_GOOGLE_SEARCH], custom_functions_enabled=True
+            )
+            is None
+        )
 
     def test_validate_builtin_custom_tool_combination_rejects_unsupported_model(self):
         result = validate_builtin_custom_tool_combination(
@@ -804,9 +814,7 @@ class TestCacheConstants:
     def test_cache_min_token_count_contains_expected_models(self):
         """Test that CACHE_MIN_TOKEN_COUNT includes selected 3.x and 2.5 models."""
         assert "gemini-3.8-flash" in CACHE_MIN_TOKEN_COUNT
-        assert "gemini-3.7-flash" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.6-flash" in CACHE_MIN_TOKEN_COUNT
-        assert "gemini-3.5-flash" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.5-flash-lite" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.1-pro-preview" in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3-flash-preview" in CACHE_MIN_TOKEN_COUNT
@@ -817,9 +825,7 @@ class TestCacheConstants:
         """Test that token thresholds are correct per model tier."""
         # 3.8 Flash: caches.create accepted a 1,202-token payload on 2026-09-03.
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.8-flash"] == 1024
-        assert CACHE_MIN_TOKEN_COUNT["gemini-3.7-flash"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.6-flash"] == 1024
-        assert CACHE_MIN_TOKEN_COUNT["gemini-3.5-flash"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.5-flash-lite"] == 1024
         assert CACHE_MIN_TOKEN_COUNT["gemini-3.1-pro-preview"] == 4096
         assert CACHE_MIN_TOKEN_COUNT["gemini-3-flash-preview"] == 1024
@@ -830,6 +836,13 @@ class TestCacheConstants:
         """Test that models without explicit caching are absent from the threshold map."""
         assert "gemini-2.5-flash-lite" not in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.1-flash-lite" not in CACHE_MIN_TOKEN_COUNT
+        # Argon supports implicit caching only and rejects explicit cache creation.
+        assert "gemini-4-argon" not in CACHE_MIN_TOKEN_COUNT
+
+    def test_cache_min_token_count_covers_only_chat_menu_models(self):
+        """The routed aliases left the menu; no threshold may name an id the menu lacks."""
+        menu = {choice.value for choice in CHAT_MODEL_CHOICES}
+        assert set(CACHE_MIN_TOKEN_COUNT) <= menu
 
     def test_cache_ttl_is_valid(self):
         """Test that CACHE_TTL is a valid duration string."""
@@ -894,6 +907,8 @@ class TestModelPricing:
     def test_pricing_contains_all_chat_models(self):
         """Test that MODEL_PRICING includes all chat models."""
         expected_models = [
+            "gemini-4-argon",
+            "gemini-3.8-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
@@ -937,7 +952,10 @@ class TestModelPricing:
 
     def test_calculate_cost_uses_new_ga_model_rows(self):
         """Missing pricing rows fall back silently, so price the new models explicitly."""
-        # gemini-3.8-flash (default since v1.13.0): $0.75/M input, $3.75/M output
+        # gemini-4-argon (default chat model): $2.00/M input, $10.00/M output through
+        # 2026-11-30 ($4.00 / $20.00 from 2026-12-01).
+        assert calculate_cost("gemini-4-argon", 1_000_000, 1_000_000) == pytest.approx(12.00)
+        # gemini-3.8-flash: $0.75/M input, $3.75/M output
         assert calculate_cost("gemini-3.8-flash", 1_000_000, 1_000_000) == pytest.approx(4.50)
         # gemini-3.7-flash: $0.75/M input, $3.75/M output
         assert calculate_cost("gemini-3.7-flash", 1_000_000, 1_000_000) == pytest.approx(4.50)
@@ -947,6 +965,7 @@ class TestModelPricing:
         assert calculate_cost("gemini-3.5-flash-lite", 1_000_000, 1_000_000) == pytest.approx(2.80)
         # None may land on UNKNOWN_CHAT_MODEL_PRICING (2.0, 12.0) == $14.00.
         for model in (
+            "gemini-4-argon",
             "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
@@ -954,20 +973,31 @@ class TestModelPricing:
         ):
             assert calculate_cost(model, 1_000_000, 1_000_000) != pytest.approx(14.0)
 
+    def test_argon_bills_thinking_and_implicit_cache_hits(self):
+        """Argon has no explicit cache, but implicit hits bill at its $0.10/M cached rate."""
+        cost = calculate_cost(
+            "gemini-4-argon", 1_000_000, 100_000, thinking_tokens=100_000, cached_tokens=400_000
+        )
+        # 600k uncached x $2.00 + 400k cached x $0.10 + 200k output and thinking x $10.00
+        assert cost == pytest.approx(1.20 + 0.04 + 2.00)
+
     def test_flash_tier_carries_the_promotional_rate(self):
-        """3.8, 3.7 and 3.6 Flash bill at the promotional rate, not the 2027 rate.
+        """3.8 and 3.6 Flash bill at the promotional rate, not the 2027 rate.
 
         Both were priced at the post-2027 $1.50/$7.50 row while the rate in force
         was half that, so pin the current rate and keep the tier in lockstep.
         """
         assert MODEL_PRICING["gemini-3.8-flash"] == (0.75, 3.75)
-        assert MODEL_PRICING["gemini-3.7-flash"] == MODEL_PRICING["gemini-3.8-flash"]
         assert MODEL_PRICING["gemini-3.6-flash"] == MODEL_PRICING["gemini-3.8-flash"]
-        # Strictly cheaper than the 3.5 Flash it succeeds, on both axes.
-        old_input, old_output = MODEL_PRICING["gemini-3.5-flash"]
-        new_input, new_output = MODEL_PRICING["gemini-3.7-flash"]
-        assert new_input < old_input
-        assert new_output < old_output
+
+    def test_routed_aliases_bill_at_the_rate_of_the_model_that_serves_them(self):
+        """Google routes gemini-3.5-flash to gemini-3.6-flash and gemini-3.7-flash to
+        gemini-3.8-flash. The 3.5 row billed $1.50/$9.00, 2x the served model's input rate
+        and 2.4x its output rate."""
+        assert MODEL_PRICING["gemini-3.5-flash"] == MODEL_PRICING["gemini-3.6-flash"]
+        assert CACHED_INPUT_PRICING["gemini-3.5-flash"] == CACHED_INPUT_PRICING["gemini-3.6-flash"]
+        assert MODEL_PRICING["gemini-3.7-flash"] == MODEL_PRICING["gemini-3.8-flash"]
+        assert CACHED_INPUT_PRICING["gemini-3.7-flash"] == CACHED_INPUT_PRICING["gemini-3.8-flash"]
 
     def test_new_lite_is_more_expensive_than_the_older_lite(self):
         """gemini-3.5-flash-lite is a higher-capability lite, NOT a cheaper 3.1 lite."""

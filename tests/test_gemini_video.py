@@ -13,7 +13,9 @@ from discord_gemini.cogs.gemini.video import (
     OMNI_VIDEO_MODELS,
     OMNI_VIDEO_POLL_INTERVAL,
     VIDEO_SUPPORTED_RESOLUTIONS,
+    OmniVideoUsage,
     _build_veo_image,
+    _extract_omni_video_usage,
     _generate_video_with_omni,
     _generate_video_with_veo,
     _validate_omni_video_request,
@@ -269,24 +271,25 @@ def _fake_omni_interaction(
     video_tokens: int = 57920,
     status: str = "completed",
     errors=None,
+    data: str | None = None,
+    input_tokens: int = 0,
+    thought_tokens: int = 0,
 ):
-    modality = MagicMock()
-    modality.modality = "video"
-    modality.tokens = video_tokens
-    usage = MagicMock()
-    usage.output_tokens_by_modality = [modality]
+    usage = SimpleNamespace(
+        output_tokens_by_modality=[SimpleNamespace(modality="video", tokens=video_tokens)],
+        total_input_tokens=input_tokens,
+        total_output_tokens=video_tokens,
+        total_thought_tokens=thought_tokens,
+    )
     interaction = MagicMock()
     interaction.id = "omni-1"
     interaction.status = status
     interaction.errors = errors
     interaction.usage = usage
-    if uri is None:
+    if uri is None and data is None:
         interaction.output_video = None
     else:
-        output_video = MagicMock()
-        output_video.uri = uri
-        output_video.mime_type = "video/mp4"
-        interaction.output_video = output_video
+        interaction.output_video = SimpleNamespace(uri=uri, data=data, mime_type="video/mp4")
     return interaction
 
 
@@ -323,10 +326,10 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
         self.cog.client.files.download = MagicMock(return_value=b"mp4-bytes")
 
         with patch(self.SLEEP, new_callable=AsyncMock) as sleep:
-            videos, tokens = await _generate_video_with_omni(self.cog, self._params())
+            videos, usage = await _generate_video_with_omni(self.cog, self._params())
 
         assert videos == [b"mp4-bytes"]
-        assert tokens == 57920
+        assert usage.video_output_tokens == 57920
         _, kwargs = self.cog.client.aio.interactions.create.call_args
         assert kwargs["model"] == DEFAULT_OMNI_VIDEO_MODEL
         assert kwargs["input"] == "A red ball rolls across a table"
@@ -414,11 +417,275 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
         self.cog.client.files.download = MagicMock(return_value=b"unused")
 
         params = VideoGenerationParameters(prompt="x", model=DEFAULT_OMNI_VIDEO_MODEL)
-        videos, tokens = await _generate_video_with_omni(self.cog, params)
+        videos, usage = await _generate_video_with_omni(self.cog, params)
 
         assert videos == []
-        assert tokens == 57920
+        assert usage.video_output_tokens == 57920
         self.cog.client.files.download.assert_not_called()
+
+    async def test_polled_base64_data_is_decoded_when_there_is_no_uri(self):
+        """`interactions.get` returns the video as base64 `data`; the `uri` is only
+        guaranteed on the creation response (Omni docs)."""
+        import base64
+
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_in_progress())
+        self.cog.client.aio.interactions.get = AsyncMock(
+            return_value=_fake_omni_interaction(
+                uri=None, data=base64.b64encode(b"inline-mp4").decode("ascii")
+            )
+        )
+        self.cog.client.files.download = MagicMock()
+
+        with patch(self.SLEEP, new_callable=AsyncMock):
+            videos, usage = await _generate_video_with_omni(self.cog, self._params())
+
+        assert videos == [b"inline-mp4"]
+        assert usage.video_output_tokens == 57920
+        self.cog.client.files.download.assert_not_called()
+
+    async def test_failed_uri_download_falls_back_to_base64_data(self):
+        import base64
+
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=_fake_omni_interaction(
+                data=base64.b64encode(b"inline-mp4").decode("ascii")
+            )
+        )
+        self.cog.client.files.download = MagicMock(side_effect=RuntimeError("403"))
+
+        videos, _ = await _generate_video_with_omni(self.cog, self._params())
+
+        assert videos == [b"inline-mp4"]
+        self.cog.client.files.download.assert_called_once()
+
+    async def test_uri_is_preferred_when_both_are_present(self):
+        import base64
+
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=_fake_omni_interaction(
+                data=base64.b64encode(b"inline-mp4").decode("ascii")
+            )
+        )
+        self.cog.client.files.download = MagicMock(return_value=b"downloaded-mp4")
+
+        videos, _ = await _generate_video_with_omni(self.cog, self._params())
+
+        assert videos == [b"downloaded-mp4"]
+
+    async def test_undecodable_data_returns_no_bytes(self):
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=_fake_omni_interaction(uri=None, data="not base64!")
+        )
+
+        videos, _ = await _generate_video_with_omni(self.cog, self._params())
+
+        assert videos == []
+
+    async def test_base64_data_with_line_breaks_is_decoded_leniently(self):
+        """Strict decoding rejects line breaks; the lenient decoder still recovers the clip."""
+        import base64
+
+        payload = bytes(range(256)) * 4
+        wrapped = base64.encodebytes(payload).decode("ascii")
+        assert "\n" in wrapped
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=_fake_omni_interaction(uri=None, data=wrapped)
+        )
+
+        videos, _ = await _generate_video_with_omni(self.cog, self._params())
+
+        assert videos == [payload]
+
+    async def test_failed_uri_download_is_logged_with_its_error(self):
+        """With a URI whose download failed and no inline data, the log names the URI
+        and the download error rather than saying there was no URI."""
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_fake_omni_interaction())
+        self.cog.client.files.download = MagicMock(side_effect=RuntimeError("403 Forbidden"))
+
+        with patch.object(self.cog.logger, "error") as log_error:
+            videos, usage = await _generate_video_with_omni(self.cog, self._params())
+
+        assert videos == []
+        assert usage.video_output_tokens == 57920
+        message = log_error.call_args.args[0] % log_error.call_args.args[1:]
+        assert "could not be downloaded" in message
+        assert "download failed: 403 Forbidden" in message
+        assert "files/abc123" in message
+        assert "no video URI" not in message
+
+    async def test_missing_uri_and_data_is_logged_as_such(self):
+        self.cog.client.aio.interactions.create = AsyncMock(
+            return_value=_fake_omni_interaction(uri=None)
+        )
+
+        with patch.object(self.cog.logger, "error") as log_error:
+            await _generate_video_with_omni(self.cog, self._params())
+
+        message = log_error.call_args.args[0] % log_error.call_args.args[1:]
+        assert "no video URI and no decodable inline data" in message
+
+    @pytest.mark.parametrize(
+        ("prompt", "has_last_frame", "expected"),
+        [
+            ("ball rolls", True, "<FIRST_FRAME> <LAST_FRAME> ball rolls"),
+            ("<FIRST_FRAME> ball rolls", True, "<LAST_FRAME> <FIRST_FRAME> ball rolls"),
+            ("ball rolls to <LAST_FRAME>", True, "<FIRST_FRAME> ball rolls to <LAST_FRAME>"),
+            (
+                "<FIRST_FRAME> <LAST_FRAME> ball rolls",
+                True,
+                "<FIRST_FRAME> <LAST_FRAME> ball rolls",
+            ),
+            ("ball rolls", False, "<FIRST_FRAME> ball rolls"),
+            ("<FIRST_FRAME> ball rolls", False, "<FIRST_FRAME> ball rolls"),
+        ],
+    )
+    def test_each_frame_tag_is_added_only_when_missing(self, prompt, has_last_frame, expected):
+        from discord_gemini.cogs.gemini.video import _tag_omni_frame_prompt
+
+        tagged = _tag_omni_frame_prompt(prompt, has_last_frame)
+
+        assert tagged == expected
+        assert tagged.count("<FIRST_FRAME>") == 1
+        assert tagged.count("<LAST_FRAME>") == (1 if has_last_frame else 0)
+
+    @staticmethod
+    def _image_attachment(fmt="PNG", content_type="image/png"):
+        attachment = MagicMock()
+        attachment.content_type = content_type
+        return attachment, _encoded_image(fmt)
+
+    async def test_first_frame_is_sent_as_an_image_part_before_the_tagged_prompt(self):
+        import base64
+
+        from google.genai import interactions
+        from pydantic import TypeAdapter
+
+        attachment, data = self._image_attachment()
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=data)
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_fake_omni_interaction())
+        self.cog.client.files.download = MagicMock(return_value=b"mp4")
+
+        await _generate_video_with_omni(self.cog, self._params(), attachment)
+
+        sent = self.cog.client.aio.interactions.create.call_args.kwargs["input"]
+        assert sent == [
+            {
+                "type": "image",
+                "data": base64.b64encode(data).decode("ascii"),
+                "mime_type": "image/png",
+            },
+            {"type": "text", "text": "<FIRST_FRAME> A red ball rolls across a table"},
+        ]
+        # The same client-side validation interactions.create applies.
+        TypeAdapter(interactions.InteractionsInput).validate_python(sent)
+
+    async def test_first_and_last_frames_are_sent_in_order_with_both_tags(self):
+        import base64
+
+        from google.genai import interactions
+        from pydantic import TypeAdapter
+
+        first, first_data = self._image_attachment("PNG", "image/png")
+        last, last_data = self._image_attachment("JPEG", None)
+        self.cog._fetch_attachment_bytes = AsyncMock(side_effect=[first_data, last_data])
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_fake_omni_interaction())
+        self.cog.client.files.download = MagicMock(return_value=b"mp4")
+
+        await _generate_video_with_omni(self.cog, self._params(has_last_frame=True), first, last)
+
+        sent = self.cog.client.aio.interactions.create.call_args.kwargs["input"]
+        assert [part["type"] for part in sent] == ["image", "image", "text"]
+        assert sent[0]["data"] == base64.b64encode(first_data).decode("ascii")
+        assert sent[1]["data"] == base64.b64encode(last_data).decode("ascii")
+        # No usable content type: the format PIL detects is used.
+        assert sent[1]["mime_type"] == "image/jpeg"
+        assert sent[2]["text"] == "<FIRST_FRAME> <LAST_FRAME> A red ball rolls across a table"
+        TypeAdapter(interactions.InteractionsInput).validate_python(sent)
+
+    async def test_a_prompt_that_places_its_own_tags_is_sent_unchanged(self):
+        attachment, data = self._image_attachment()
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=data)
+        self.cog.client.aio.interactions.create = AsyncMock(return_value=_fake_omni_interaction())
+        self.cog.client.files.download = MagicMock(return_value=b"mp4")
+        prompt = "[# Sources <FIRST_FRAME>@Image1] the ball rolls"
+
+        await _generate_video_with_omni(self.cog, self._params(prompt=prompt), attachment)
+
+        sent = self.cog.client.aio.interactions.create.call_args.kwargs["input"]
+        assert sent[-1] == {"type": "text", "text": prompt}
+
+    @pytest.mark.parametrize(
+        ("fetched", "message"),
+        [(None, "Could not download the `attachment` image"), (b"not an image", "not a readable")],
+    )
+    async def test_an_unreadable_frame_stops_before_the_paid_request(self, fetched, message):
+        attachment = MagicMock()
+        attachment.content_type = None
+        self.cog._fetch_attachment_bytes = AsyncMock(return_value=fetched)
+        self.cog.client.aio.interactions.create = AsyncMock()
+
+        with pytest.raises(ValueError, match=message):
+            await _generate_video_with_omni(self.cog, self._params(), attachment)
+
+        self.cog.client.aio.interactions.create.assert_not_called()
+
+    def test_usage_splits_input_video_and_text_output_tokens(self):
+        """`total_output_tokens` includes the video tokens; thinking is reported apart."""
+        usage = SimpleNamespace(
+            total_input_tokens=1_300,
+            total_output_tokens=58_000,
+            total_thought_tokens=420,
+            output_tokens_by_modality=[
+                SimpleNamespace(modality="video", tokens=57_920),
+                SimpleNamespace(modality="text", tokens=80),
+            ],
+        )
+
+        result = _extract_omni_video_usage(SimpleNamespace(usage=usage))
+
+        assert result == OmniVideoUsage(
+            input_tokens=1_300,
+            video_output_tokens=57_920,
+            text_output_tokens=80 + 420,
+            thinking_tokens=420,
+        )
+        assert result.output_tokens == 58_000 + 420
+
+    def test_usage_of_a_real_image_to_video_response_bills_every_token(self):
+        """Usage shape returned by a first-frame request: image 1,100 + text 24 input
+        tokens, a single video modality entry, 691 unlabelled output tokens and 384
+        thinking tokens reported apart (total_tokens 60,119 = 1,124 + 58,611 + 384)."""
+        usage = SimpleNamespace(
+            input_tokens_by_modality=[
+                SimpleNamespace(modality="image", tokens=1_100),
+                SimpleNamespace(modality="text", tokens=24),
+            ],
+            output_tokens_by_modality=[SimpleNamespace(modality="video", tokens=57_920)],
+            total_input_tokens=1_124,
+            total_output_tokens=58_611,
+            total_thought_tokens=384,
+            total_tokens=60_119,
+        )
+
+        result = _extract_omni_video_usage(SimpleNamespace(usage=usage))
+
+        assert result == OmniVideoUsage(
+            input_tokens=1_124,
+            video_output_tokens=57_920,
+            text_output_tokens=691 + 384,
+            thinking_tokens=384,
+        )
+        cost = calculate_omni_video_cost(
+            DEFAULT_OMNI_VIDEO_MODEL,
+            result.video_output_tokens,
+            input_tokens=result.input_tokens,
+            text_output_tokens=result.text_output_tokens,
+        )
+        assert cost == pytest.approx(1.0136 + 0.001686 + 0.009675)
+        assert format_request_cost(cost) == "$1.0250"
+
+    def test_usage_without_counts_is_all_zero(self):
+        assert _extract_omni_video_usage(SimpleNamespace(usage=None)) == OmniVideoUsage()
 
     def test_omni_is_default_and_first_choice(self):
         """gemini-omni-1.1-flash (GA 2026-08-27) is the default and heads the picker."""
@@ -475,7 +742,7 @@ class TestOmniVideoModels:
         with (
             patch(
                 "discord_gemini.cogs.gemini.video._generate_video_with_omni",
-                AsyncMock(return_value=([], 0)),
+                AsyncMock(return_value=([], OmniVideoUsage())),
             ) as omni,
             patch(
                 "discord_gemini.cogs.gemini.video._generate_video_with_veo",
@@ -504,7 +771,7 @@ class TestOmniVideoModels:
         with (
             patch(
                 "discord_gemini.cogs.gemini.video._generate_video_with_omni",
-                AsyncMock(return_value=([], 0)),
+                AsyncMock(return_value=([], OmniVideoUsage())),
             ) as omni,
             patch(
                 "discord_gemini.cogs.gemini.video._generate_video_with_veo",
@@ -547,7 +814,7 @@ class TestOmniVideoModels:
             patch("discord_gemini.cogs.gemini.video.SHOW_COST_EMBEDS", True),
             patch(
                 "discord_gemini.cogs.gemini.video._generate_video_with_omni",
-                AsyncMock(return_value=([b"mp4"], 57920)),
+                AsyncMock(return_value=([b"mp4"], OmniVideoUsage(video_output_tokens=57920))),
             ),
             patch.object(cog, "_log_cost") as log_cost,
         ):
@@ -572,6 +839,125 @@ class TestOmniVideoModels:
         assert log_cost.call_args.kwargs["resolution"] == shown
         assert log_cost.call_args.kwargs["video_tokens"] == 57920
         assert "duration_seconds" not in log_cost.call_args.kwargs
+
+    async def test_omni_image_to_video_forwards_frames_and_bills_every_token(self):
+        """Both images reach the Omni path, and the input image tokens and the
+        thinking tokens are billed with the video tokens and shown on the cost line."""
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._send_error_followup = AsyncMock()
+        first, last = MagicMock(size=1_000), MagicMock(size=1_000)
+        usage = OmniVideoUsage(
+            input_tokens=2_600,
+            video_output_tokens=57_920,
+            text_output_tokens=500,
+            thinking_tokens=500,
+        )
+
+        with (
+            patch("discord_gemini.cogs.gemini.video.SHOW_COST_EMBEDS", True),
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
+                AsyncMock(return_value=([b"mp4"], usage)),
+            ) as omni,
+            patch.object(cog, "_log_cost") as log_cost,
+        ):
+            await cog.video.callback(
+                cog,
+                ctx=ctx,
+                prompt="the ball rolls",
+                model=DEFAULT_OMNI_VIDEO_MODEL,
+                attachment=first,
+                last_frame=last,
+            )
+
+        cog._send_error_followup.assert_not_awaited()
+        assert omni.await_args.args[2:] == (first, last)
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        for file in send_kwargs.get("files", []):
+            file.close()
+        assert (
+            "**Mode:** Interpolation (First + Last Frame)" in send_kwargs["embeds"][0].description
+        )
+        cost = 57_920 * 17.50 / 1e6 + 2_600 * 1.50 / 1e6 + 500 * 9.00 / 1e6
+        assert pricing_equal(send_kwargs["embeds"][-1].description, cost)
+        assert log_cost.call_args.args[3] == pytest.approx(cost)
+        assert log_cost.call_args.kwargs["input_tokens"] == 2_600
+        assert log_cost.call_args.kwargs["text_output_tokens"] == 500
+
+
+def pricing_equal(line: str, cost: float) -> bool:
+    return line == (
+        f"{format_request_cost(cost)} · 2.6k in / 58.4k out (500 thinking) · 1 video · 720p"
+        f" · {format_daily_total(cost)} today"
+    )
+
+
+class TestOmniUndeliveredVideo:
+    """A completed Omni clip is billed even when the bot cannot retrieve the file."""
+
+    @staticmethod
+    async def _run(usage):
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._send_error_followup = AsyncMock()
+        with (
+            patch("discord_gemini.cogs.gemini.video.SHOW_COST_EMBEDS", True),
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
+                AsyncMock(return_value=([], usage)),
+            ),
+            patch.object(cog, "_log_cost") as log_cost,
+        ):
+            await cog.video.callback(cog, ctx=ctx, prompt="a red ball")
+        cog._send_error_followup.assert_not_awaited()
+        return cog, ctx, log_cost
+
+    async def test_billed_clip_that_was_not_delivered_is_still_charged(self):
+        usage = OmniVideoUsage(
+            input_tokens=24, video_output_tokens=57_920, text_output_tokens=700, thinking_tokens=300
+        )
+
+        cog, ctx, log_cost = await self._run(usage)
+
+        cost = calculate_omni_video_cost(
+            DEFAULT_OMNI_VIDEO_MODEL, 57_920, input_tokens=24, text_output_tokens=700
+        )
+        log_cost.assert_called_once()
+        assert log_cost.call_args.args[3] == pytest.approx(cost)
+        assert log_cost.call_args.kwargs["videos"] == 0
+        assert log_cost.call_args.kwargs["delivered"] is False
+        assert cog.daily_costs, "the charge must reach the daily total"
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        assert send_kwargs["embeds"][0].title == "Video Not Delivered"
+        assert "billed" in send_kwargs["embeds"][0].description
+        assert "safety filters" not in send_kwargs["embeds"][0].description
+        assert send_kwargs["embeds"][-1].description == (
+            f"{format_request_cost(cost)} · 24 in / 58.6k out (300 thinking) · 0 videos · 720p"
+            f" · {format_daily_total(cost)} today"
+        )
+        assert not send_kwargs.get("files")
+
+    async def test_nothing_generated_and_nothing_billed_is_not_charged(self):
+        _cog, ctx, log_cost = await self._run(OmniVideoUsage())
+
+        log_cost.assert_not_called()
+        embed = ctx.send_followup.call_args.kwargs["embed"]
+        assert embed.title == "No Videos Generated"
 
 
 class TestVeoCostEmbed:
@@ -653,9 +1039,10 @@ class TestOmniVideoValidation:
         Omni id without one would print an empty list of supported values."""
         assert VIDEO_SUPPORTED_RESOLUTIONS.get(model)
 
-    def test_rejected_option_message_names_resolution_as_accepted_on_the_ga_id(self):
+    def test_rejected_option_message_names_what_omni_accepts(self):
         error = _validate_omni_video_request(self._params(duration_seconds=8), None, None)
-        assert error and "an `aspect_ratio` and a `resolution`" in error
+        assert error and "an `aspect_ratio`, a `resolution`" in error
+        assert "first-frame `attachment` and a `last_frame`" in error
 
     def test_rejects_duration(self):
         error = _validate_omni_video_request(self._params(duration_seconds=8), None, None)
@@ -665,13 +1052,71 @@ class TestOmniVideoValidation:
         error = _validate_omni_video_request(self._params(number_of_videos=2), None, None)
         assert error and "number_of_videos" in error
 
-    def test_rejects_image_attachment(self):
-        error = _validate_omni_video_request(self._params(), MagicMock(), None)
-        assert error and "attachment" in error
+    def test_accepts_a_first_frame_attachment(self):
+        assert _validate_omni_video_request(self._params(), MagicMock(), None) is None
 
-    def test_rejects_last_frame(self):
+    def test_accepts_first_and_last_frames(self):
+        params = self._params(has_last_frame=True)
+        assert _validate_omni_video_request(params, MagicMock(), MagicMock()) is None
+
+    def test_rejects_last_frame_without_a_first_frame(self):
+        """`<LAST_FRAME>` must be used with `<FIRST_FRAME>` (Omni prompt guide)."""
         error = _validate_omni_video_request(self._params(has_last_frame=True), None, MagicMock())
-        assert error and "last_frame" in error
+        assert error and "`last_frame` needs an `attachment`" in error
+
+    @pytest.mark.parametrize(
+        ("kwargs", "named"),
+        [
+            ({"negative_prompt": "no cats"}, "`negative_prompt`"),
+            ({"person_generation": "dont_allow"}, "`person_generation`"),
+            ({"image_resize_mode": "PAD"}, "`image_resize_mode`"),
+            ({"enhance_prompt": False}, "`enhance_prompt`"),
+            ({"enhance_prompt": True}, "`enhance_prompt`"),
+        ],
+    )
+    def test_rejects_options_omni_has_no_equivalent_for(self, kwargs, named):
+        error = _validate_omni_video_request(self._params(**kwargs), MagicMock(), None)
+        assert error and named in error and "Veo 3.1" in error
+
+    def test_default_person_generation_is_not_an_omni_option(self):
+        """`allow_adult` is the slash-command default, so it must not be rejected."""
+        params = self._params(person_generation="allow_adult")
+        assert _validate_omni_video_request(params, None, None) is None
+
+    def test_refuses_a_frame_image_over_the_inline_limit(self):
+        from discord_gemini.cogs.gemini.video import OMNI_MAX_FRAME_IMAGE_BYTES
+
+        assert OMNI_MAX_FRAME_IMAGE_BYTES == 20 * 1024 * 1024
+        small = MagicMock(size=OMNI_MAX_FRAME_IMAGE_BYTES)
+        large = MagicMock(size=OMNI_MAX_FRAME_IMAGE_BYTES + 1)
+        params = self._params(has_last_frame=True)
+
+        assert _validate_omni_video_request(params, small, small) is None
+        error = _validate_omni_video_request(params, large, small)
+        assert error and "`attachment` image is 20.0 MB" in error and "20 MB or smaller" in error
+        error = _validate_omni_video_request(params, small, large)
+        assert error and "`last_frame` image" in error
+
+    async def test_an_oversized_frame_is_refused_before_any_download_or_request(self):
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._fetch_attachment_bytes = AsyncMock()
+        cog.client.aio.interactions.create = AsyncMock()
+
+        await cog.video.callback(
+            cog, ctx=ctx, prompt="a red ball", attachment=MagicMock(size=25 * 1024 * 1024)
+        )
+
+        cog._fetch_attachment_bytes.assert_not_called()
+        cog.client.aio.interactions.create.assert_not_called()
+        assert "25.0 MB" in ctx.send_followup.call_args.kwargs["embed"].description
 
 
 class TestOmniVideoCost:
@@ -680,3 +1125,29 @@ class TestOmniVideoCost:
 
         cost = calculate_omni_video_cost(DEFAULT_OMNI_VIDEO_MODEL, 57920)
         assert cost == pytest.approx(57920 * 17.5 / 1_000_000)
+
+    def test_input_and_text_output_tokens_bill_at_their_own_rates(self):
+        """Pricing page: $1.50 input (text / image / video / audio), $9.00 text output
+        including thinking, $17.50 video output, per 1M tokens."""
+        cost = calculate_omni_video_cost(
+            DEFAULT_OMNI_VIDEO_MODEL, 57_920, input_tokens=1_000_000, text_output_tokens=1_000_000
+        )
+        assert cost == pytest.approx(57_920 * 17.50 / 1e6 + 1.50 + 9.00)
+
+    def test_rates_are_declared_for_every_omni_id(self):
+        # Read through util: test_config_pricing reloads the pricing module with
+        # override files, while util keeps the bundled tables it imported.
+        from discord_gemini.util import (
+            VIDEO_TOKEN_INPUT_PRICING,
+            VIDEO_TOKEN_TEXT_OUTPUT_PRICING,
+        )
+
+        for model in OMNI_VIDEO_MODELS | {"gemini-omni-flash-preview"}:
+            assert VIDEO_TOKEN_INPUT_PRICING[model] == 1.50
+            assert VIDEO_TOKEN_TEXT_OUTPUT_PRICING[model] == 9.00
+
+    def test_unknown_tokenized_model_bills_the_fallback_rates(self):
+        cost = calculate_omni_video_cost(
+            "gemini-omni-9", 1_000_000, input_tokens=1_000_000, text_output_tokens=1_000_000
+        )
+        assert cost == pytest.approx(17.50 + 1.50 + 9.00)
