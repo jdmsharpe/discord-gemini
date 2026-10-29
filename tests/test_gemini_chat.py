@@ -150,6 +150,62 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
         assert result.total_search_queries == 3
         assert result.search_grounded_prompts == 2
 
+    async def test_run_agentic_loop_sums_maps_queries_across_turns(self):
+        """Every generate_content call in the loop is billed for its own searches, so
+        the loop sums each response's `web_search_queries`, not only the final one's."""
+
+        def grounded(queries):
+            return [
+                SimpleNamespace(
+                    content=SimpleNamespace(parts=[]),
+                    grounding_metadata=SimpleNamespace(
+                        web_search_queries=queries,
+                        grounding_chunks=[
+                            SimpleNamespace(
+                                maps=SimpleNamespace(
+                                    uri="https://maps.google.com/?cid=1", title="A place"
+                                )
+                            )
+                        ],
+                    ),
+                )
+            ]
+
+        first_response = SimpleNamespace(
+            text=None,
+            function_calls=[SimpleNamespace(name="lookup_time", args={}, id="call-1")],
+            usage_metadata=SimpleNamespace(prompt_token_count=10),
+            candidates=grounded(["tokyo weather", "tokyo time zone"]),
+        )
+        middle_response = SimpleNamespace(
+            text=None,
+            function_calls=[SimpleNamespace(name="lookup_time", args={}, id="call-2")],
+            usage_metadata=SimpleNamespace(prompt_token_count=10),
+            candidates=[],
+        )
+        final_response = SimpleNamespace(
+            text="Sunny, 10:00 JST.",
+            function_calls=[],
+            usage_metadata=SimpleNamespace(prompt_token_count=10),
+            candidates=grounded(["tokyo forecast"]),
+        )
+        self.cog.client.aio.models.generate_content = AsyncMock(
+            side_effect=[first_response, middle_response, final_response]
+        )
+
+        with patch.object(
+            gemini_tooling, "execute_tool_call", AsyncMock(return_value={"result": "10:00"})
+        ):
+            result = await self.cog._run_agentic_loop(
+                "gemini-3.8-flash",
+                [{"role": "user", "parts": [{"text": "Weather and time in Tokyo?"}]}],
+                None,
+            )
+
+        assert result.iterations == 3
+        assert result.total_maps_queries == 3
+        assert result.maps_grounded_prompts == 2
+
     async def test_chat_bills_tool_use_prompt_tokens_as_input(self):
         """The cost embed's input count is prompt + tool-use prompt tokens."""
         ctx = AsyncMock()
@@ -175,6 +231,8 @@ class TestGeminiAgenticLoop(AsyncGeminiCogTestCase):
             total_cached_tokens=0,
             total_tool_use_prompt_tokens=5847,
             total_search_queries=0,
+            total_maps_queries=0,
+            maps_grounded_prompts=0,
             search_grounded_prompts=0,
         )
 
@@ -266,6 +324,8 @@ class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
             total_cached_tokens=0,
             total_tool_use_prompt_tokens=0,
             total_search_queries=0,
+            total_maps_queries=0,
+            maps_grounded_prompts=0,
             search_grounded_prompts=0,
         )
         loop = AsyncMock(return_value=result)
@@ -314,6 +374,8 @@ class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
             total_cached_tokens=0,
             total_tool_use_prompt_tokens=0,
             total_search_queries=0,
+            total_maps_queries=0,
+            maps_grounded_prompts=0,
             search_grounded_prompts=0,
         )
 
@@ -368,6 +430,8 @@ def _loop_result(text: str = "ok") -> SimpleNamespace:
         total_cached_tokens=0,
         total_tool_use_prompt_tokens=0,
         total_search_queries=0,
+        total_maps_queries=0,
+        maps_grounded_prompts=0,
         search_grounded_prompts=0,
     )
 
@@ -502,6 +566,8 @@ class TestGeminiChatCachedTokenBilling(AsyncGeminiCogTestCase):
             total_cached_tokens=4_000,
             total_tool_use_prompt_tokens=0,
             total_search_queries=0,
+            total_maps_queries=0,
+            maps_grounded_prompts=0,
             search_grounded_prompts=0,
         )
 
@@ -552,6 +618,8 @@ class TestGeminiChatSearchBilling(AsyncGeminiCogTestCase):
             total_cached_tokens=0,
             total_tool_use_prompt_tokens=0,
             total_search_queries=2,
+            total_maps_queries=0,
+            maps_grounded_prompts=0,
             search_grounded_prompts=1,
         )
 
@@ -585,7 +653,9 @@ class TestGeminiChatSearchBilling(AsyncGeminiCogTestCase):
         result = _loop_result("Red Bay Coffee and Philz Coffee.")
         result.total_input_tokens = 1_000_000
         result.total_output_tokens = 0
-        result.total_search_queries = 1
+        result.total_search_queries = 2
+        result.total_maps_queries = 2
+        result.maps_grounded_prompts = 1
         result.search_grounded_prompts = 1
         result.response.candidates[0].grounding_metadata = SimpleNamespace(
             grounding_chunks=[
@@ -621,7 +691,7 @@ class TestGeminiChatSearchBilling(AsyncGeminiCogTestCase):
         assert log_cost.call_args.kwargs["google_search_queries"] == 0
         assert log_cost.call_args.kwargs["google_maps_grounded"] is True
         # 1M input @ $2.00/M + one Maps grounding charge @ $0.014, no Search charge.
-        assert log_cost.call_args.args[3] == pytest.approx(2.014)
+        assert log_cost.call_args.args[3] == pytest.approx(2.028)
         footer = ctx.send_followup.call_args.kwargs["embeds"][-1].description
         assert "search" not in footer
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
+from io import BytesIO
 from typing import Any
 
-from discord import Embed, HTTPException
+from discord import Embed, File, HTTPException
 
 DISCORD_EMBED_TOTAL_LIMIT = 6000
 DISCORD_EMBEDS_PER_MESSAGE_LIMIT = 10
@@ -107,20 +108,55 @@ async def send_embed_batches(
             send_kwargs["view"] = view
         _add_files_to_kwargs(send_kwargs, batch_files, single_file_input=single_file_input)
 
+        # py-cord consumes streams and may close owned files even on failure.
+        # Keep the upload bytes so the fallback can use fresh File instances.
+        file_payloads = _snapshot_files(batch_files)
         try:
             final_message = await send(**send_kwargs)
         except HTTPException as error:
             _log_embed_send_failure(logger, error, batch, batches)
-            final_message = await _send_plain_text_fallback(
-                send,
-                batch,
-                batch_files=batch_files,
-                view=view if is_last else None,
-                single_file_input=single_file_input,
-                **kwargs,
-            )
+            retry_files = [
+                File(
+                    BytesIO(payload),
+                    filename=item.filename,
+                    spoiler=item.spoiler,
+                    description=item.description,
+                )
+                if payload is not None
+                else item
+                for item, payload in zip(batch_files, file_payloads, strict=True)
+            ]
+            try:
+                final_message = await _send_plain_text_fallback(
+                    send,
+                    batch,
+                    batch_files=retry_files,
+                    view=view if is_last else None,
+                    single_file_input=single_file_input,
+                    **kwargs,
+                )
+            finally:
+                for item, payload in zip(retry_files, file_payloads, strict=True):
+                    if payload is not None:
+                        item.close()
+                        item.fp.close()
 
     return final_message
+
+
+def _snapshot_files(files: list[Any]) -> list[bytes | None]:
+    payloads: list[bytes | None] = []
+    for item in files:
+        if isinstance(item, File):
+            position = item.fp.tell()
+            try:
+                item.reset()
+                payloads.append(item.fp.read())
+            finally:
+                item.fp.seek(position)
+        else:
+            payloads.append(None)
+    return payloads
 
 
 def _normalize_embeds(*, embed: Embed | None, embeds: Iterable[Embed] | None) -> list[Embed]:

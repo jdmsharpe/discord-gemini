@@ -69,7 +69,7 @@ NOT_EXTENDED = r"(?![\w-])(?!\.\d)(?!\s+\w)"
 #: default, UPDATE these numbers deliberately in the same change. A mismatch
 #: means either a real change to the command surface or a discovery regression,
 #: and both deserve a human look -- do not relax the assertion to make it pass.
-EXPECTED_ASSERTABLE_OPTIONS = 10
+EXPECTED_ASSERTABLE_OPTIONS = 9
 EXPECTED_UNASSERTABLE_OPTIONS = 0
 
 

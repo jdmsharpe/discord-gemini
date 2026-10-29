@@ -80,9 +80,9 @@ def calculate_cost(
     rate; the split is clamped so neither side can go negative. Thinking tokens are
     billed at the output token rate. ``google_maps_grounded`` adds the Maps surcharge
     for the model's generation (``maps_grounding_cost_for_model``) once per count:
-    pass ``True`` for a single grounded request (chat, whose response reports no Maps
-    query count although Google bills Gemini 3 per Maps query) or the Interactions
-    API's ``usage.grounding_tool_count`` for Maps (research). ``google_search_queries`` and
+    pass the summed query count on Gemini 3+ and the grounded prompt count on
+    Gemini 2.5. Maps-only generate_content responses report queries in
+    ``web_search_queries``; research uses ``usage.grounding_tool_count``. ``google_search_queries`` and
     ``google_search_grounded`` (search queries run and Search-grounded prompts) add
     the Search grounding charge through ``search_grounding_cost_for_model``, which
     bills queries on Gemini 3.x and grounded prompts on Gemini 2.5.
@@ -336,44 +336,7 @@ class VideoGenerationParameters:
     model: str
     aspect_ratio: str | None = None
     resolution: str | None = None
-    person_generation: str | None = None
-    negative_prompt: str | None = None
-    number_of_videos: int | None = None
-    duration_seconds: int | None = None
-    enhance_prompt: bool | None = None
     has_last_frame: bool = False
-    image_resize_mode: str | None = None
-
-    def to_dict(self):
-        """Convert to dictionary for API calls, filtering out None values and handling special cases."""
-        config_dict = {}
-
-        if self.aspect_ratio is not None:
-            config_dict["aspect_ratio"] = self.aspect_ratio
-        if self.resolution is not None:
-            config_dict["resolution"] = self.resolution
-        if self.negative_prompt is not None:
-            config_dict["negative_prompt"] = self.negative_prompt
-        if self.number_of_videos is not None:
-            config_dict["number_of_videos"] = self.number_of_videos
-        if self.duration_seconds is not None:
-            config_dict["duration_seconds"] = self.duration_seconds
-        if self.enhance_prompt is not None:
-            config_dict["enhance_prompt"] = self.enhance_prompt
-        if self.image_resize_mode is not None:
-            config_dict["image_resize_mode"] = self.image_resize_mode
-
-        # Handle person_generation mapping for Veo models
-        if self.person_generation and self.person_generation != "allow_adult":
-            person_gen_map = {
-                "dont_allow": "dont_allow",
-                "allow_adult": "allow_adult",
-                "allow_all": "allow_all",
-            }
-            if self.person_generation in person_gen_map:
-                config_dict["person_generation"] = person_gen_map[self.person_generation]
-
-        return config_dict
 
 
 @dataclass
@@ -503,6 +466,8 @@ class AgenticResult:
     # Google Search grounding, summed over every request in the loop: the search
     # queries the responses report, and the requests that reported at least one.
     total_search_queries: int = 0
+    total_maps_queries: int = 0
+    maps_grounded_prompts: int = 0
     search_grounded_prompts: int = 0
     iterations: int = 0
     tool_calls_made: list[str] = field(default_factory=list)

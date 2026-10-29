@@ -59,11 +59,6 @@ IMAGE_ASPECT_RATIO_CHOICES = [
     OptionChoice(name="Panoramic (8:1)", value="8:1"),
 ]
 
-PERSON_GENERATION_CHOICES = [
-    OptionChoice(name="Don't Allow", value="dont_allow"),
-    OptionChoice(name="Allow Adults", value="allow_adult"),
-    OptionChoice(name="Allow All", value="allow_all"),
-]
 
 # Values use the API's documented canonical spelling (uppercase `K`). Lowercase
 # `1k`/`2k` are accepted and return the requested pixels but are METERED at the 1K
@@ -80,9 +75,6 @@ IMAGE_SIZE_CHOICES = [
 
 VIDEO_MODEL_CHOICES = [
     OptionChoice(name="Gemini Omni 1.1 Flash", value="gemini-omni-1.1-flash"),
-    OptionChoice(name="Veo 3.1 Lite Preview", value="veo-3.1-lite-generate-preview"),
-    OptionChoice(name="Veo 3.1 Preview", value="veo-3.1-generate-preview"),
-    OptionChoice(name="Veo 3.1 Fast Preview", value="veo-3.1-fast-generate-preview"),
 ]
 
 VIDEO_ASPECT_RATIO_CHOICES = [
@@ -93,13 +85,8 @@ VIDEO_ASPECT_RATIO_CHOICES = [
 VIDEO_RESOLUTION_CHOICES = [
     OptionChoice(name="720p", value="720p"),
     OptionChoice(name="1080p", value="1080p"),
-    OptionChoice(name="4K", value="4k"),
 ]
 
-VIDEO_IMAGE_RESIZE_MODE_CHOICES = [
-    OptionChoice(name="Crop (fill frame, discard overflow)", value="CROP"),
-    OptionChoice(name="Pad (preserve content, add letterbox)", value="PAD"),
-]
 
 # The three preview ids shut down 2026-11-17 (replacement: either 3.8 model).
 TTS_MODEL_CHOICES = [
@@ -168,14 +155,12 @@ __all__ = [
     "MEDIA_RESOLUTION_CHOICES",
     "MUSIC_MODEL_CHOICES",
     "MUSIC_SCALE_CHOICES",
-    "PERSON_GENERATION_CHOICES",
     "RESEARCH_AGENT_CHOICES",
     "RESEARCH_THINKING_SUMMARY_CHOICES",
     "THINKING_LEVEL_CHOICES",
     "TTS_MODEL_CHOICES",
     "TTS_VOICE_CHOICES",
     "VIDEO_ASPECT_RATIO_CHOICES",
-    "VIDEO_IMAGE_RESIZE_MODE_CHOICES",
     "VIDEO_MODEL_CHOICES",
     "VIDEO_RESOLUTION_CHOICES",
 ]

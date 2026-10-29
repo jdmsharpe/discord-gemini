@@ -372,7 +372,7 @@ async def _generate_image_with_gemini(
     gemini_response = await cog.client.aio.models.generate_content(
         model=image_params.model,
         contents=cast(Any, contents),
-        config=types.GenerateContentConfig(**cast(Any, config_kwargs)),
+        config=types.GenerateContentConfig(store=False, **cast(Any, config_kwargs)),
     )
 
     image_usage = _extract_image_usage(gemini_response)

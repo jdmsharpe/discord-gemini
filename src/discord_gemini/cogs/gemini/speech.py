@@ -91,6 +91,7 @@ async def _generate_speech_with_gemini(
         model=tts_params.model,
         contents=cast(Any, _build_speech_contents(tts_params)),
         config=types.GenerateContentConfig(
+            store=False,
             **cast(Any, tts_params.to_dict()),
             automatic_function_calling=disable_afc(),
         ),

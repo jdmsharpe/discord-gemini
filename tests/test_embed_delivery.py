@@ -102,3 +102,43 @@ async def test_send_embed_batches_preserves_single_file_kwarg_when_possible():
     assert result == "message"
     assert send.await_args.kwargs["file"] is file
     assert "files" not in send.await_args.kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owned", [False, True])
+async def test_failed_upload_retries_complete_bytes_and_metadata(tmp_path, owned):
+    from io import BytesIO
+
+    from discord import File, HTTPException
+
+    payload = b"the complete attachment contents"
+    if owned:
+        path = tmp_path / "report.txt"
+        path.write_bytes(payload)
+        upload = File(path, filename="report.txt", spoiler=True, description="Report")
+    else:
+        stream = BytesIO(b"prefix" + payload)
+        stream.seek(6)
+        upload = File(stream, filename="report.txt", spoiler=True, description="Report")
+    attempts = []
+
+    async def send(**kwargs):
+        file = kwargs["file"]
+        attempts.append(file.fp.read())
+        assert file.filename == "SPOILER_report.txt"
+        assert file.spoiler is True
+        assert file.description == "Report"
+        file.close()
+        if len(attempts) == 1:
+            raise HTTPException(SimpleNamespace(status=400, reason="Bad Request"), "bad embed")
+        assert "embeds" not in kwargs
+        assert kwargs["content"] == "done"
+        return "fallback"
+
+    try:
+        result = await send_embed_batches(send, embeds=[Embed(description="done")], file=upload)
+        assert result == "fallback"
+        assert attempts == [payload, payload]
+    finally:
+        upload.close()
+        upload.fp.close()

@@ -386,120 +386,16 @@ class TestImageGenerationParameters:
 
 
 class TestVideoGenerationParameters:
-    def test_to_dict_basic(self):
+    def test_omni_frame_parameters(self):
         params = VideoGenerationParameters(
-            prompt="A cat playing piano",
-            model="veo-3.1-generate-preview",
+            prompt="A sunset",
+            model="gemini-omni-1.1-flash",
             aspect_ratio="16:9",
-            resolution="720p",
-            number_of_videos=1,
-        )
-        result = params.to_dict()
-        assert result["aspect_ratio"] == "16:9"
-        assert result["resolution"] == "720p"
-        assert result["number_of_videos"] == 1
-
-    def test_to_dict_with_duration(self):
-        params = VideoGenerationParameters(
-            prompt="A sunset timelapse",
-            model="veo-3.1-generate-preview",
-            duration_seconds=8,
-        )
-        result = params.to_dict()
-        assert result["duration_seconds"] == 8
-
-    def test_to_dict_with_negative_prompt(self):
-        params = VideoGenerationParameters(
-            prompt="A dog running",
-            model="veo-3.1-generate-preview",
-            negative_prompt="blurry, distorted",
-        )
-        result = params.to_dict()
-        assert result["negative_prompt"] == "blurry, distorted"
-
-    def test_enhance_prompt(self):
-        params = VideoGenerationParameters(
-            prompt="Test video",
-            model="veo-3.1-generate-preview",
-            enhance_prompt=True,
-        )
-        result = params.to_dict()
-        assert result["enhance_prompt"] is True
-
-        params_disabled = VideoGenerationParameters(
-            prompt="Test video",
-            model="veo-3.1-generate-preview",
-            enhance_prompt=False,
-        )
-        result_disabled = params_disabled.to_dict()
-        assert result_disabled["enhance_prompt"] is False
-
-    def test_person_generation_mapping(self):
-        """Test that person_generation values are properly mapped for Veo."""
-        params = VideoGenerationParameters(
-            prompt="Test",
-            model="veo-3.1-generate-preview",
-            person_generation="dont_allow",
-        )
-        result = params.to_dict()
-        assert result["person_generation"] == "dont_allow"
-
-    def test_person_generation_allow_adult_excluded(self):
-        """Test that allow_adult (default) is not included in output."""
-        params = VideoGenerationParameters(
-            prompt="Test",
-            model="veo-3.1-generate-preview",
-            person_generation="allow_adult",
-        )
-        result = params.to_dict()
-        assert "person_generation" not in result
-
-    def test_none_values_excluded(self):
-        """Test that None values are not included in to_dict output."""
-        params = VideoGenerationParameters(
-            prompt="Test",
-            model="veo-3.1-generate-preview",
-        )
-        result = params.to_dict()
-        assert "aspect_ratio" not in result
-        assert "resolution" not in result
-        assert "negative_prompt" not in result
-        assert "number_of_videos" not in result
-        assert "duration_seconds" not in result
-        assert "enhance_prompt" not in result
-
-    def test_has_last_frame_default(self):
-        """Test that has_last_frame defaults to False."""
-        params = VideoGenerationParameters(prompt="Test", model="veo-3.1-generate-preview")
-        assert params.has_last_frame is False
-
-    def test_has_last_frame_set(self):
-        """Test that has_last_frame can be set to True."""
-        params = VideoGenerationParameters(
-            prompt="Test",
-            model="veo-3.1-generate-preview",
+            resolution="1080p",
             has_last_frame=True,
         )
-        assert params.has_last_frame is True
-
-    def test_has_last_frame_not_in_to_dict(self):
-        """Test that has_last_frame is not included in to_dict output (display-only field)."""
-        params = VideoGenerationParameters(
-            prompt="Test",
-            model="veo-3.1-generate-preview",
-            has_last_frame=True,
-        )
-        result = params.to_dict()
-        assert "has_last_frame" not in result
-
-    def test_has_last_frame_isolation(self):
-        """Test that has_last_frame is independent between instances."""
-        params1 = VideoGenerationParameters(
-            prompt="A", model="veo-3.1-generate-preview", has_last_frame=True
-        )
-        params2 = VideoGenerationParameters(prompt="B", model="veo-3.1-generate-preview")
-        assert params1.has_last_frame is True
-        assert params2.has_last_frame is False
+        assert params.has_last_frame
+        assert params.resolution == "1080p"
 
 
 class TestSpeechGenerationParameters:

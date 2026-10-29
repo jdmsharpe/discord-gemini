@@ -21,12 +21,13 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Multi-turn Conversations:** Persistent conversation history with interactive button controls, plus explicit context caching once a conversation clears its model's cache minimum (1,024 tokens on Flash, 4,096 on Pro; not on Gemini 4 Argon). Cache hits are billed at the model's discounted cached-input rate in the cost embed, not the full input rate.
 - **Multiple Gemini Models:** Supports Gemini 4 Argon (default; needs a paid API key), 3.8 Flash, 3.6 Flash, 3.5 Flash Lite, 3.1 Pro, 3.1 Flash Lite, 3.0 Flash, and 2.5 Pro/Flash/Flash Lite. Google now limits the Gemini 2.5 models to accounts that used them before, so a deployment with a new API key may get errors on them.
 - **Multimodal Input:** Supports text, images, PDFs, audio, video, and documents. Includes external URL file input, `opus` / `alaw` / `mulaw` audio MIME handling, and automatic File API routing for large attachments (up to 2 GB). Video attachments and YouTube URLs use **agentic video understanding** on Gemini 4 Argon, 3.8 / 3.6 Flash and 3.5 Flash-Lite: the model requests only the video segments it needs instead of receiving every sampled frame (up to 88% fewer tokens on long video); the segments it requests are billed as input tokens in the cost embed.
-- **Advanced Tool Calling:** Features built-in tools (`google_search`, `code_execution`, `google_maps`, `url_context`, `file_search`). Gemini 3 and Gemini 4 chat models can use built-in tools and custom functions in the same request. Grounding charges are added to the cost embed: Google Search bills $14 / 1K search queries on Gemini 3 and newer and $35 / 1K grounded prompts on Gemini 2.5, and Maps bills one charge per grounded response ($14 / 1K on Gemini 3 and newer, $25 / 1K on Gemini 2.5). Google's free grounding allowances are not tracked, so these charges are upper bounds.
+- **Request Storage:** Chat, image, speech and music Generate Content requests opt out of API request storage with `store=False`.
+- **Advanced Tool Calling:** Features built-in tools (`google_search`, `code_execution`, `google_maps`, `url_context`, `file_search`). Gemini 3 and Gemini 4 chat models can use built-in tools and custom functions in the same request. Grounding charges are added to the cost embed: Google Search bills $14 / 1K search queries on Gemini 3 and newer and $35 / 1K grounded prompts on Gemini 2.5, and Maps bills $14 / 1K queries on Gemini 3 and newer and $25 / 1K grounded prompts on Gemini 2.5; queries are summed across tool-loop turns. Google's free grounding allowances are not tracked, so these charges are upper bounds.
 - **Thinking Configuration:** Customizable thinking levels for Gemini 3 and Gemini 4 models (Minimal, Low, Medium, High) and token budgets for Gemini 2.5 models, with thought summaries displayed in spoilered embeds. Requests the API would reject are caught before the call: a thinking level on any Gemini 2.5 model (use a budget there), Minimal on Gemini 4 Argon, 3.8 Flash or 3.1 Pro, or a level and a budget together.
 - **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
 - **Media Generation:**
   - **Images:** High-quality image generation and editing using Gemini Nano Banana 2.1 (default) and the Gemini Flash/Pro Image models, up to 4K, delivered as the API's original PNG/JPEG bytes.
-  - **Video:** Gemini Omni 1.1 Flash (default) for text-to-video, image-to-video from a first-frame image, and first-and-last-frame interpolation at 720p or 1080p via the Interactions API, plus Veo 3.1 for a last frame without a first frame and for 4k/duration control.
+  - **Video:** Gemini Omni 1.1 Flash (default) for text-to-video, image-to-video from a first-frame image, and first-and-last-frame interpolation at 720p or 1080p via the Interactions API.
   - **Music:** Music generation using Lyria 3.5 (default; full songs through the Interactions API), Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
   - **Text-to-Speech:** Lifelike speech conversion with Gemini 3.8 Flash TTS (default) and 25+ voice options.
 - **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
@@ -56,10 +57,8 @@ Generate images from text prompts or edit using reference images.
 
 Generate videos from text prompts or image inputs.
 
-- **Models:** Gemini Omni 1.1 Flash (default), Veo 3.1 Lite Preview, Veo 3.1 Preview, Veo 3.1 Fast Preview.
-- **Gemini Omni 1.1 Flash:** Google's recommended default, at `720p` (default) or `1080p`. Attach an image as `attachment` to use it as the first frame, and add `last_frame` to end the clip on a second image. Billed from the response's token counts (about $1 per 10-second clip). Duration, negative prompts, person generation, resize mode and prompt enhancement are Veo-only.
-- **Options (Veo 3.1):** Customizable aspect ratio, resolution (`720p`, `1080p`, `4k` where supported), first-frame image input, optional `last_frame` interpolation (also without a first frame), negative prompts, and prompt enhancement control.
-- **Validation:** Veo 3.x models support 4/6/8-second outputs, `1080p` and `4k` require 8 seconds, `4k` is unavailable on Veo 3.1 Lite, and only 1 video per request is supported.
+- **Models:** Gemini Omni 1.1 Flash.
+- **Gemini Omni 1.1 Flash:** Google's recommended default, at `720p` (default) or `1080p`. Attach an image as `attachment` to use it as the first frame, and add `last_frame` to end the clip on a second image. Billed from the response's token counts (about $1 per 10-second clip). A last-frame image requires a first-frame attachment.
 
 ### `/gemini-tools music`
 
@@ -89,9 +88,9 @@ Check if the bot has the necessary permissions in the current channel.
 ### Prerequisites
 
 - Python 3.11+
-- `google-genai` ~2.31
+- `google-genai` ~2.33
 - `py-cord` ~2.8
-- `Pillow` ~12.2
+- `Pillow` ~13.0
 - `aiohttp` ~3.14
 - `python-dotenv` ~1.2
 

@@ -14,12 +14,10 @@ from discord_gemini.cogs.gemini.video import (
     OMNI_VIDEO_POLL_INTERVAL,
     VIDEO_SUPPORTED_RESOLUTIONS,
     OmniVideoUsage,
-    _build_veo_image,
+    _attachment_image_mime_type,
     _extract_omni_video_usage,
     _generate_video_with_omni,
-    _generate_video_with_veo,
     _validate_omni_video_request,
-    _validate_video_request,
 )
 from discord_gemini.cost_line import format_daily_total, format_request_cost
 from discord_gemini.util import (
@@ -41,12 +39,8 @@ def _encoded_image(fmt: str) -> bytes:
     return buf.getvalue()
 
 
-class TestBuildVeoImage:
-    """Veo image inputs must carry raw bytes + a mime type.
-
-    A `PIL.Image` silently validates into an all-None `types.Image`, which the API
-    rejects with "should contain both bytesBase64Encoded and mimeType".
-    """
+class TestAttachmentImageMimeType:
+    """Frame images retain their declared or detected MIME types."""
 
     @staticmethod
     def _attachment(content_type):
@@ -64,28 +58,18 @@ class TestBuildVeoImage:
     )
     def test_uses_attachment_content_type(self, fmt, content_type, expected_mime):
         data = _encoded_image(fmt)
-        image = _build_veo_image(data, self._attachment(content_type))
-        assert image.image_bytes == data
-        assert image.mime_type == expected_mime
+        image = _attachment_image_mime_type(data, self._attachment(content_type))
+        assert image == expected_mime
 
     def test_falls_back_to_detected_format(self):
         data = _encoded_image("WEBP")
-        image = _build_veo_image(data, self._attachment(None))
-        assert image.mime_type == "image/webp"
-        assert image.image_bytes == data
+        image = _attachment_image_mime_type(data, self._attachment(None))
+        assert image == "image/webp"
 
     def test_ignores_non_image_content_type(self):
         data = _encoded_image("PNG")
-        image = _build_veo_image(data, self._attachment("application/octet-stream"))
-        assert image.mime_type == "image/png"
-
-    def test_never_serializes_to_an_empty_struct(self):
-        """The regression: the API 400s when image_bytes/mime_type are absent."""
-        image = _build_veo_image(_encoded_image("WEBP"), self._attachment("image/webp"))
-        payload = image.model_dump(exclude_none=True)
-        assert payload, "types.Image serialized to {} — the API rejects this"
-        assert "image_bytes" in payload
-        assert "mime_type" in payload
+        image = _attachment_image_mime_type(data, self._attachment("application/octet-stream"))
+        assert image == "image/png"
 
 
 class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
@@ -104,14 +88,14 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
         """Test embed shows Text-to-Video mode when no attachments."""
         from discord_gemini.util import VideoGenerationParameters
 
-        params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
+        params = VideoGenerationParameters(prompt="A sunset", model=DEFAULT_OMNI_VIDEO_MODEL)
         await self._assert_video_mode(params, "Text-to-Video")
 
     async def test_mode_image_to_video(self):
         """Test embed shows Image-to-Video mode when attachment provided."""
         from discord_gemini.util import VideoGenerationParameters
 
-        params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
+        params = VideoGenerationParameters(prompt="A sunset", model=DEFAULT_OMNI_VIDEO_MODEL)
         mock_attachment = MagicMock()
         await self._assert_video_mode(params, "Image-to-Video", attachment=mock_attachment)
 
@@ -121,22 +105,11 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
 
         params = VideoGenerationParameters(
             prompt="A sunset",
-            model="veo-3.1-generate-preview",
+            model=DEFAULT_OMNI_VIDEO_MODEL,
             has_last_frame=True,
         )
         mock_attachment = MagicMock()
         await self._assert_video_mode(params, "Interpolation", attachment=mock_attachment)
-
-    async def test_mode_last_frame_only(self):
-        """Test embed shows Last Frame Constrained mode when only last_frame."""
-        from discord_gemini.util import VideoGenerationParameters
-
-        params = VideoGenerationParameters(
-            prompt="A sunset",
-            model="veo-3.1-generate-preview",
-            has_last_frame=True,
-        )
-        await self._assert_video_mode(params, "Last Frame Constrained")
 
     async def test_embed_includes_resolution(self):
         """Test embed includes the selected output resolution."""
@@ -144,7 +117,7 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
 
         params = VideoGenerationParameters(
             prompt="A sunset",
-            model="veo-3.1-lite-generate-preview",
+            model=DEFAULT_OMNI_VIDEO_MODEL,
             resolution="1080p",
         )
         embed, files = await self.cog._create_video_response_embed(
@@ -156,114 +129,6 @@ class TestVideoResponseEmbed(AsyncGeminiCogTestCase):
             file.close()
 
         assert "**Resolution:** 1080p" in embed.description
-
-
-class TestVideoValidation:
-    def test_rejects_multiple_videos(self):
-        error = _validate_video_request(
-            model="veo-3.1-lite-generate-preview",
-            aspect_ratio="16:9",
-            resolution=None,
-            number_of_videos=2,
-            duration_seconds=8,
-            has_last_frame=False,
-        )
-        assert "number_of_videos" in error
-
-    def test_rejects_4k_on_lite(self):
-        error = _validate_video_request(
-            model="veo-3.1-lite-generate-preview",
-            aspect_ratio="16:9",
-            resolution="4k",
-            number_of_videos=1,
-            duration_seconds=8,
-            has_last_frame=False,
-        )
-        assert "`4k`" in error
-
-    def test_rejects_non_8s_for_1080p(self):
-        error = _validate_video_request(
-            model="veo-3.1-lite-generate-preview",
-            aspect_ratio="9:16",
-            resolution="1080p",
-            number_of_videos=1,
-            duration_seconds=6,
-            has_last_frame=False,
-        )
-        assert error == "The `1080p` resolution only supports 8 second videos."
-
-    def test_rejects_interpolation_without_8s(self):
-        error = _validate_video_request(
-            model="veo-3.1-generate-preview",
-            aspect_ratio="16:9",
-            resolution=None,
-            number_of_videos=1,
-            duration_seconds=6,
-            has_last_frame=True,
-        )
-        assert "last_frame" in error
-
-    def test_accepts_lite_1080p_portrait_at_8s(self):
-        error = _validate_video_request(
-            model="veo-3.1-lite-generate-preview",
-            aspect_ratio="9:16",
-            resolution="1080p",
-            number_of_videos=1,
-            duration_seconds=8,
-            has_last_frame=False,
-        )
-        assert error is None
-
-
-class TestVeoGenerateVideosSource(AsyncGeminiCogTestCase):
-    """google-genai 2.14.0 deprecated the prompt/image arguments in favour of `source`."""
-
-    @staticmethod
-    def _attachment():
-        attachment = MagicMock()
-        attachment.content_type = "image/png"
-        return attachment
-
-    async def _call_veo(self, attachment=None, last_frame_attachment=None):
-        from discord_gemini.util import VideoGenerationParameters
-
-        self.cog.client.aio.models.generate_videos = AsyncMock(
-            return_value=SimpleNamespace(done=True, name="operations/1", response=None)
-        )
-        params = VideoGenerationParameters(prompt="A sunset", model="veo-3.1-generate-preview")
-        await _generate_video_with_veo(self.cog, params, attachment, last_frame_attachment)
-        return self.cog.client.aio.models.generate_videos.call_args.kwargs
-
-    async def test_prompt_is_passed_through_source(self):
-        kwargs = await self._call_veo()
-
-        assert "prompt" not in kwargs
-        assert "image" not in kwargs
-        assert kwargs["source"].prompt == "A sunset"
-        assert kwargs["source"].image is None
-
-    async def test_image_is_passed_through_source(self):
-        data = _encoded_image("PNG")
-        self.cog._fetch_attachment_bytes = AsyncMock(return_value=data)
-
-        kwargs = await self._call_veo(attachment=self._attachment())
-
-        assert "image" not in kwargs
-        assert kwargs["source"].image.image_bytes == data
-        assert kwargs["source"].image.mime_type == "image/png"
-
-    async def test_last_frame_stays_on_the_config(self):
-        """`last_frame` is a GenerateVideosConfig field, not a source field."""
-        data = _encoded_image("PNG")
-        self.cog._fetch_attachment_bytes = AsyncMock(return_value=data)
-
-        kwargs = await self._call_veo(last_frame_attachment=self._attachment())
-
-        assert kwargs["config"].last_frame.image_bytes == data
-        # `hasattr` is always False on a pydantic model for an undeclared field,
-        # so assert on the declared field set instead — that is what would
-        # actually change if last_frame ever migrated onto the source.
-        assert "last_frame" not in type(kwargs["source"]).model_fields
 
 
 def _fake_omni_interaction(
@@ -744,55 +609,12 @@ class TestOmniVideoModels:
                 "discord_gemini.cogs.gemini.video._generate_video_with_omni",
                 AsyncMock(return_value=([], OmniVideoUsage())),
             ) as omni,
-            patch(
-                "discord_gemini.cogs.gemini.video._generate_video_with_veo",
-                AsyncMock(return_value=[]),
-            ) as veo,
         ):
             await cog.video.callback(cog, ctx=ctx, prompt="a red ball", model=model)
 
         cog._send_error_followup.assert_not_awaited()
         omni.assert_awaited_once()
         assert omni.await_args.args[1].model == model
-        veo.assert_not_awaited()
-
-    async def test_video_command_routes_veo_to_generate_videos(self):
-        ctx = AsyncMock()
-        ctx.author = MagicMock()
-        ctx.author.id = 111
-        ctx.defer = AsyncMock()
-        ctx.send_followup = AsyncMock()
-        bot = build_mock_bot()
-        bot.loop = asyncio.get_running_loop()
-        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
-            cog = GeminiCog(bot=bot)
-        cog._send_error_followup = AsyncMock()
-
-        with (
-            patch(
-                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
-                AsyncMock(return_value=([], OmniVideoUsage())),
-            ) as omni,
-            patch(
-                "discord_gemini.cogs.gemini.video._generate_video_with_veo",
-                AsyncMock(return_value=[]),
-            ) as veo,
-        ):
-            await cog.video.callback(
-                cog, ctx=ctx, prompt="a red ball", model="veo-3.1-generate-preview"
-            )
-
-        cog._send_error_followup.assert_not_awaited()
-        veo.assert_awaited_once()
-        omni.assert_not_awaited()
-
-    @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
-    def test_each_omni_id_rejects_veo_only_options(self, model):
-        params = VideoGenerationParameters(
-            prompt="x", model=model, duration_seconds=8, negative_prompt="no cats"
-        )
-        error = _validate_omni_video_request(params, None, None)
-        assert error and "duration" in error and "negative_prompt" in error
 
     @pytest.mark.parametrize(("resolution", "shown"), [(None, "720p"), ("1080p", "1080p")])
     async def test_omni_cost_embed_shows_the_requested_resolution(self, resolution, shown):
@@ -960,54 +782,6 @@ class TestOmniUndeliveredVideo:
         assert embed.title == "No Videos Generated"
 
 
-class TestVeoCostEmbed:
-    @pytest.mark.parametrize(
-        ("resolution", "duration_seconds", "expected"),
-        [
-            (None, None, "$0.4000 · 1 video · 8s · $0.40 today"),
-            ("720p", 4, "$0.2000 · 1 video · 4s · 720p · $0.20 today"),
-            ("1080p", 8, "$0.6400 · 1 video · 8s · 1080p · $0.64 today"),
-        ],
-    )
-    async def test_veo_cost_embed_shows_count_duration_and_resolution(
-        self, resolution, duration_seconds, expected
-    ):
-        """Veo is billed per second: the line shows the video count, the duration
-        (8 s when none is requested) and the requested resolution."""
-        ctx = AsyncMock()
-        ctx.author = MagicMock()
-        ctx.author.id = 111
-        ctx.defer = AsyncMock()
-        ctx.send_followup = AsyncMock()
-        bot = build_mock_bot()
-        bot.loop = asyncio.get_running_loop()
-        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
-            cog = GeminiCog(bot=bot)
-        cog._send_error_followup = AsyncMock()
-
-        with (
-            patch("discord_gemini.cogs.gemini.video.SHOW_COST_EMBEDS", True),
-            patch(
-                "discord_gemini.cogs.gemini.video._generate_video_with_veo",
-                AsyncMock(return_value=[b"mp4"]),
-            ),
-        ):
-            await cog.video.callback(
-                cog,
-                ctx=ctx,
-                prompt="a red ball",
-                model="veo-3.1-lite-generate-preview",
-                resolution=resolution,
-                duration_seconds=duration_seconds,
-            )
-
-        cog._send_error_followup.assert_not_awaited()
-        send_kwargs = ctx.send_followup.call_args.kwargs
-        for file in send_kwargs.get("files", []):
-            file.close()
-        assert send_kwargs["embeds"][-1].description == expected
-
-
 class TestOmniVideoValidation:
     def _params(self, **kwargs):
         from discord_gemini.util import VideoGenerationParameters
@@ -1039,19 +813,6 @@ class TestOmniVideoValidation:
         Omni id without one would print an empty list of supported values."""
         assert VIDEO_SUPPORTED_RESOLUTIONS.get(model)
 
-    def test_rejected_option_message_names_what_omni_accepts(self):
-        error = _validate_omni_video_request(self._params(duration_seconds=8), None, None)
-        assert error and "an `aspect_ratio`, a `resolution`" in error
-        assert "first-frame `attachment` and a `last_frame`" in error
-
-    def test_rejects_duration(self):
-        error = _validate_omni_video_request(self._params(duration_seconds=8), None, None)
-        assert error and "duration" in error
-
-    def test_rejects_multiple_videos(self):
-        error = _validate_omni_video_request(self._params(number_of_videos=2), None, None)
-        assert error and "number_of_videos" in error
-
     def test_accepts_a_first_frame_attachment(self):
         assert _validate_omni_video_request(self._params(), MagicMock(), None) is None
 
@@ -1063,25 +824,6 @@ class TestOmniVideoValidation:
         """`<LAST_FRAME>` must be used with `<FIRST_FRAME>` (Omni prompt guide)."""
         error = _validate_omni_video_request(self._params(has_last_frame=True), None, MagicMock())
         assert error and "`last_frame` needs an `attachment`" in error
-
-    @pytest.mark.parametrize(
-        ("kwargs", "named"),
-        [
-            ({"negative_prompt": "no cats"}, "`negative_prompt`"),
-            ({"person_generation": "dont_allow"}, "`person_generation`"),
-            ({"image_resize_mode": "PAD"}, "`image_resize_mode`"),
-            ({"enhance_prompt": False}, "`enhance_prompt`"),
-            ({"enhance_prompt": True}, "`enhance_prompt`"),
-        ],
-    )
-    def test_rejects_options_omni_has_no_equivalent_for(self, kwargs, named):
-        error = _validate_omni_video_request(self._params(**kwargs), MagicMock(), None)
-        assert error and named in error and "Veo 3.1" in error
-
-    def test_default_person_generation_is_not_an_omni_option(self):
-        """`allow_adult` is the slash-command default, so it must not be rejected."""
-        params = self._params(person_generation="allow_adult")
-        assert _validate_omni_video_request(params, None, None) is None
 
     def test_refuses_a_frame_image_over_the_inline_limit(self):
         from discord_gemini.cogs.gemini.video import OMNI_MAX_FRAME_IMAGE_BYTES

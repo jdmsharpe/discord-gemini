@@ -287,7 +287,7 @@ def extract_tool_info(response: Any) -> ToolInfo:
             tool_info["maps_widget_token"] = str(maps_widget_token)
             maps_used = True
 
-        if tool_info["search_queries"]:
+        if tool_info["search_queries"] and not maps_used:
             search_used = True
 
     if search_used:

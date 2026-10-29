@@ -123,7 +123,7 @@ def append_pricing_embed(
     output_tokens: int,
     daily_cost: float,
     thinking_tokens: int = 0,
-    google_maps_grounded: bool = False,
+    google_maps_grounded: bool | int = False,
     cached_tokens: int = 0,
     google_search_queries: int = 0,
     google_search_grounded: bool | int = False,

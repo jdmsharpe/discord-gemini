@@ -64,14 +64,12 @@ from .command_options import (
     MEDIA_RESOLUTION_CHOICES,
     MUSIC_MODEL_CHOICES,
     MUSIC_SCALE_CHOICES,
-    PERSON_GENERATION_CHOICES,
     RESEARCH_AGENT_CHOICES,
     RESEARCH_THINKING_SUMMARY_CHOICES,
     THINKING_LEVEL_CHOICES,
     TTS_MODEL_CHOICES,
     TTS_VOICE_CHOICES,
     VIDEO_ASPECT_RATIO_CHOICES,
-    VIDEO_IMAGE_RESIZE_MODE_CHOICES,
     VIDEO_MODEL_CHOICES,
     VIDEO_RESOLUTION_CHOICES,
 )
@@ -590,7 +588,7 @@ class GeminiCog(commands.Cog):
 
     @gemini_media.command(
         name="video",
-        description="Generates a video based on a prompt using Gemini Omni or Veo.",
+        description="Generates a video based on a prompt using Gemini Omni.",
     )
     @option("prompt", description="Prompt for video generation", required=True, type=str)
     @option(
@@ -609,16 +607,9 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "resolution",
-        description="720p/1080p on Gemini Omni 1.1 Flash; up to 4k on Veo (model-specific). (default: model default)",
+        description="720p or 1080p on Gemini Omni 1.1 Flash. (default: 720p)",
         required=False,
         choices=VIDEO_RESOLUTION_CHOICES,
-        type=str,
-    )
-    @option(
-        "person_generation",
-        description="(Veo only) Control generation of people in videos. (default: allow_adult)",
-        required=False,
-        choices=PERSON_GENERATION_CHOICES,
         type=str,
     )
     @option(
@@ -633,41 +624,6 @@ class GeminiCog(commands.Cog):
         required=False,
         type=Attachment,
     )
-    @option(
-        "number_of_videos",
-        description="Number of videos to generate. Every video model supports only 1 per request.",
-        required=False,
-        type=int,
-        min_value=1,
-        max_value=1,
-    )
-    @option(
-        "duration_seconds",
-        description="(Veo only) Length of each output video in seconds, from 4 to 8 seconds. (default: model default)",
-        required=False,
-        type=int,
-        min_value=4,
-        max_value=8,
-    )
-    @option(
-        "negative_prompt",
-        description="(Veo only) Description of what to discourage. (default: not set)",
-        required=False,
-        type=str,
-    )
-    @option(
-        "enhance_prompt",
-        description="(Veo only) Enable or disable the prompt rewriter. (default: True)",
-        required=False,
-        type=bool,
-    )
-    @option(
-        "image_resize_mode",
-        description="(Veo only) How to fit `attachment`/`last_frame` images to the frame. (default: model default)",
-        required=False,
-        choices=VIDEO_IMAGE_RESIZE_MODE_CHOICES,
-        type=str,
-    )
     async def video(
         self,
         ctx: ApplicationContext,
@@ -675,14 +631,8 @@ class GeminiCog(commands.Cog):
         model: str = "gemini-omni-1.1-flash",
         aspect_ratio: str = "16:9",
         resolution: str | None = None,
-        person_generation: str = "allow_adult",
         attachment: Attachment | None = None,
         last_frame: Attachment | None = None,
-        number_of_videos: int = 1,
-        duration_seconds: int | None = None,
-        negative_prompt: str | None = None,
-        enhance_prompt: bool | None = None,
-        image_resize_mode: str | None = None,
     ) -> None:
         await video_flow.video_command(
             self,
@@ -691,14 +641,8 @@ class GeminiCog(commands.Cog):
             model,
             aspect_ratio,
             resolution,
-            person_generation,
             attachment,
             last_frame,
-            number_of_videos,
-            duration_seconds,
-            negative_prompt,
-            enhance_prompt,
-            image_resize_mode,
         )
 
     @gemini_tools.command(
@@ -914,19 +858,6 @@ class GeminiCog(commands.Cog):
             attachment,
             text_response,
             upload_limit,
-        )
-
-    async def _generate_video_with_veo(
-        self,
-        video_params: VideoGenerationParameters,
-        attachment: Attachment | None = None,
-        last_frame_attachment: Attachment | None = None,
-    ) -> list[bytes]:
-        return await video_flow._generate_video_with_veo(
-            self,
-            video_params,
-            attachment,
-            last_frame_attachment,
         )
 
     async def _create_video_response_embed(

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 from discord import Attachment, Colour, Embed, File
 from discord.commands import ApplicationContext
-from google.genai import types
 from PIL import Image
 
 from ...config.auth import SHOW_COST_EMBEDS
@@ -20,7 +19,6 @@ from ...util import (
     VIDEO_GENERATION_TIMEOUT,
     VideoGenerationParameters,
     calculate_omni_video_cost,
-    calculate_video_cost,
     truncate_text,
 )
 from . import attachments, embeds, state
@@ -30,8 +28,7 @@ from .responses import APICallError
 if TYPE_CHECKING:
     from .cog import GeminiCog
 
-# Gemini Omni generates video via the Interactions API (not the Veo
-# generate_videos path). Every id in OMNI_VIDEO_MODELS takes this code path; the
+# Gemini Omni generates video via the Interactions API. Every id in OMNI_VIDEO_MODELS takes this code path; the
 # GA gemini-omni-1.1-flash, the default video model, is the only one.
 # The request runs in background mode and is polled every OMNI_VIDEO_POLL_INTERVAL
 # seconds (see _generate_video_with_omni). Omni renders 720p unless a resolution is
@@ -57,19 +54,7 @@ _OMNI_TERMINAL_STATUSES = frozenset(
     {"completed", "failed", "cancelled", "requires_action", "budget_exceeded"}
 )
 
-VEO_3_1_MODELS = frozenset(
-    {
-        "veo-3.1-lite-generate-preview",
-        "veo-3.1-generate-preview",
-        "veo-3.1-fast-generate-preview",
-    }
-)
-
-
 VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
-    "veo-3.1-lite-generate-preview": frozenset({"720p", "1080p"}),
-    "veo-3.1-generate-preview": frozenset({"720p", "1080p", "4k"}),
-    "veo-3.1-fast-generate-preview": frozenset({"720p", "1080p", "4k"}),
     # Omni 1.1 (GA) honoured 1080p with a real 1920x1080 avc1 MP4 (live probe
     # 2026-08-28). Its docs also list 360p and 4k (upscaled), but neither was probed
     # and no per-resolution price exists, so they are refused as not yet supported.
@@ -91,130 +76,6 @@ def _attachment_image_mime_type(data: bytes, attachment: Attachment) -> str:
             raise ValueError("Could not determine the image format of the attachment.")
         mime_type = f"image/{detected.lower()}"
     return mime_type
-
-
-def _build_veo_image(data: bytes, attachment: Attachment) -> types.Image:
-    """Wrap raw attachment bytes in a `types.Image` for the Veo image inputs.
-
-    A `PIL.Image` cannot be used here: pydantic coerces it to an all-`None`
-    `types.Image` without raising, which the API rejects with "Input instance with
-    image should contain both bytesBase64Encoded and mimeType".
-    """
-
-    return types.Image(image_bytes=data, mime_type=_attachment_image_mime_type(data, attachment))
-
-
-def _validate_video_request(
-    *,
-    model: str,
-    aspect_ratio: str,
-    resolution: str | None,
-    number_of_videos: int,
-    duration_seconds: int | None,
-    has_last_frame: bool,
-) -> str | None:
-    """Validate request combinations against the current Veo model limits."""
-    if has_last_frame and model not in VEO_3_1_MODELS:
-        return "The `last_frame` parameter is only supported on Veo 3.1 models."
-
-    if number_of_videos != 1:
-        return "The `number_of_videos` parameter only supports `1` on Veo 3.x and Veo 3.1 models."
-
-    if duration_seconds is not None and duration_seconds not in {4, 6, 8}:
-        return "This Veo model only supports 4, 6, or 8 second videos."
-
-    if resolution is not None:
-        supported_resolutions = VIDEO_SUPPORTED_RESOLUTIONS.get(model, frozenset())
-        if resolution not in supported_resolutions:
-            supported_list = (
-                ", ".join(sorted(supported_resolutions)) or "no explicit resolution values"
-            )
-            return f"The `{resolution}` resolution is not supported on `{model}`. Supported values: {supported_list}."
-
-        if resolution == "4k" and aspect_ratio != "16:9":
-            return "4k output is only supported with a `16:9` aspect ratio."
-
-        if resolution in {"1080p", "4k"} and duration_seconds not in (None, 8):
-            return f"The `{resolution}` resolution only supports 8 second videos."
-
-    if has_last_frame and duration_seconds not in (None, 8):
-        return "Interpolation with `last_frame` only supports 8 second videos on Veo 3.1 models."
-
-    return None
-
-
-async def _generate_video_with_veo(
-    cog: "GeminiCog",
-    video_params: VideoGenerationParameters,
-    attachment: Attachment | None = None,
-    last_frame_attachment: Attachment | None = None,
-) -> list[bytes]:
-    """Generate videos using Veo models with generate_videos.
-
-    Returns the raw bytes of each generated video held in memory. Nothing is
-    written to disk, so concurrent invocations cannot collide and no temporary
-    files are ever left behind.
-    """
-
-    config_dict = video_params.to_dict()
-
-    if last_frame_attachment:
-        last_frame_data = await attachments._fetch_attachment_bytes(cog, last_frame_attachment)
-        if last_frame_data:
-            try:
-                config_dict["last_frame"] = _build_veo_image(last_frame_data, last_frame_attachment)
-            except Exception as error:
-                cog.logger.warning("Failed to open last_frame attachment: %s", error)
-
-    # The prompt/image arguments are deprecated since google-genai 2.14.0; the
-    # inputs go through `source` instead. `last_frame` stays on the config.
-    source_image: types.Image | None = None
-    if attachment:
-        image_data = await attachments._fetch_attachment_bytes(cog, attachment)
-        if image_data:
-            try:
-                source_image = _build_veo_image(image_data, attachment)
-            except Exception as error:
-                cog.logger.warning("Failed to open attachment for video generation: %s", error)
-
-    operation = await cog.client.aio.models.generate_videos(
-        model=video_params.model,
-        source=types.GenerateVideosSource(prompt=video_params.prompt, image=source_image),
-        config=types.GenerateVideosConfig(**config_dict),
-    )
-    cog.logger.info("Started video generation operation: %s", operation.name)
-
-    start_time = time.time()
-    poll_interval = 20
-    while not operation.done:
-        if time.time() - start_time > VIDEO_GENERATION_TIMEOUT:
-            raise TimeoutError("Video generation timed out after 10 minutes")
-        await asyncio.sleep(poll_interval)
-        operation = await cog.client.aio.operations.get(operation)
-        cog.logger.debug("Operation status: %s", operation.done)
-
-    generated_videos: list[bytes] = []
-    if (
-        hasattr(operation, "response")
-        and operation.response
-        and hasattr(operation.response, "generated_videos")
-        and operation.response.generated_videos
-    ):
-        for index, generated_video in enumerate(operation.response.generated_videos):
-            if hasattr(generated_video, "video") and generated_video.video:
-                try:
-                    await asyncio.to_thread(cog.client.files.download, file=generated_video.video)
-                    video_bytes = generated_video.video.video_bytes
-                    if video_bytes:
-                        generated_videos.append(video_bytes)
-                        cog.logger.info(
-                            "Downloaded video %d (%d bytes)", index + 1, len(video_bytes)
-                        )
-                    else:
-                        cog.logger.error("Video %d downloaded but contained no bytes", index + 1)
-                except Exception as error:
-                    cog.logger.error("Failed to download video %d: %s", index + 1, error)
-    return generated_videos
 
 
 def _interaction_error_message(interaction: Any) -> str:
@@ -508,7 +369,8 @@ def _validate_omni_video_request(
     (2026-08-28), so a shorter clip saves nothing.
     """
 
-    unsupported: list[str] = []
+    if video_params.model not in OMNI_VIDEO_MODELS:
+        return "Choose a supported Gemini Omni video model."
     supported_resolutions = VIDEO_SUPPORTED_RESOLUTIONS.get(video_params.model, frozenset())
     if video_params.resolution and video_params.resolution not in supported_resolutions:
         supported_list = ", ".join(sorted(supported_resolutions, key=lambda value: int(value[:-1])))
@@ -529,26 +391,6 @@ def _validate_omni_video_request(
                 f"images are sent inline and must be "
                 f"{OMNI_MAX_FRAME_IMAGE_BYTES // (1024 * 1024)} MB or smaller."
             )
-    if video_params.duration_seconds is not None:
-        unsupported.append("`duration`")
-    if video_params.negative_prompt:
-        unsupported.append("`negative_prompt`")
-    if video_params.number_of_videos and video_params.number_of_videos > 1:
-        unsupported.append("`number_of_videos` > 1")
-    if video_params.person_generation and video_params.person_generation != "allow_adult":
-        unsupported.append("`person_generation`")
-    if video_params.image_resize_mode:
-        unsupported.append("`image_resize_mode`")
-    if video_params.enhance_prompt is not None:
-        unsupported.append("`enhance_prompt`")
-
-    if unsupported:
-        joined = ", ".join(unsupported)
-        return (
-            "Gemini Omni supports an `aspect_ratio`, a `resolution`, a first-frame "
-            f"`attachment` and a `last_frame`. Remove {joined}, or choose a Veo 3.1 model "
-            "for those features."
-        )
     return None
 
 
@@ -574,29 +416,13 @@ async def _create_video_response_embed(
         description += "**Mode:** Interpolation (First + Last Frame)\n"
     elif attachment:
         description += "**Mode:** Image-to-Video\n"
-    elif video_params.has_last_frame:
-        description += "**Mode:** Last Frame Constrained\n"
     else:
         description += "**Mode:** Text-to-Video\n"
     description += f"**Number of Videos:** {len(generated_videos)}"
-    if video_params.number_of_videos and video_params.number_of_videos > len(generated_videos):
-        description += f" (requested: {video_params.number_of_videos})"
     if video_params.aspect_ratio:
         description += f"\n**Aspect Ratio:** {video_params.aspect_ratio}"
     if video_params.resolution:
         description += f"\n**Resolution:** {video_params.resolution}"
-    if video_params.image_resize_mode and (attachment or video_params.has_last_frame):
-        description += f"\n**Image Resize Mode:** {video_params.image_resize_mode}"
-    if video_params.person_generation and video_params.person_generation != "allow_adult":
-        description += f"\n**Person Generation:** {video_params.person_generation}"
-    if video_params.duration_seconds:
-        description += f"\n**Duration:** {video_params.duration_seconds} seconds"
-    if video_params.negative_prompt:
-        description += f"\n**Negative Prompt:** {video_params.negative_prompt}"
-    if video_params.enhance_prompt is not None:
-        description += (
-            f"\n**Prompt Enhancement:** {'Enabled' if video_params.enhance_prompt else 'Disabled'}"
-        )
 
     return (
         Embed(title="Video Generation", description=description, color=embeds.GEMINI_BLUE),
@@ -611,14 +437,8 @@ async def video_command(
     model: str,
     aspect_ratio: str,
     resolution: str | None,
-    person_generation: str,
     attachment: Attachment | None,
     last_frame: Attachment | None,
-    number_of_videos: int,
-    duration_seconds: int | None,
-    negative_prompt: str | None,
-    enhance_prompt: bool | None,
-    image_resize_mode: str | None = None,
 ) -> None:
     """Run the `/gemini-media video` command."""
 
@@ -640,28 +460,10 @@ async def video_command(
             model=model,
             aspect_ratio=aspect_ratio,
             resolution=resolution,
-            person_generation=person_generation,
-            negative_prompt=negative_prompt,
-            number_of_videos=number_of_videos,
-            duration_seconds=duration_seconds,
-            enhance_prompt=enhance_prompt,
             has_last_frame=last_frame is not None,
-            image_resize_mode=image_resize_mode,
         )
 
-        is_omni = model in OMNI_VIDEO_MODELS
-        validation_error = (
-            _validate_omni_video_request(video_params, attachment, last_frame)
-            if is_omni
-            else _validate_video_request(
-                model=model,
-                aspect_ratio=aspect_ratio,
-                resolution=resolution,
-                number_of_videos=number_of_videos,
-                duration_seconds=duration_seconds,
-                has_last_frame=last_frame is not None,
-            )
-        )
+        validation_error = _validate_omni_video_request(video_params, attachment, last_frame)
         if validation_error:
             await send_embed_batches(
                 ctx.send_followup,
@@ -670,22 +472,13 @@ async def video_command(
             )
             return
 
-        omni_usage = OmniVideoUsage()
-        if is_omni:
-            generated_videos, omni_usage = await _generate_video_with_omni(
-                cog, video_params, attachment, last_frame
-            )
-        else:
-            generated_videos = await _generate_video_with_veo(
-                cog,
-                video_params,
-                attachment,
-                last_frame,
-            )
+        generated_videos, omni_usage = await _generate_video_with_omni(
+            cog, video_params, attachment, last_frame
+        )
 
         delivered = bool(generated_videos)
         # Google bills a completed Omni clip whether or not the bot can deliver it.
-        billed_undelivered = is_omni and not delivered and omni_usage.video_output_tokens > 0
+        billed_undelivered = not delivered and omni_usage.video_output_tokens > 0
         if not delivered and not billed_undelivered:
             await send_embed_batches(
                 ctx.send_followup,
@@ -703,33 +496,20 @@ async def video_command(
             return
 
         num_videos = len(generated_videos)
-        est_duration = video_params.duration_seconds or 8
-        if is_omni:
-            # Exact from usage. The token count says nothing about the clip
-            # length, so no duration is derived or shown for Omni.
-            cost = calculate_omni_video_cost(
-                model,
-                omni_usage.video_output_tokens,
-                input_tokens=omni_usage.input_tokens,
-                text_output_tokens=omni_usage.text_output_tokens,
-            )
-            logged_resolution = video_params.resolution or OMNI_DEFAULT_VIDEO_RESOLUTION
-            cost_details: dict[str, Any] = {
-                "video_tokens": omni_usage.video_output_tokens,
-                "input_tokens": omni_usage.input_tokens,
-                "text_output_tokens": omni_usage.text_output_tokens,
-                "thinking_tokens": omni_usage.thinking_tokens,
-                "delivered": delivered,
-            }
-        else:
-            cost = calculate_video_cost(
-                model,
-                est_duration,
-                num_videos,
-                resolution=video_params.resolution,
-            )
-            logged_resolution = video_params.resolution or "model_default"
-            cost_details = {"duration_seconds": est_duration}
+        cost = calculate_omni_video_cost(
+            model,
+            omni_usage.video_output_tokens,
+            input_tokens=omni_usage.input_tokens,
+            text_output_tokens=omni_usage.text_output_tokens,
+        )
+        logged_resolution = video_params.resolution or OMNI_DEFAULT_VIDEO_RESOLUTION
+        cost_details: dict[str, Any] = {
+            "video_tokens": omni_usage.video_output_tokens,
+            "input_tokens": omni_usage.input_tokens,
+            "text_output_tokens": omni_usage.text_output_tokens,
+            "thinking_tokens": omni_usage.thinking_tokens,
+            "delivered": delivered,
+        }
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
             "video",
@@ -762,19 +542,13 @@ async def video_command(
         response_embeds = [embed]
         if SHOW_COST_EMBEDS:
             video_details = [count_label(num_videos, "video")]
-            if is_omni:
-                video_details.append(logged_resolution)
-            else:
-                video_details.append(f"{est_duration}s")
-                if video_params.resolution:
-                    video_details.append(video_params.resolution)
-            # Omni bills its input, video and text tokens; Veo bills per second.
+            video_details.append(logged_resolution)
             pricing_desc = format_cost_line(
                 cost,
                 daily_cost,
-                input_tokens=(omni_usage.input_tokens or None) if is_omni else None,
-                output_tokens=(omni_usage.output_tokens or None) if is_omni else None,
-                thinking_tokens=omni_usage.thinking_tokens if is_omni else 0,
+                input_tokens=omni_usage.input_tokens or None,
+                output_tokens=omni_usage.output_tokens or None,
+                thinking_tokens=omni_usage.thinking_tokens,
                 details=video_details,
             )
             response_embeds.append(Embed(description=pricing_desc, color=embeds.GEMINI_BLUE))
@@ -793,8 +567,6 @@ __all__ = [
     "OmniVideoUsage",
     "_create_video_response_embed",
     "_generate_video_with_omni",
-    "_generate_video_with_veo",
     "_validate_omni_video_request",
-    "_validate_video_request",
     "video_command",
 ]

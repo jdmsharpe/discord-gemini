@@ -167,6 +167,7 @@ async def _generate_music_with_lyria3(
             model=music_params.model,
             contents=await _build_lyria3_music_contents(cog, music_params, attachment),
             config=types.GenerateContentConfig(
+                store=False,
                 response_modalities=["AUDIO", "TEXT"],
                 automatic_function_calling=disable_afc(),
             ),

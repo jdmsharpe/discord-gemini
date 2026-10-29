@@ -2,7 +2,7 @@
 #
 # Canonical source: https://ai.google.dev/pricing
 # Cross-referenced against: https://github.com/pydantic/genai-prices/blob/main/prices/providers/google.yml
-# Last-verified: 2026-10-15 (every row re-verified against the live page, except
+# Last-verified: 2026-10-28 (every row re-verified against the live page, except
 # gemini-3.7-flash and gemini-3.5-flash: the page no longer lists them, and their
 # rates are those of the models Google routes them to, gemini-3.8-flash and
 # gemini-3.6-flash)

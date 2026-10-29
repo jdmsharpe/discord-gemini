@@ -1,4 +1,4 @@
-"""Guard tests: no request may leave the SDK's automatic function calling enabled.
+"""Guard tests: requests disable SDK function calling and request storage.
 
 Custom tools are executed by ``chat._run_agentic_loop``, never by the SDK. Leaving
 AFC nominally on also routes ``generate_content`` through the SDK's AFC wrapper,
@@ -17,6 +17,7 @@ def assert_afc_disabled(config) -> None:
     """Assert a GenerateContentConfig opts out of SDK-side function execution."""
 
     assert config is not None
+    assert config.store is False
     assert config.automatic_function_calling is not None
     assert config.automatic_function_calling.disable is True
 
@@ -89,6 +90,8 @@ class TestAutomaticFunctionCallingDisabled(AsyncGeminiCogTestCase):
             total_cached_tokens=0,
             total_tool_use_prompt_tokens=0,
             total_search_queries=0,
+            total_maps_queries=0,
+            maps_grounded_prompts=0,
             search_grounded_prompts=0,
         )
 
@@ -140,6 +143,8 @@ class TestAutomaticFunctionCallingDisabled(AsyncGeminiCogTestCase):
             total_cached_tokens=0,
             total_tool_use_prompt_tokens=0,
             total_search_queries=0,
+            total_maps_queries=0,
+            maps_grounded_prompts=0,
             search_grounded_prompts=0,
         )
 

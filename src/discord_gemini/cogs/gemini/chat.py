@@ -72,6 +72,12 @@ async def _run_agentic_loop(
         result.total_search_queries += search_queries
         if search_queries:
             result.search_grounded_prompts += 1
+        tool_info = responses.extract_tool_info(response)
+        if "google_maps" in tool_info["tools_used"]:
+            result.maps_grounded_prompts += 1
+            # Maps-only responses report Maps queries in web_search_queries.
+            # Search and Maps are mutually exclusive in the command validator.
+            result.total_maps_queries += len(tool_info["search_queries"]) or 1
 
         function_calls = response.function_calls
         if not function_calls:
@@ -272,7 +278,7 @@ async def handle_new_message_in_conversation(
         apply_agentic_video_processing(user_parts, params.model)
         history.append({"role": "user", "parts": user_parts})
 
-        config_args: dict[str, Any] = {"automatic_function_calling": disable_afc()}
+        config_args: dict[str, Any] = {"automatic_function_calling": disable_afc(), "store": False}
         if params.cache_name:
             config_args["cached_content"] = params.cache_name
         elif params.system_instruction:
@@ -384,7 +390,11 @@ async def handle_new_message_in_conversation(
         output_tokens = result.total_output_tokens
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
-        maps_grounded = "google_maps" in tool_info.get("tools_used", [])
+        maps_grounded = (
+            result.maps_grounded_prompts
+            if params.model.startswith("gemini-2.")
+            else result.total_maps_queries
+        )
         search_billed = _search_tool_enabled(config_args.get("tools", []))
         search_queries = result.total_search_queries if search_billed else 0
         search_grounded_prompts = result.search_grounded_prompts if search_billed else 0
@@ -409,7 +419,8 @@ async def handle_new_message_in_conversation(
             output_tokens=output_tokens,
             thinking_tokens=thinking_tokens,
             cached_tokens=cached_tokens,
-            google_maps_grounded=maps_grounded,
+            google_maps_grounded=bool(maps_grounded),
+            google_maps_queries=result.total_maps_queries,
             google_search_queries=search_queries,
         )
         if SHOW_COST_EMBEDS:
@@ -646,7 +657,7 @@ async def chat_command(
                 typing_task.cancel()
             return
 
-        config_args: dict[str, Any] = {"automatic_function_calling": disable_afc()}
+        config_args: dict[str, Any] = {"automatic_function_calling": disable_afc(), "store": False}
         if system_instruction is not None:
             config_args["system_instruction"] = system_instruction
         if frequency_penalty is not None:
@@ -786,7 +797,11 @@ async def chat_command(
         output_tokens = result.total_output_tokens
         thinking_tokens = result.total_thinking_tokens
         cached_tokens = result.total_cached_tokens
-        maps_grounded = "google_maps" in tool_info.get("tools_used", [])
+        maps_grounded = (
+            result.maps_grounded_prompts
+            if model.startswith("gemini-2.")
+            else result.total_maps_queries
+        )
         search_billed = _search_tool_enabled(tools)
         search_queries = result.total_search_queries if search_billed else 0
         search_grounded_prompts = result.search_grounded_prompts if search_billed else 0
@@ -811,7 +826,8 @@ async def chat_command(
             output_tokens=output_tokens,
             thinking_tokens=thinking_tokens,
             cached_tokens=cached_tokens,
-            google_maps_grounded=maps_grounded,
+            google_maps_grounded=bool(maps_grounded),
+            google_maps_queries=result.total_maps_queries,
             google_search_queries=search_queries,
         )
         if SHOW_COST_EMBEDS:

@@ -15,12 +15,10 @@ from discord_gemini.cogs.gemini.command_options import (
     CHAT_MODEL_CHOICES,
     IMAGE_MODEL_CHOICES,
     MUSIC_MODEL_CHOICES,
-    PERSON_GENERATION_CHOICES,
     RESEARCH_THINKING_SUMMARY_CHOICES,
     THINKING_LEVEL_CHOICES,
     TTS_MODEL_CHOICES,
     TTS_VOICE_CHOICES,
-    VIDEO_MODEL_CHOICES,
     VIDEO_RESOLUTION_CHOICES,
 )
 from tests.support import AsyncGeminiCogTestCase, build_mock_bot
@@ -588,8 +586,6 @@ def test_critical_choice_values_present():
     assert any(choice.value == "gemini-nano-banana-2.1" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-image" for choice in IMAGE_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.1-flash-lite-image" for choice in IMAGE_MODEL_CHOICES)
-    assert any(choice.value == "veo-3.1-lite-generate-preview" for choice in VIDEO_MODEL_CHOICES)
-    assert any(choice.value == "veo-3.1-generate-preview" for choice in VIDEO_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.8-flash-tts" for choice in TTS_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.8-flash-lite-tts" for choice in TTS_MODEL_CHOICES)
     assert any(choice.value == "gemini-2.5-flash-preview-tts" for choice in TTS_MODEL_CHOICES)
@@ -679,11 +675,6 @@ def test_thinking_level_choice_set():
     assert values == {"minimal", "low", "medium", "high"}
 
 
-def test_person_generation_choice_set():
-    values = {choice.value for choice in PERSON_GENERATION_CHOICES}
-    assert values == {"dont_allow", "allow_adult", "allow_all"}
-
-
 def test_research_thinking_summary_choice_set():
     values = {choice.value for choice in RESEARCH_THINKING_SUMMARY_CHOICES}
     assert values == {"auto", "none"}
@@ -691,7 +682,7 @@ def test_research_thinking_summary_choice_set():
 
 def test_video_resolution_choice_set():
     values = {choice.value for choice in VIDEO_RESOLUTION_CHOICES}
-    assert values == {"720p", "1080p", "4k"}
+    assert values == {"720p", "1080p"}
 
 
 class TestGeminiImageResponseText:
