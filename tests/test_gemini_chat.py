@@ -735,6 +735,81 @@ class TestGeminiChatSearchBilling(AsyncGeminiCogTestCase):
 
         assert log_cost.call_args.kwargs["google_search_queries"] == billed_queries
 
+    def _follow_up_conversation_and_message(self, *, content: str, stickers: list):
+        from discord_gemini.cogs.gemini.models import Conversation
+        from discord_gemini.util import ChatCompletionParameters
+
+        author = MagicMock()
+        message = MagicMock()
+        message.author = author
+        message.attachments = []
+        message.content = content
+        message.stickers = stickers
+        message.channel = MagicMock()
+        message.reply = AsyncMock(return_value=MagicMock(id=555, edit=AsyncMock()))
+        history = [
+            {"role": "user", "parts": [{"text": "Hi"}]},
+            {"role": "model", "parts": [{"text": "I am ready. Send it!"}]},
+        ]
+        conversation = Conversation(
+            params=ChatCompletionParameters(
+                model="gemini-4-argon",
+                conversation_id=100,
+                conversation_starter=author,
+            ),
+            history=list(history),
+        )
+        self.cog.conversations[100] = conversation
+        return conversation, message, history
+
+    async def test_sticker_only_follow_up_sends_the_sticker_name(self):
+        """A sticker-only message has no text and no attachments. It used to append a
+        user turn with no parts, so the request ended on a model turn (400
+        INVALID_ARGUMENT) and the error path removed the conversation; the sticker's
+        name is now the turn's text."""
+        from discord_gemini.cogs.gemini.chat import handle_new_message_in_conversation
+
+        conversation, message, history = self._follow_up_conversation_and_message(
+            content="", stickers=[SimpleNamespace(name="EEYUP")]
+        )
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+            patch.object(self.cog, "_log_cost"),
+        ):
+            await handle_new_message_in_conversation(self.cog, message, conversation)
+
+        loop.assert_awaited_once()
+        assert conversation.history[: len(history)] == history
+        assert conversation.history[len(history)] == {
+            "role": "user",
+            "parts": [{"text": "[Sticker: EEYUP]"}],
+        }
+        assert self.cog.conversations[100] is conversation
+
+    async def test_follow_up_with_nothing_to_send_is_ignored_and_keeps_the_conversation(self):
+        """A message with no text, no sticker and no attachment would append a user turn
+        with no parts, which Gemini rejects; it is ignored with the history unchanged."""
+        from discord_gemini.cogs.gemini.chat import handle_new_message_in_conversation
+
+        conversation, message, history = self._follow_up_conversation_and_message(
+            content="", stickers=[]
+        )
+        loop = AsyncMock()
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await handle_new_message_in_conversation(self.cog, message, conversation)
+
+        loop.assert_not_awaited()
+        message.reply.assert_not_awaited()
+        assert self.cog.conversations[100] is conversation
+        assert conversation.history == history
+
     def test_search_tool_detection(self):
         from discord_gemini.cogs.gemini.chat import _search_tool_enabled
 

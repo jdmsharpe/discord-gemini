@@ -154,6 +154,7 @@ docker compose up
 - When Lyria 3 returns long lyrics or structure notes, keep a short embed preview and attach the full text as `music_notes.txt`.
 - Attachment MIME handling explicitly normalizes `.opus`, `.alaw`, and `.mulaw` inputs to `audio/opus`, `audio/alaw`, and `audio/mulaw` for both Discord attachments and URL-based file inputs.
 - Discord caps message embeds at 10 per message and 6000 total characters; `discord_gemini.cogs.gemini.embed_delivery.pack_embeds` enforces both, and `send_embed_batches` falls back to plain-text chunks if Discord rejects an embed batch.
+- **Stickers are sent as text (v1.19.1).** A Discord sticker arrives with empty `content` and no `attachments`; `handle_new_message_in_conversation` (`chat.py`) sends each sticker in `message.stickers` as a `[Sticker: <name>]` line after the message text, built by `text_with_stickers` in `stickers.py`, which is byte-identical in the five AI bots (change all five together). The sticker image is not sent. A follow-up with nothing to send (no text, no sticker, no attachment that yields content) is ignored and the conversation stays open. Before, discord-openai, discord-gemini and discord-claude sent an empty turn, got a 400, and the error path removed the conversation; discord-grok and discord-openrouter dropped a sticker-only message without a reply. Pinned by `tests/test_stickers.py` and the sticker follow-up tests in `tests/test_gemini_chat.py`.
 
 ## Runtime Conventions (Cross-Project)
 

@@ -11,6 +11,7 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from ...config.auth import ENABLE_CUSTOM_TOOLS, SHOW_COST_EMBEDS
+from ...stickers import text_with_stickers
 from ...util import (
     AGENTIC_VIDEO_MODELS,
     MAX_AGENTIC_ITERATIONS,
@@ -273,8 +274,18 @@ async def handle_new_message_in_conversation(
                 if attachment_part is not None:
                     user_parts.append(attachment_part)
 
-        if message.content:
-            user_parts.append({"text": message.content})
+        text = text_with_stickers(message.content, message.stickers)
+        if text:
+            user_parts.append({"text": text})
+        if not user_parts:
+            # No text, no sticker and no attachment that yields a part: an empty user turn
+            # leaves the request ending on a model turn (400), and the error path below
+            # would end the conversation.
+            cog.logger.debug(
+                "Ignoring follow-up with nothing to send in conversation %s.",
+                params.conversation_id,
+            )
+            return
         apply_agentic_video_processing(user_parts, params.model)
         history.append({"role": "user", "parts": user_parts})
 

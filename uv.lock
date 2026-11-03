@@ -679,7 +679,7 @@ wheels = [
 
 [[package]]
 name = "discord-gemini"
-version = "1.19.0"
+version = "1.19.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
