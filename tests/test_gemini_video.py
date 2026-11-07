@@ -15,6 +15,8 @@ from discord_gemini.cogs.gemini.video import (
     VIDEO_SUPPORTED_RESOLUTIONS,
     OmniVideoUsage,
     _attachment_image_mime_type,
+    _create_video_response_embed,
+    _estimate_omni_video_bytes,
     _extract_omni_video_usage,
     _generate_video_with_omni,
     _validate_omni_video_request,
@@ -27,6 +29,9 @@ from discord_gemini.util import (
     calculate_omni_video_cost,
 )
 from tests.support import AsyncGeminiCogTestCase, build_mock_bot
+
+OMNI_11 = "gemini-omni-1.1-flash"
+OMNI_12 = "gemini-omni-1.2-flash"
 
 
 def _encoded_image(fmt: str) -> bytes:
@@ -541,7 +546,7 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
             thinking_tokens=384,
         )
         cost = calculate_omni_video_cost(
-            DEFAULT_OMNI_VIDEO_MODEL,
+            OMNI_11,
             result.video_output_tokens,
             input_tokens=result.input_tokens,
             text_output_tokens=result.text_output_tokens,
@@ -553,8 +558,8 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
         assert _extract_omni_video_usage(SimpleNamespace(usage=None)) == OmniVideoUsage()
 
     def test_omni_is_default_and_first_choice(self):
-        """gemini-omni-1.1-flash (GA 2026-08-27) is the default and heads the picker."""
-        assert DEFAULT_OMNI_VIDEO_MODEL == "gemini-omni-1.1-flash"
+        """gemini-omni-1.2-flash is the default and heads the picker."""
+        assert DEFAULT_OMNI_VIDEO_MODEL == OMNI_12
         assert VIDEO_MODEL_CHOICES[0].value == DEFAULT_OMNI_VIDEO_MODEL
         default = inspect.signature(self.cog.video.callback).parameters["model"].default
         assert default == DEFAULT_OMNI_VIDEO_MODEL
@@ -563,9 +568,9 @@ class TestOmniVideoGeneration(AsyncGeminiCogTestCase):
 class TestOmniVideoModels:
     """Every id in OMNI_VIDEO_MODELS must route through the Omni path."""
 
-    def test_ga_id_is_the_only_omni_id(self):
-        """gemini-omni-flash-preview shuts down 2026-10-22 and was removed from routing."""
-        assert {"gemini-omni-1.1-flash"} == OMNI_VIDEO_MODELS
+    def test_1_2_and_1_1_are_the_omni_ids(self):
+        """gemini-omni-flash-preview was removed from routing."""
+        assert {OMNI_12, OMNI_11} == OMNI_VIDEO_MODELS
         assert DEFAULT_OMNI_VIDEO_MODEL in OMNI_VIDEO_MODELS
         for veo in ("veo-3.1-generate-preview", "veo-3.1-lite-generate-preview"):
             assert veo not in OMNI_VIDEO_MODELS
@@ -582,13 +587,13 @@ class TestOmniVideoModels:
         """Retired ids keep their pricing row so historical costs stay correct."""
         assert VIDEO_TOKEN_PRICING["gemini-omni-flash-preview"] == 17.50
 
-    @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
-    def test_each_omni_id_is_priced_at_17_50_per_million(self, model):
-        # The unknown-model fallback happens to be 17.50 too, so pin the explicit
-        # row's presence as well as its rate: a dropped row must fail here.
+    @pytest.mark.parametrize(("model", "rate"), [(OMNI_12, 12.00), (OMNI_11, 17.50)])
+    def test_each_omni_id_is_priced_at_its_own_video_rate(self, model, rate):
+        # The unknown-model fallback is 17.50, so pin the explicit row's presence as
+        # well as its rate: a dropped row must fail here.
         assert model in VIDEO_TOKEN_PRICING
-        assert VIDEO_TOKEN_PRICING[model] == 17.50
-        assert calculate_omni_video_cost(model, 1_000_000) == pytest.approx(17.50)
+        assert VIDEO_TOKEN_PRICING[model] == rate
+        assert calculate_omni_video_cost(model, 1_000_000) == pytest.approx(rate)
 
     @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
     async def test_video_command_routes_each_omni_id_to_the_interactions_path(self, model):
@@ -619,8 +624,7 @@ class TestOmniVideoModels:
     @pytest.mark.parametrize(("resolution", "shown"), [(None, "720p"), ("1080p", "1080p")])
     async def test_omni_cost_embed_shows_the_requested_resolution(self, resolution, shown):
         """The label is the REQUESTED resolution (720p by default), and no duration is
-        derived from the token count: a 3 s 1080p clip billed the same 57,920 tokens
-        as a default 720p clip, so the old `~10s 720p` label was simply wrong."""
+        derived from the token count; the duration shown is the default length."""
         ctx = AsyncMock()
         ctx.author = MagicMock()
         ctx.author.id = 111
@@ -655,12 +659,12 @@ class TestOmniVideoModels:
         pricing = send_kwargs["embeds"][-1].description
         cost = calculate_omni_video_cost(DEFAULT_OMNI_VIDEO_MODEL, 57920)
         assert pricing == (
-            f"{format_request_cost(cost)} · 57.9k out · 1 video · {shown}"
+            f"{format_request_cost(cost)} · 57.9k out · 1 video · {shown} · 10s"
             f" · {format_daily_total(cost)} today"
         )
         assert log_cost.call_args.kwargs["resolution"] == shown
         assert log_cost.call_args.kwargs["video_tokens"] == 57920
-        assert "duration_seconds" not in log_cost.call_args.kwargs
+        assert log_cost.call_args.kwargs["duration_seconds"] == 10
 
     async def test_omni_image_to_video_forwards_frames_and_bills_every_token(self):
         """Both images reach the Omni path, and the input image tokens and the
@@ -708,7 +712,7 @@ class TestOmniVideoModels:
         assert (
             "**Mode:** Interpolation (First + Last Frame)" in send_kwargs["embeds"][0].description
         )
-        cost = 57_920 * 17.50 / 1e6 + 2_600 * 1.50 / 1e6 + 500 * 9.00 / 1e6
+        cost = 57_920 * 12.00 / 1e6 + 2_600 * 1.50 / 1e6 + 500 * 9.00 / 1e6
         assert pricing_equal(send_kwargs["embeds"][-1].description, cost)
         assert log_cost.call_args.args[3] == pytest.approx(cost)
         assert log_cost.call_args.kwargs["input_tokens"] == 2_600
@@ -717,7 +721,7 @@ class TestOmniVideoModels:
 
 def pricing_equal(line: str, cost: float) -> bool:
     return line == (
-        f"{format_request_cost(cost)} · 2.6k in / 58.4k out (500 thinking) · 1 video · 720p"
+        f"{format_request_cost(cost)} · 2.6k in / 58.4k out (500 thinking) · 1 video · 720p · 10s"
         f" · {format_daily_total(cost)} today"
     )
 
@@ -769,7 +773,7 @@ class TestOmniUndeliveredVideo:
         assert "billed" in send_kwargs["embeds"][0].description
         assert "safety filters" not in send_kwargs["embeds"][0].description
         assert send_kwargs["embeds"][-1].description == (
-            f"{format_request_cost(cost)} · 24 in / 58.6k out (300 thinking) · 0 videos · 720p"
+            f"{format_request_cost(cost)} · 24 in / 58.6k out (300 thinking) · 0 videos · 720p · 10s"
             f" · {format_daily_total(cost)} today"
         )
         assert not send_kwargs.get("files")
@@ -797,15 +801,44 @@ class TestOmniVideoValidation:
     def test_accepts_probed_resolutions_on_the_ga_id(self, resolution):
         assert _validate_omni_video_request(self._params(resolution=resolution), None, None) is None
 
-    def test_refuses_4k_on_the_ga_id_as_not_yet_supported(self):
-        """4k and 360p are documented for Omni but were never probed and have no price
-        row, so the 1.1 id refuses them explicitly instead of passing them through."""
-        error = _validate_omni_video_request(self._params(resolution="4k"), None, None)
-        assert error and "`4k`" in error and "not yet supported for Gemini Omni" in error
+    @pytest.mark.parametrize("resolution", ["360p", "4k"])
+    def test_refuses_360p_and_4k_on_omni_1_1(self, resolution):
+        params = self._params(model=OMNI_11, resolution=resolution)
+        error = _validate_omni_video_request(params, None, None)
+        assert error and f"`{resolution}`" in error and "not yet supported for Gemini Omni" in error
         assert "720p, 1080p" in error
 
-    def test_ga_id_supported_resolutions_are_exactly_the_probed_pair(self):
-        assert VIDEO_SUPPORTED_RESOLUTIONS[DEFAULT_OMNI_VIDEO_MODEL] == {"720p", "1080p"}
+    def test_supported_resolutions_per_model(self):
+        assert VIDEO_SUPPORTED_RESOLUTIONS[OMNI_11] == {"720p", "1080p"}
+        assert VIDEO_SUPPORTED_RESOLUTIONS[OMNI_12] == {"360p", "720p", "1080p", "4k"}
+
+    def test_menu_values_equal_the_default_models_supported_resolutions(self):
+        from discord_gemini.cogs.gemini.command_options import VIDEO_RESOLUTION_CHOICES
+
+        menu = {choice.value for choice in VIDEO_RESOLUTION_CHOICES}
+        assert menu == VIDEO_SUPPORTED_RESOLUTIONS[DEFAULT_OMNI_VIDEO_MODEL]
+
+    @pytest.mark.parametrize(
+        ("model", "duration", "has_last_frame", "expected"),
+        [
+            (OMNI_12, 3, False, None),
+            (OMNI_12, 15, False, None),
+            (OMNI_12, 2, False, "at least 3 seconds"),
+            (OMNI_12, 16, False, "at most 15 seconds on `gemini-omni-1.2-flash`"),
+            (OMNI_11, 10, False, None),
+            (OMNI_11, 11, False, "at most 10 seconds on `gemini-omni-1.1-flash`"),
+            (OMNI_12, 10, True, None),
+            (OMNI_12, 11, True, "With `last_frame`, `duration` can be at most 10 seconds"),
+        ],
+    )
+    def test_duration_bounds(self, model, duration, has_last_frame, expected):
+        params = self._params(model=model, duration=duration, has_last_frame=has_last_frame)
+        attachment = MagicMock() if has_last_frame else None
+        error = _validate_omni_video_request(params, attachment, attachment)
+        if expected is None:
+            assert error is None
+        else:
+            assert error and expected in error
 
     @pytest.mark.parametrize("model", sorted(OMNI_VIDEO_MODELS))
     def test_every_omni_id_declares_its_supported_resolutions(self, model):
@@ -865,14 +898,19 @@ class TestOmniVideoCost:
     def test_cost_is_exact_token_based(self):
         from discord_gemini.util import calculate_omni_video_cost
 
-        cost = calculate_omni_video_cost(DEFAULT_OMNI_VIDEO_MODEL, 57920)
-        assert cost == pytest.approx(57920 * 17.5 / 1_000_000)
+        assert calculate_omni_video_cost(OMNI_11, 57920) == pytest.approx(57920 * 17.5 / 1e6)
+        assert calculate_omni_video_cost(OMNI_12, 17_376) == pytest.approx(17_376 * 12.0 / 1e6)
+
+    def test_omni_12_720p_three_second_clip_cost(self):
+        """Probe usage: 17,376 video + 13 input + 537 thinking tokens."""
+        cost = calculate_omni_video_cost(OMNI_12, 17_376, input_tokens=13, text_output_tokens=537)
+        assert cost == pytest.approx(17_376 * 12.0 / 1e6 + 13 * 1.5 / 1e6 + 537 * 9.0 / 1e6)
 
     def test_input_and_text_output_tokens_bill_at_their_own_rates(self):
         """Pricing page: $1.50 input (text / image / video / audio), $9.00 text output
         including thinking, $17.50 video output, per 1M tokens."""
         cost = calculate_omni_video_cost(
-            DEFAULT_OMNI_VIDEO_MODEL, 57_920, input_tokens=1_000_000, text_output_tokens=1_000_000
+            OMNI_11, 57_920, input_tokens=1_000_000, text_output_tokens=1_000_000
         )
         assert cost == pytest.approx(57_920 * 17.50 / 1e6 + 1.50 + 9.00)
 
@@ -893,3 +931,157 @@ class TestOmniVideoCost:
             "gemini-omni-9", 1_000_000, input_tokens=1_000_000, text_output_tokens=1_000_000
         )
         assert cost == pytest.approx(17.50 + 1.50 + 9.00)
+
+
+class TestOmniDuration:
+    """The duration option is sent to the API only when it is set."""
+
+    @staticmethod
+    def _params(**kwargs):
+        return VideoGenerationParameters(
+            prompt="a red ball", model=OMNI_12, aspect_ratio="16:9", **kwargs
+        )
+
+    @pytest.mark.parametrize(("duration", "expected"), [(7, "7s"), (None, None)])
+    async def test_duration_is_sent_only_when_set(self, duration, expected):
+        cog = MagicMock()
+        cog.client.aio.interactions.create = AsyncMock(return_value=_fake_omni_interaction())
+        cog.logger = MagicMock()
+        with patch(
+            "discord_gemini.cogs.gemini.video._download_omni_video_uri",
+            AsyncMock(return_value=(b"mp4", None)),
+        ):
+            await _generate_video_with_omni(cog, self._params(duration=duration))
+
+        response_format = cog.client.aio.interactions.create.call_args.kwargs["response_format"]
+        assert response_format.get("duration") == expected
+        assert ("duration" in response_format) is (duration is not None)
+
+    async def test_embed_shows_requested_and_default_duration(self):
+        cog = MagicMock()
+        cog.logger = MagicMock()
+        for duration, shown in ((7, "7s"), (None, "10s")):
+            embed, files = await _create_video_response_embed(
+                cog, self._params(duration=duration), [b"mp4"], None
+            )
+            for file in files:
+                file.close()
+            assert f"**Duration:** {shown}" in embed.description
+
+    def test_duration_option_is_bounded_in_the_command(self):
+        option = next(
+            opt
+            for opt in GeminiCog.video.options
+            if opt.name == "duration"  # type: ignore[attr-defined]
+        )
+        assert (option.min_value, option.max_value) == (3, 15)
+        assert len(option.description) <= 100
+
+
+class TestOmniUploadLimit:
+    """Refuse before a paid call when the file cannot fit; explain after if it did not."""
+
+    @staticmethod
+    def _ctx(limit: int | None):
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        ctx.author.id = 111
+        ctx.defer = AsyncMock()
+        ctx.send_followup = AsyncMock()
+        ctx.interaction = SimpleNamespace(attachment_size_limit=limit)
+        return ctx
+
+    @staticmethod
+    def _cog():
+        bot = build_mock_bot()
+        bot.loop = asyncio.get_running_loop()
+        with patch("discord_gemini.cogs.gemini.client.build_gemini_client"):
+            cog = GeminiCog(bot=bot)
+        cog._send_error_followup = AsyncMock()
+        return cog
+
+    def test_estimate_uses_the_measured_rates_and_the_default_length(self):
+        assert _estimate_omni_video_bytes("720p", 3) == 3 * 756_522
+        assert _estimate_omni_video_bytes(None, None) == 10 * 756_522
+        assert _estimate_omni_video_bytes("4k", 15) == 15 * 2_705_897
+
+    async def test_estimate_over_the_limit_is_refused_without_a_request(self):
+        cog, ctx = self._cog(), self._ctx(10 * 1024 * 1024)
+        omni = AsyncMock()
+        with patch("discord_gemini.cogs.gemini.video._generate_video_with_omni", omni):
+            await cog.video.callback(cog, ctx=ctx, prompt="x", resolution="1080p", duration=15)
+
+        omni.assert_not_awaited()
+        description = ctx.send_followup.call_args.kwargs["embed"].description
+        # 15 s x 1,018,427 B = 14.6 MB; 10 MiB / 1,018,427 B = 10 whole seconds.
+        assert "15-second 1080p video is estimated at about 14.6 MB" in description
+        assert "upload limit of 10 MB" in description
+        assert "10 seconds or less at 1080p" in description
+
+    async def test_a_limit_too_small_for_three_seconds_suggests_a_lower_resolution(self):
+        cog, ctx = self._cog(), self._ctx(5 * 1024 * 1024)
+        omni = AsyncMock()
+        with patch("discord_gemini.cogs.gemini.video._generate_video_with_omni", omni):
+            await cog.video.callback(cog, ctx=ctx, prompt="x", resolution="4k", duration=3)
+
+        omni.assert_not_awaited()
+        description = ctx.send_followup.call_args.kwargs["embed"].description
+        assert "Even 3 seconds at 4k would not fit" in description
+        assert "Try a lower resolution." in description
+
+    async def test_estimate_within_the_limit_runs(self):
+        cog, ctx = self._cog(), self._ctx(10 * 1024 * 1024)
+        omni = AsyncMock(return_value=([], OmniVideoUsage()))
+        with patch("discord_gemini.cogs.gemini.video._generate_video_with_omni", omni):
+            await cog.video.callback(cog, ctx=ctx, prompt="x", duration=10)
+        omni.assert_awaited_once()
+
+    async def test_generated_video_over_the_limit_is_billed_but_not_attached(self):
+        cog, ctx = self._cog(), self._ctx(10 * 1024 * 1024)
+        usage = OmniVideoUsage(input_tokens=13, video_output_tokens=17_376, text_output_tokens=537)
+        big = b"\0" * (12 * 1024 * 1024)
+        with (
+            patch("discord_gemini.cogs.gemini.video.SHOW_COST_EMBEDS", True),
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
+                AsyncMock(return_value=([big], usage)),
+            ),
+            patch.object(cog, "_log_cost") as log_cost,
+        ):
+            await cog.video.callback(cog, ctx=ctx, prompt="x", duration=4)
+
+        cost = calculate_omni_video_cost(OMNI_12, 17_376, input_tokens=13, text_output_tokens=537)
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        assert not send_kwargs.get("files")
+        title_embed = send_kwargs["embeds"][0]
+        assert title_embed.title == "Video Too Large to Upload"
+        assert title_embed.description == (
+            "Gemini Omni generated a 12.0 MB video and Google billed it, but this server's "
+            "upload limit is 10 MB. Try a shorter duration or a lower resolution."
+        )
+        assert len(send_kwargs["embeds"]) == 2
+        assert send_kwargs["embeds"][-1].description.startswith(format_request_cost(cost))
+        assert "1 video · 720p · 4s" in send_kwargs["embeds"][-1].description
+        assert log_cost.call_args.args[3] == pytest.approx(cost)
+        assert log_cost.call_args.kwargs["delivered"] is False
+        assert log_cost.call_args.kwargs["too_large"] is True
+        assert cog.daily_costs
+
+    async def test_generated_video_within_the_limit_is_attached(self):
+        cog, ctx = self._cog(), self._ctx(10 * 1024 * 1024)
+        usage = OmniVideoUsage(video_output_tokens=17_376)
+        with (
+            patch(
+                "discord_gemini.cogs.gemini.video._generate_video_with_omni",
+                AsyncMock(return_value=([b"mp4"], usage)),
+            ),
+            patch.object(cog, "_log_cost") as log_cost,
+        ):
+            await cog.video.callback(cog, ctx=ctx, prompt="x")
+
+        send_kwargs = ctx.send_followup.call_args.kwargs
+        for file in send_kwargs.get("files") or []:
+            file.close()
+        assert len(send_kwargs["files"]) == 1
+        assert log_cost.call_args.kwargs["too_large"] is False
+        assert log_cost.call_args.kwargs["delivered"] is True

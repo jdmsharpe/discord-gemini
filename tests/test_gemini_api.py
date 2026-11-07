@@ -682,7 +682,7 @@ def test_research_thinking_summary_choice_set():
 
 def test_video_resolution_choice_set():
     values = {choice.value for choice in VIDEO_RESOLUTION_CHOICES}
-    assert values == {"720p", "1080p"}
+    assert values == {"360p", "720p", "1080p", "4k"}
 
 
 class TestGeminiImageResponseText:

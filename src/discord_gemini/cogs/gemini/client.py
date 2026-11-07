@@ -10,6 +10,11 @@ INITIAL_RETRY_DELAY_SECONDS = 0.5
 MAX_RETRY_DELAY_SECONDS = 60.0
 RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504]
 
+# google-genai 3.0 defaults the Developer API to v1, which rejects
+# speech_config, speech_metadata and cached_content and has no cachedContents
+# endpoint, so text-to-speech and explicit caching need v1beta.
+DEFAULT_API_VERSION = "v1beta"
+
 
 def _build_retry_options() -> types.HttpRetryOptions:
     return types.HttpRetryOptions(
@@ -35,18 +40,12 @@ def disable_afc() -> types.AutomaticFunctionCallingConfig:
 def build_gemini_client() -> genai.Client:
     """Build the standard Gemini client used by the cog."""
 
-    retry_options = _build_retry_options()
-    if GEMINI_API_VERSION:
-        return genai.Client(
-            api_key=GEMINI_API_KEY,
-            http_options=types.HttpOptions(
-                api_version=GEMINI_API_VERSION,
-                retry_options=retry_options,
-            ),
-        )
     return genai.Client(
         api_key=GEMINI_API_KEY,
-        http_options=types.HttpOptions(retry_options=retry_options),
+        http_options=types.HttpOptions(
+            api_version=GEMINI_API_VERSION or DEFAULT_API_VERSION,
+            retry_options=_build_retry_options(),
+        ),
     )
 
 

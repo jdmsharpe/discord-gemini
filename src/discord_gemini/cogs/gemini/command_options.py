@@ -74,6 +74,7 @@ IMAGE_SIZE_CHOICES = [
 ]
 
 VIDEO_MODEL_CHOICES = [
+    OptionChoice(name="Gemini Omni 1.2 Flash", value="gemini-omni-1.2-flash"),
     OptionChoice(name="Gemini Omni 1.1 Flash", value="gemini-omni-1.1-flash"),
 ]
 
@@ -83,8 +84,10 @@ VIDEO_ASPECT_RATIO_CHOICES = [
 ]
 
 VIDEO_RESOLUTION_CHOICES = [
+    OptionChoice(name="360p (Omni 1.2 only)", value="360p"),
     OptionChoice(name="720p", value="720p"),
     OptionChoice(name="1080p", value="1080p"),
+    OptionChoice(name="4K (Omni 1.2 only)", value="4k"),
 ]
 
 

@@ -593,7 +593,7 @@ class GeminiCog(commands.Cog):
     @option("prompt", description="Prompt for video generation", required=True, type=str)
     @option(
         "model",
-        description="Choose the video model. (default: Gemini Omni 1.1 Flash)",
+        description="Choose the video model. (default: Gemini Omni 1.2 Flash)",
         required=False,
         choices=VIDEO_MODEL_CHOICES,
         type=str,
@@ -607,10 +607,18 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "resolution",
-        description="720p or 1080p on Gemini Omni 1.1 Flash. (default: 720p)",
+        description="Output resolution; 360p and 4K need Gemini Omni 1.2 Flash. (default: 720p)",
         required=False,
         choices=VIDEO_RESOLUTION_CHOICES,
         type=str,
+    )
+    @option(
+        "duration",
+        description="Length in seconds, 3-15 (3-10 on Omni 1.1 or with last_frame). (default: 10)",
+        required=False,
+        type=int,
+        min_value=3,
+        max_value=15,
     )
     @option(
         "attachment",
@@ -628,9 +636,10 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-omni-1.1-flash",
+        model: str = "gemini-omni-1.2-flash",
         aspect_ratio: str = "16:9",
         resolution: str | None = None,
+        duration: int | None = None,
         attachment: Attachment | None = None,
         last_frame: Attachment | None = None,
     ) -> None:
@@ -643,6 +652,7 @@ class GeminiCog(commands.Cog):
             resolution,
             attachment,
             last_frame,
+            duration,
         )
 
     @gemini_tools.command(

@@ -23,22 +23,43 @@ from ...util import (
 )
 from . import attachments, embeds, state
 from .embed_delivery import send_embed_batches
+from .image import _upload_limit_for
 from .responses import APICallError
 
 if TYPE_CHECKING:
     from .cog import GeminiCog
 
-# Gemini Omni generates video via the Interactions API. Every id in OMNI_VIDEO_MODELS takes this code path; the
-# GA gemini-omni-1.1-flash, the default video model, is the only one.
+# Gemini Omni generates video via the Interactions API. Every id in OMNI_VIDEO_MODELS
+# takes this code path. gemini-omni-1.2-flash is the default; gemini-omni-1.1-flash
+# stays selectable.
 # The request runs in background mode and is polled every OMNI_VIDEO_POLL_INTERVAL
 # seconds (see _generate_video_with_omni). Omni renders 720p unless a resolution is
-# requested. No duration is ever derived from the token count: it does not scale
-# with length (a 3 s 1080p clip billed the same 57,920 video tokens as a
-# default-length 720p clip, live probe 2026-08-28).
-DEFAULT_OMNI_VIDEO_MODEL = "gemini-omni-1.1-flash"
-OMNI_VIDEO_MODELS = frozenset({"gemini-omni-1.1-flash"})
+# requested. Billing differs by model: 1.2 bills video tokens per second of output
+# (so the duration and resolution change the cost), while 1.1 bills a flat token
+# count per clip. No duration is derived from the token count; the cost line shows
+# the requested duration, or the model's default length when none was requested.
+DEFAULT_OMNI_VIDEO_MODEL = "gemini-omni-1.2-flash"
+OMNI_VIDEO_MODELS = frozenset({"gemini-omni-1.2-flash", "gemini-omni-1.1-flash"})
 OMNI_VIDEO_POLL_INTERVAL = 5
 OMNI_DEFAULT_VIDEO_RESOLUTION = "720p"
+# Length the model produces when no duration is sent.
+OMNI_DEFAULT_VIDEO_DURATION_SECONDS = 10
+OMNI_MIN_VIDEO_DURATION_SECONDS = 3
+# Longest clip each model accepts. First and last frame interpolation is capped lower.
+OMNI_MAX_VIDEO_DURATION_SECONDS: dict[str, int] = {
+    "gemini-omni-1.2-flash": 15,
+    "gemini-omni-1.1-flash": 10,
+}
+OMNI_MAX_INTERPOLATION_DURATION_SECONDS = 10
+# Average MP4 size per second of video at each resolution. Busy scenes encode larger,
+# so these are estimates, used to refuse a request that cannot fit the server's
+# upload limit before any paid call is made.
+OMNI_VIDEO_BYTES_PER_SECOND: dict[str, int] = {
+    "360p": 450_847,
+    "720p": 756_522,
+    "1080p": 1_018_427,
+    "4k": 2_705_897,
+}
 # Prompt tags from the Omni prompt guide that bind the input images to their roles:
 # the first image part is the starting frame, the second the final frame. Without
 # them the model decides how to use an image and may treat it as a subject
@@ -55,9 +76,11 @@ _OMNI_TERMINAL_STATUSES = frozenset(
 )
 
 VIDEO_SUPPORTED_RESOLUTIONS: dict[str, frozenset[str]] = {
-    # Omni 1.1 (GA) honoured 1080p with a real 1920x1080 avc1 MP4 (live probe
-    # 2026-08-28). Its docs also list 360p and 4k (upscaled), but neither was probed
-    # and no per-resolution price exists, so they are refused as not yet supported.
+    # 1.2 renders all four resolutions (1080p and 4k are upsampled) and bills them per
+    # second of output.
+    # 1.1 is limited to the two resolutions it was verified at; its flat per-clip
+    # billing has no 360p or 4k rate.
+    "gemini-omni-1.2-flash": frozenset({"360p", "720p", "1080p", "4k"}),
     "gemini-omni-1.1-flash": frozenset({"720p", "1080p"}),
 }
 
@@ -93,7 +116,7 @@ class OmniVideoUsage:
     """Token counts of one Omni interaction, split by the rate each is billed at.
 
     ``input_tokens`` is the prompt plus any input images ($1.50/M);
-    ``video_output_tokens`` is the video-modality output ($17.50/M); and
+    ``video_output_tokens`` is the video-modality output (the model's video rate); and
     ``text_output_tokens`` is thinking plus any non-video output ($9.00/M, the text
     rate, which the pricing page says includes thinking tokens).
     """
@@ -269,6 +292,8 @@ async def _generate_video_with_omni(
     }
     if video_params.resolution:
         response_format["resolution"] = video_params.resolution
+    if video_params.duration is not None:
+        response_format["duration"] = f"{video_params.duration}s"
 
     video_input = await _build_omni_video_input(cog, video_params.prompt, attachment, last_frame)
 
@@ -350,23 +375,20 @@ def _validate_omni_video_request(
     """Reject options Gemini Omni has no equivalent for.
 
     Applies to every id in `OMNI_VIDEO_MODELS`, each of which must have a
-    `VIDEO_SUPPORTED_RESOLUTIONS` entry. Omni (Interactions API) takes an aspect
-    ratio, a `resolution`, a first-frame image `attachment` (image-to-video) and a
-    `last_frame` image (first and last frame interpolation). A `last_frame` needs an
-    `attachment`: the prompt guide's `<LAST_FRAME>` tag is only valid together with
-    `<FIRST_FRAME>`. A frame image over `OMNI_MAX_FRAME_IMAGE_BYTES` (checked from
-    Discord's `size`, before any download) is refused. Duration, negative prompts (the Omni docs say to write negatives
-    into the prompt instead), person-generation control, resize modes, prompt
-    enhancement and multiple videos are Veo-only.
+    `VIDEO_SUPPORTED_RESOLUTIONS` and an `OMNI_MAX_VIDEO_DURATION_SECONDS` entry. Omni
+    (Interactions API) takes an aspect ratio, a `resolution`, a `duration`, a
+    first-frame image `attachment` (image-to-video) and a `last_frame` image (first and
+    last frame interpolation). A `last_frame` needs an `attachment`: the prompt guide's
+    `<LAST_FRAME>` tag is only valid together with `<FIRST_FRAME>`. A frame image over
+    `OMNI_MAX_FRAME_IMAGE_BYTES` (checked from Discord's `size`, before any download) is
+    refused. Negative prompts (the Omni docs say to write negatives into the prompt
+    instead), person-generation control, resize modes, prompt enhancement and multiple
+    videos are Veo-only.
 
-    `resolution` must be one the model's `VIDEO_SUPPORTED_RESOLUTIONS` entry lists. The
-    Omni docs also list `360p` and `4k` (upscaled), but those are unverified and have no
-    per-resolution pricing row, so they are refused as not yet supported.
-
-    `duration` is deliberately NOT exposed although the GA id accepts it (`"<n>s"`
-    format, minimum 3 s — `1s` 400s with "less than the minimum allowed 3s"): a 3 s
-    1080p clip was billed 57,920 video tokens, identical to a default-length 720p clip
-    (2026-08-28), so a shorter clip saves nothing.
+    `resolution` must be one the model's `VIDEO_SUPPORTED_RESOLUTIONS` entry lists.
+    `duration` must be at least `OMNI_MIN_VIDEO_DURATION_SECONDS` (the API rejects
+    shorter clips), at most the model's maximum, and at most
+    `OMNI_MAX_INTERPOLATION_DURATION_SECONDS` when a `last_frame` is given.
     """
 
     if video_params.model not in OMNI_VIDEO_MODELS:
@@ -378,6 +400,18 @@ def _validate_omni_video_request(
             f"The `{video_params.resolution}` resolution is not yet supported for "
             f"Gemini Omni. Supported values on `{video_params.model}`: {supported_list}."
         )
+    duration = video_params.duration
+    if duration is not None:
+        maximum = OMNI_MAX_VIDEO_DURATION_SECONDS[video_params.model]
+        if duration < OMNI_MIN_VIDEO_DURATION_SECONDS:
+            return f"`duration` must be at least {OMNI_MIN_VIDEO_DURATION_SECONDS} seconds."
+        if duration > maximum:
+            return f"`duration` can be at most {maximum} seconds on `{video_params.model}`."
+        if last_frame and duration > OMNI_MAX_INTERPOLATION_DURATION_SECONDS:
+            return (
+                f"With `last_frame`, `duration` can be at most "
+                f"{OMNI_MAX_INTERPOLATION_DURATION_SECONDS} seconds."
+            )
     if last_frame and not attachment:
         return (
             "On Gemini Omni, `last_frame` needs an `attachment` as the first frame. "
@@ -392,6 +426,45 @@ def _validate_omni_video_request(
                 f"{OMNI_MAX_FRAME_IMAGE_BYTES // (1024 * 1024)} MB or smaller."
             )
     return None
+
+
+def _estimate_omni_video_bytes(resolution: str | None, duration: int | None) -> int:
+    """Estimated MP4 size for a request, from the average bytes per second."""
+
+    rate = OMNI_VIDEO_BYTES_PER_SECOND[resolution or OMNI_DEFAULT_VIDEO_RESOLUTION]
+    return rate * (duration or OMNI_DEFAULT_VIDEO_DURATION_SECONDS)
+
+
+def _megabytes(size: float) -> float:
+    return size / (1024 * 1024)
+
+
+def _upload_limit_error(video_params: VideoGenerationParameters, upload_limit: int) -> str | None:
+    """Refuse a request whose estimated file would exceed the reply's upload limit.
+
+    Google bills the clip even when Discord cannot take the file, and the Files API
+    link needs the API key, so there is nothing to give the user afterwards.
+    """
+
+    resolution = video_params.resolution or OMNI_DEFAULT_VIDEO_RESOLUTION
+    duration = video_params.duration or OMNI_DEFAULT_VIDEO_DURATION_SECONDS
+    estimate = _estimate_omni_video_bytes(resolution, duration)
+    if estimate <= upload_limit:
+        return None
+    message = (
+        f"A {duration}-second {resolution} video is estimated at about "
+        f"{_megabytes(estimate):.1f} MB, which is over this server's upload limit of "
+        f"{_megabytes(upload_limit):g} MB. "
+    )
+    longest = upload_limit // OMNI_VIDEO_BYTES_PER_SECOND[resolution]
+    if longest >= OMNI_MIN_VIDEO_DURATION_SECONDS:
+        return message + (
+            f"Try a duration of {longest} seconds or less at {resolution}, or a lower resolution."
+        )
+    return message + (
+        f"Even {OMNI_MIN_VIDEO_DURATION_SECONDS} seconds at {resolution} would not fit. "
+        "Try a lower resolution."
+    )
 
 
 async def _create_video_response_embed(
@@ -423,6 +496,9 @@ async def _create_video_response_embed(
         description += f"\n**Aspect Ratio:** {video_params.aspect_ratio}"
     if video_params.resolution:
         description += f"\n**Resolution:** {video_params.resolution}"
+    description += (
+        f"\n**Duration:** {video_params.duration or OMNI_DEFAULT_VIDEO_DURATION_SECONDS}s"
+    )
 
     return (
         Embed(title="Video Generation", description=description, color=embeds.GEMINI_BLUE),
@@ -439,6 +515,7 @@ async def video_command(
     resolution: str | None,
     attachment: Attachment | None,
     last_frame: Attachment | None,
+    duration: int | None = None,
 ) -> None:
     """Run the `/gemini-media video` command."""
 
@@ -461,6 +538,7 @@ async def video_command(
             aspect_ratio=aspect_ratio,
             resolution=resolution,
             has_last_frame=last_frame is not None,
+            duration=duration,
         )
 
         validation_error = _validate_omni_video_request(video_params, attachment, last_frame)
@@ -472,13 +550,34 @@ async def video_command(
             )
             return
 
+        upload_limit = _upload_limit_for(ctx)
+        limit_error = _upload_limit_error(video_params, upload_limit)
+        if limit_error:
+            await send_embed_batches(
+                ctx.send_followup,
+                embed=embeds.build_error_embed(limit_error),
+                logger=cog.logger,
+            )
+            return
+
         generated_videos, omni_usage = await _generate_video_with_omni(
             cog, video_params, attachment, last_frame
         )
 
+        # A video over the upload limit is billed but cannot be attached. The count of
+        # generated videos is kept so the cost line still reports what was billed.
+        generated_count = len(generated_videos)
+        too_large_bytes = max(
+            (len(video) for video in generated_videos if len(video) > upload_limit), default=None
+        )
+        if too_large_bytes is not None:
+            generated_videos = []
+
         delivered = bool(generated_videos)
         # Google bills a completed Omni clip whether or not the bot can deliver it.
-        billed_undelivered = not delivered and omni_usage.video_output_tokens > 0
+        billed_undelivered = not delivered and (
+            omni_usage.video_output_tokens > 0 or too_large_bytes is not None
+        )
         if not delivered and not billed_undelivered:
             await send_embed_batches(
                 ctx.send_followup,
@@ -495,7 +594,7 @@ async def video_command(
             )
             return
 
-        num_videos = len(generated_videos)
+        num_videos = generated_count
         cost = calculate_omni_video_cost(
             model,
             omni_usage.video_output_tokens,
@@ -503,12 +602,14 @@ async def video_command(
             text_output_tokens=omni_usage.text_output_tokens,
         )
         logged_resolution = video_params.resolution or OMNI_DEFAULT_VIDEO_RESOLUTION
+        logged_duration = video_params.duration or OMNI_DEFAULT_VIDEO_DURATION_SECONDS
         cost_details: dict[str, Any] = {
             "video_tokens": omni_usage.video_output_tokens,
             "input_tokens": omni_usage.input_tokens,
             "text_output_tokens": omni_usage.text_output_tokens,
             "thinking_tokens": omni_usage.thinking_tokens,
             "delivered": delivered,
+            "too_large": too_large_bytes is not None,
         }
         daily_cost = state._track_daily_cost(cog, ctx.author.id, cost)
         cog._log_cost(
@@ -519,6 +620,7 @@ async def video_command(
             daily_cost,
             videos=num_videos,
             resolution=logged_resolution,
+            duration_seconds=logged_duration,
             **cost_details,
         )
 
@@ -529,6 +631,17 @@ async def video_command(
                 video_params=video_params,
                 generated_videos=generated_videos,
                 attachment=attachment,
+            )
+        elif too_large_bytes is not None:
+            embed = Embed(
+                title="Video Too Large to Upload",
+                description=(
+                    f"Gemini Omni generated a {_megabytes(too_large_bytes):.1f} MB video and "
+                    f"Google billed it, but this server's upload limit is "
+                    f"{_megabytes(upload_limit):g} MB. Try a shorter duration or a lower "
+                    "resolution."
+                ),
+                color=Colour.orange(),
             )
         else:
             embed = Embed(
@@ -542,7 +655,7 @@ async def video_command(
         response_embeds = [embed]
         if SHOW_COST_EMBEDS:
             video_details = [count_label(num_videos, "video")]
-            video_details.append(logged_resolution)
+            video_details.extend([logged_resolution, f"{logged_duration}s"])
             pricing_desc = format_cost_line(
                 cost,
                 daily_cost,

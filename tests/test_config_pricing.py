@@ -203,6 +203,12 @@ class TestPricingLoader:
         assert pricing.VIDEO_TOKEN_INPUT_PRICING["gemini-omni-1.1-flash"] == 1.50
         assert pricing.VIDEO_TOKEN_TEXT_OUTPUT_PRICING["gemini-omni-1.1-flash"] == 9.00
 
+    def test_omni_12_row_bills_video_at_12_per_million(self):
+        pricing = _reload_pricing()
+        assert pricing.VIDEO_TOKEN_PRICING["gemini-omni-1.2-flash"] == 12.00
+        assert pricing.VIDEO_TOKEN_INPUT_PRICING["gemini-omni-1.2-flash"] == 1.50
+        assert pricing.VIDEO_TOKEN_TEXT_OUTPUT_PRICING["gemini-omni-1.2-flash"] == 9.00
+
     def test_video_tokenized_fallback_is_declared_in_yaml(self):
         """pricing.py read a fallbacks key the yaml never declared; the code default hid it."""
         pricing = _reload_pricing()

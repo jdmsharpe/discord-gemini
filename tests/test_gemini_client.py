@@ -6,7 +6,7 @@ from discord_gemini.config import auth as auth_module
 
 
 class TestGeminiClientBuilders:
-    def test_build_gemini_client_without_api_version_configures_retries(self):
+    def test_build_gemini_client_without_api_version_uses_v1beta(self):
         with (
             patch.object(gemini_client.genai, "Client") as mock_client,
             patch.object(gemini_client, "GEMINI_API_VERSION", None),
@@ -19,7 +19,18 @@ class TestGeminiClientBuilders:
         http_options = kwargs["http_options"]
         assert http_options.retry_options is not None
         assert http_options.retry_options.attempts == gemini_client.MAX_API_ATTEMPTS
-        assert http_options.api_version is None
+        # The SDK's own default (v1 since google-genai 3.0) rejects TTS and caching.
+        assert http_options.api_version == "v1beta"
+
+    def test_real_client_without_api_version_targets_v1beta(self):
+        # A placeholder key, so the test does not depend on a local .env.
+        with (
+            patch.object(gemini_client, "GEMINI_API_VERSION", None),
+            patch.object(gemini_client, "GEMINI_API_KEY", "test-key"),
+        ):
+            client = gemini_client.build_gemini_client()
+
+        assert client._api_client._http_options.api_version == "v1beta"
 
     def test_build_gemini_client_with_api_version_carries_retries(self):
         with (

@@ -337,6 +337,7 @@ class VideoGenerationParameters:
     aspect_ratio: str | None = None
     resolution: str | None = None
     has_last_frame: bool = False
+    duration: int | None = None
 
 
 @dataclass

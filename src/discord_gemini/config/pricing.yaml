@@ -124,16 +124,19 @@ video_generation:
     per_second_by_resolution: { default: 0.10, 720p: 0.10, 1080p: 0.12, 4k: 0.30 }
 
 # Interactions-API video generation billed per token (not per second). Video
-# output tokens bill at video_output_per_million: a default 720p clip bills ~57,920
-# video tokens (~$1.01 at 17.50/MTok), and a 3 s 1080p clip on
-# gemini-omni-1.1-flash billed the SAME 57,920 (live probe 2026-08-28): the count is
-# flat per clip, not per second or per resolution, so never derive a duration or a
-# per-resolution rate from it. Input tokens (the prompt and any first/last-frame
-# images) bill at input_per_million, and thinking plus non-video output at
-# text_output_per_million (the page's "$9.00 (text)" output rate, "including
-# thinking tokens").
+# output tokens bill at video_output_per_million. gemini-omni-1.2-flash generates
+# a fixed number of video tokens per second (360p 1,931; 720p 5,792; 1080p 8,688;
+# 4K 17,376), so its cost scales with duration and resolution. gemini-omni-1.1-flash
+# bills a flat ~57,920 video tokens per clip (~$1.01 at 17.50/MTok) whatever the
+# length or resolution, so never derive a duration or a per-resolution rate from a
+# 1.1 token count. Input tokens (the prompt and any first/last-frame images) bill at
+# input_per_million, and thinking plus non-video output at text_output_per_million
+# (the page's "$9.00 (text)" output rate, "including thinking tokens").
 video_tokenized:
-  # GA 2026-08-27 (default video model); same per-token rates as the preview.
+  gemini-omni-1.2-flash:
+    input_per_million: 1.50
+    video_output_per_million: 12.00
+    text_output_per_million: 9.00
   gemini-omni-1.1-flash:
     input_per_million: 1.50
     video_output_per_million: 17.50

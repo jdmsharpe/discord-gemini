@@ -27,7 +27,7 @@ A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing
 - **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
 - **Media Generation:**
   - **Images:** High-quality image generation and editing using Gemini Nano Banana 2.1 (default) and the Gemini Flash/Pro Image models, up to 4K, delivered as the API's original PNG/JPEG bytes.
-  - **Video:** Gemini Omni 1.1 Flash (default) for text-to-video, image-to-video from a first-frame image, and first-and-last-frame interpolation at 720p or 1080p via the Interactions API.
+  - **Video:** Gemini Omni 1.2 Flash (default) for text-to-video, image-to-video from a first-frame image, and first-and-last-frame interpolation from 360p to 4K and 3 to 15 seconds via the Interactions API.
   - **Music:** Music generation using Lyria 3.5 (default; full songs through the Interactions API), Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
   - **Text-to-Speech:** Lifelike speech conversion with Gemini 3.8 Flash TTS (default) and 25+ voice options.
 - **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
@@ -57,8 +57,8 @@ Generate images from text prompts or edit using reference images.
 
 Generate videos from text prompts or image inputs.
 
-- **Models:** Gemini Omni 1.1 Flash.
-- **Gemini Omni 1.1 Flash:** Google's recommended default, at `720p` (default) or `1080p`. Attach an image as `attachment` to use it as the first frame, and add `last_frame` to end the clip on a second image. Billed from the response's token counts (about $1 per 10-second clip). A last-frame image requires a first-frame attachment.
+- **Models:** Gemini Omni 1.2 Flash (default) and Gemini Omni 1.1 Flash.
+- **Gemini Omni:** `resolution` is `360p`, `720p` (default), `1080p` or `4K` (360p and 4K need 1.2), and `duration` is 3 to 15 seconds (default 10; up to 10 on 1.1 or with `last_frame`). Attach an image as `attachment` to use it as the first frame, and add `last_frame` to end the clip on a second image (requires `attachment`). Billed from the response's token counts. Requests too large for the server's upload limit are refused before generation.
 
 ### `/gemini-tools music`
 
@@ -131,7 +131,7 @@ python -m pip install -e ".[dev]"
 | `BOT_TOKEN` | **Yes** | Your Discord bot token |
 | `GUILD_IDS` | **Yes** | Comma-separated Discord server IDs |
 | `GEMINI_API_KEY` | **Yes** | Your Google Gemini API key |
-| `GEMINI_API_VERSION` | No | Override version (`v1` for stable, `v1alpha` for preview features) |
+| `GEMINI_API_VERSION` | No | Override version (default `v1beta`; `v1` does not support text-to-speech or context caching) |
 | `GEMINI_FILE_SEARCH_STORE_IDS` | No | Comma-separated File Search store IDs for RAG |
 | `SHOW_COST_EMBEDS` | No | Show per-request cost embeds in supported responses (Default: `true`) |
 | `ENABLE_CUSTOM_TOOLS` | No | Enable custom function tool calling in chat (Default: `true`) |
