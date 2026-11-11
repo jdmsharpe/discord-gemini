@@ -96,15 +96,15 @@ def test_cog_init_does_not_configure_root_logger():
 
 
 def test_default_chat_model_is_first_choice():
-    """gemini-4-argon is the default chat model and is shown first in the picker."""
-    assert CHAT_MODEL_CHOICES[0].value == "gemini-4-argon"
-    assert CHAT_MODEL_CHOICES[0].name == "Gemini 4 Argon"
+    """gemini-4-carbon is the default chat model and is shown first in the picker."""
+    assert CHAT_MODEL_CHOICES[0].value == "gemini-4-carbon"
+    assert CHAT_MODEL_CHOICES[0].name == "Gemini 4 Carbon"
 
 
 def test_chat_command_default_model_param():
-    """The /gemini chat `model` parameter defaults to gemini-4-argon."""
+    """The /gemini chat `model` parameter defaults to gemini-4-carbon."""
     signature = inspect.signature(GeminiCog.chat.callback)
-    assert signature.parameters["model"].default == "gemini-4-argon"
+    assert signature.parameters["model"].default == "gemini-4-carbon"
 
 
 def test_routed_aliases_are_off_the_chat_menu():

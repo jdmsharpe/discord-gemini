@@ -51,6 +51,8 @@ def test_choice_lists_discovered():
 def test_choice_list_within_discord_cap(name: str, choices: list):
     """Each slash-command choices list must stay within Discord's 25 cap."""
     count = len(choices)
+    values = [choice.value for choice in choices]
+    assert len(set(values)) == count, f"{name} contains duplicate option values"
     assert count <= DISCORD_MAX_STATIC_CHOICES, (
         f"{name} has {count} choices, exceeding Discord's hard cap of "
         f"{DISCORD_MAX_STATIC_CHOICES} static choices per option. Discord "

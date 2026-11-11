@@ -22,14 +22,16 @@
 # long conversations may cost more in practice.
 #
 # NOTE: rows here carry the rate in force TODAY; this file cannot express a dated
-# rate. Google doubles gemini-4-argon on 2026-12-01, and prices several models
+# rate. Google doubles gemini-4-carbon and gemini-4-argon on 2026-12-01, and prices several models
 # promotionally through 2026-12-31 and doubles them on 2027-01-01 (3.8 / 3.6 Flash,
 # the routed 3.7 / 3.5 Flash rows that follow them, and both 3.8 TTS models among
-# the rows below), so re-verify the Argon row in late November 2026 and every rate
+# the rows below), so re-verify the Carbon and Argon rows in late November 2026 and every rate
 # below in late December 2026.
 
 models:
-  # GA 2026-10-13, default chat model. Rates through 2026-11-30; Google doubles them
+  # Carbon (GA 2026-11-10) is the default; both Gemini 4 rows double on 2026-12-01.
+  gemini-4-carbon:               { input_per_million: 2.00,  output_per_million: 10.00, cached_input_per_million: 0.10 }
+  # Argon (GA 2026-10-13), selectable alongside Carbon. Rates through 2026-11-30; Google doubles them
   # to $4.00 in / $20.00 out / $0.20 cached on 2026-12-01. Implicit caching only
   # (explicit caching is not supported), so the cached rate applies to implicit hits.
   gemini-4-argon:                { input_per_million: 2.00,  output_per_million: 10.00, cached_input_per_million: 0.10 }

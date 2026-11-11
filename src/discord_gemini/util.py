@@ -209,8 +209,8 @@ def calculate_music_cost(model: str, num_songs: int = 1) -> float | None:
 
 # Minimum input token counts required for this bot's explicit context caching policy.
 # Gemini 2.5 and newer models also support implicit caching automatically.
-# Models not listed here fall back to implicit caching only. gemini-4-argon must
-# stay out: it supports implicit caching only and rejects explicit cache creation.
+# Models not listed here fall back to implicit caching only. Gemini 4 models
+# must stay out: they reject explicit cache creation.
 CACHE_MIN_TOKEN_COUNT: dict[str, int] = {
     "gemini-3.8-flash": 1024,
     "gemini-3.6-flash": 1024,
@@ -226,7 +226,7 @@ CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches
 # Models that 400 on `thinking_level="minimal"`. "Minimal" is an unconditional
 # slash-command choice, so it must be gated here rather than in the menu.
 MINIMAL_THINKING_UNSUPPORTED_MODELS = frozenset(
-    {"gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview"}
+    {"gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview"}
 )
 
 # Models that 400 on EVERY `thinking_level` ("Thinking level is not supported for
@@ -243,7 +243,13 @@ THINKING_LEVEL_UNSUPPORTED_MODELS = frozenset(
 # `gemini-3.1-pro-preview` 400s with "Agentic video processing is not enabled for
 # models/...".
 AGENTIC_VIDEO_MODELS = frozenset(
-    {"gemini-4-argon", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"}
+    {
+        "gemini-4-carbon",
+        "gemini-4-argon",
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+    }
 )
 
 MAX_AGENTIC_ITERATIONS = 10  # Max tool-calling round-trips per user message

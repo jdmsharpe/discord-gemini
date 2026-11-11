@@ -869,10 +869,11 @@ class TestModelPricing:
         ):
             assert calculate_cost(model, 1_000_000, 1_000_000) != pytest.approx(14.0)
 
-    def test_argon_bills_thinking_and_implicit_cache_hits(self):
-        """Argon has no explicit cache, but implicit hits bill at its $0.10/M cached rate."""
+    @pytest.mark.parametrize("model", ["gemini-4-carbon", "gemini-4-argon"])
+    def test_gemini_4_bills_thinking_and_implicit_cache_hits(self, model):
+        """Gemini 4 has no explicit cache, but implicit hits bill at its $0.10/M cached rate."""
         cost = calculate_cost(
-            "gemini-4-argon", 1_000_000, 100_000, thinking_tokens=100_000, cached_tokens=400_000
+            model, 1_000_000, 100_000, thinking_tokens=100_000, cached_tokens=400_000
         )
         # 600k uncached x $2.00 + 400k cached x $0.10 + 200k output and thinking x $10.00
         assert cost == pytest.approx(1.20 + 0.04 + 2.00)

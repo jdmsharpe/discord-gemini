@@ -370,7 +370,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "model",
-        description="Choose from the following Gemini models. (default: Gemini 4 Argon)",
+        description="Choose from the following Gemini models. (default: Gemini 4 Carbon)",
         required=False,
         choices=CHAT_MODEL_CHOICES,
         type=str,
@@ -479,7 +479,7 @@ class GeminiCog(commands.Cog):
         self,
         ctx: ApplicationContext,
         prompt: str,
-        model: str = "gemini-4-argon",
+        model: str = "gemini-4-carbon",
         system_instruction: str | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,

@@ -258,6 +258,7 @@ class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
     def test_supported_models_are_the_probed_ids(self):
         """These accepted media_processing=AGENTIC in live requests; 3.1 Pro 400s."""
         assert {
+            "gemini-4-carbon",
             "gemini-4-argon",
             "gemini-3.8-flash",
             "gemini-3.6-flash",
@@ -265,7 +266,7 @@ class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
         } == AGENTIC_VIDEO_MODELS
 
     def test_the_default_chat_model_uses_agentic_video(self):
-        """Argon accepted AGENTIC on a YouTube part, so the default model gets it."""
+        """Carbon accepted AGENTIC on a YouTube part, so the default model gets it."""
         import inspect
 
         from discord_gemini import GeminiCog
@@ -436,9 +437,9 @@ def _loop_result(text: str = "ok") -> SimpleNamespace:
     )
 
 
-class TestGemini4ArgonDefault(AsyncGeminiCogTestCase):
-    async def test_default_chat_request_sends_only_what_argon_accepts(self):
-        """With every option left blank the request goes to Argon with no thinking
+class TestGemini4CarbonDefault(AsyncGeminiCogTestCase):
+    async def test_default_chat_request_sends_only_what_carbon_accepts(self):
+        """With every option left blank the request goes to Carbon with no thinking
         config (minimal would 400), no sampling parameters, no tools and AFC off."""
         ctx = _chat_ctx()
         loop = AsyncMock(return_value=_loop_result())
@@ -451,7 +452,7 @@ class TestGemini4ArgonDefault(AsyncGeminiCogTestCase):
 
         model = loop.await_args.args[1]
         config = loop.await_args.args[3]
-        assert model == "gemini-4-argon"
+        assert model == "gemini-4-carbon"
         assert config.thinking_config is None
         assert config.temperature is None
         assert config.top_p is None
@@ -509,7 +510,7 @@ class TestGemini4ArgonDefault(AsyncGeminiCogTestCase):
         assert "(warning: Gemini 3 recommends 1.0; lower values may cause looping)" in description
         assert "**Nucleus Sampling:** 0.9\n" in description
 
-    async def test_argon_rejects_minimal_thinking_before_the_request(self):
+    async def test_carbon_rejects_minimal_thinking_before_the_request(self):
         ctx = _chat_ctx()
         loop = AsyncMock(return_value=_loop_result())
 
@@ -523,7 +524,7 @@ class TestGemini4ArgonDefault(AsyncGeminiCogTestCase):
 
         loop.assert_not_awaited()
         embed = ctx.send_followup.await_args_list[0].kwargs["embed"]
-        assert "gemini-4-argon" in embed.description
+        assert "gemini-4-carbon" in embed.description
         assert "Minimal" in embed.description
 
     def test_argon_combines_builtin_and_custom_tools(self):
