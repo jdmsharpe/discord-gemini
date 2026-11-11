@@ -14,70 +14,87 @@
 
 ## Overview
 
-A Discord bot built on Pycord 2.0 that integrates Google's Gemini API, providing a unified interface for text and multi-turn conversations, image creation, video generation, text-to-speech, music generation, and deep research.
+A Discord bot for Google's Gemini API, built on Pycord 2.0. It provides chat, image and video generation, music, text-to-speech and deep research through slash commands.
 
 ## Features
 
-- **Multi-turn Conversations:** Persistent conversation history with interactive button controls, plus explicit context caching once a conversation clears its model's cache minimum (1,024 tokens on Flash, 4,096 on Pro; not on Gemini 4 Argon). Cache hits are billed at the model's discounted cached-input rate in the cost embed, not the full input rate.
-- **Multiple Gemini Models:** Supports Gemini 4 Argon (default; needs a paid API key), 3.8 Flash, 3.6 Flash, 3.5 Flash Lite, 3.1 Pro, 3.1 Flash Lite, 3.0 Flash, and 2.5 Pro/Flash/Flash Lite. Google now limits the Gemini 2.5 models to accounts that used them before, so a deployment with a new API key may get errors on them.
-- **Multimodal Input:** Supports text, images, PDFs, audio, video, and documents. Includes external URL file input, `opus` / `alaw` / `mulaw` audio MIME handling, and automatic File API routing for large attachments (up to 2 GB). Video attachments and YouTube URLs use **agentic video understanding** on Gemini 4 Argon, 3.8 / 3.6 Flash and 3.5 Flash-Lite: the model requests only the video segments it needs instead of receiving every sampled frame (up to 88% fewer tokens on long video); the segments it requests are billed as input tokens in the cost embed.
-- **Request Storage:** Chat, image, speech and music Generate Content requests opt out of API request storage with `store=False`.
-- **Advanced Tool Calling:** Features built-in tools (`google_search`, `code_execution`, `google_maps`, `url_context`, `file_search`). Gemini 3 and Gemini 4 chat models can use built-in tools and custom functions in the same request. Grounding charges are added to the cost embed: Google Search bills $14 / 1K search queries on Gemini 3 and newer and $35 / 1K grounded prompts on Gemini 2.5, and Maps bills $14 / 1K queries on Gemini 3 and newer and $25 / 1K grounded prompts on Gemini 2.5; queries are summed across tool-loop turns. Google's free grounding allowances are not tracked, so these charges are upper bounds.
-- **Thinking Configuration:** Customizable thinking levels for Gemini 3 and Gemini 4 models (Minimal, Low, Medium, High) and token budgets for Gemini 2.5 models, with thought summaries displayed in spoilered embeds. Requests the API would reject are caught before the call: a thinking level on any Gemini 2.5 model (use a budget there), Minimal on Gemini 4 Argon, 3.8 Flash or 3.1 Pro, or a level and a budget together.
-- **Rich Embeds:** Responses include a Sources embed displaying web and map citations, search queries, URL context retrieval, and file search document citations.
-- **Media Generation:**
-  - **Images:** High-quality image generation and editing using Gemini Nano Banana 2.1 (default) and the Gemini Flash/Pro Image models, up to 4K, delivered as the API's original PNG/JPEG bytes.
-  - **Video:** Gemini Omni 1.2 Flash (default) for text-to-video, image-to-video from a first-frame image, and first-and-last-frame interpolation from 360p to 4K and 3 to 15 seconds via the Interactions API.
-  - **Music:** Music generation using Lyria 3.5 (default; full songs through the Interactions API), Lyria 3 (Pro/Clip Preview) and Lyria RealTime Experimental.
-  - **Text-to-Speech:** Lifelike speech conversion with Gemini 3.8 Flash TTS (default) and 25+ voice options.
-- **Deep Research Agent:** Run autonomous deep research tasks that search, read, and synthesize cited reports.
+- **Chat:** Multi-turn conversations with Gemini 4 Argon (default; needs a paid API key), 3.8 Flash, 3.6 Flash, 3.5 Flash Lite, 3.1 Pro, 3.1 Flash Lite, 3.0 Flash and 2.5 Pro / Flash / Flash Lite. Messages you send in the channel continue the conversation. Google limits the 2.5 models to API accounts that used them before.
+- **Attachments:** Text, images, PDFs, audio, video, documents and file URLs, up to 2 GB. On Gemini 4 Argon, 3.8 / 3.6 Flash and 3.5 Flash Lite, videos and YouTube URLs use agentic video understanding: the model requests only the segments it needs.
+- **Reasoning:** Thinking levels on Gemini 3 and 4, token budgets on Gemini 2.5, with thought summaries in a spoiler. Unsupported combinations are refused before the request is sent.
+- **Built-in tools:** `google_search`, `code_execution`, `google_maps`, `url_context` and `file_search`. Gemini 3 and 4 can combine them with custom functions.
+- **Citations:** Web and map citations, search queries, URL context and file search citations appear in a Sources embed.
+- **Context caching:** Conversations above the model's cache minimum are cached (not on Gemini 4 Argon), and cache hits are billed at the cached-input rate.
+- **Request storage:** Chat, image, speech and music requests are sent with `store=False`.
+- **Media generation:**
+  - **Images:** Generation and editing with Nano Banana 2.1 (default) and the Gemini Flash / Pro Image models, up to 4K.
+  - **Video:** Gemini Omni 1.2 Flash (default) for text-to-video, image-to-video and first-to-last-frame clips, 360p to 4K, 3 to 15 seconds.
+  - **Music:** Lyria 3.5 (default), Lyria 3 and Lyria RealTime.
+  - **Text-to-speech:** Gemini 3.8 Flash TTS (default) with 25+ voices.
+- **Deep research:** Research runs that search the web and return a report with citations.
+- **Cost line:** Each reply ends with the request cost, input tokens (cached in parentheses), output tokens (thinking in parentheses), tool calls and your total for the day; grounding charges are included. Set `SHOW_COST_EMBEDS=false` to hide it.
 
 ## Commands
 
 ### `/gemini chat`
 
-Start a conversation with Gemini AI models.
+Start a conversation with a Gemini model.
 
-- Features tool enablement mid-conversation via a dropdown.
-- Incompatible tools are automatically disabled depending on the model (e.g., File Search cannot be combined with Google Search).
+- **`prompt` (required):** Your first message.
+- **`system_instruction`:** System prompt.
+- **`model`:** Gemini model (default: Gemini 4 Argon).
+- **`attachment` / `url`:** A file attachment, or a file URL (Gemini 2.5 and newer).
+- **`temperature` / `top_p` / `frequency_penalty` / `presence_penalty` / `seed`:** Sampling options; Gemini 4 ignores `temperature` and `top_p`.
+- **`media_resolution`:** Resolution for image, video and PDF inputs.
+- **`thinking_level`:** `minimal`, `low`, `medium` or `high` on Gemini 3 and 4.
+- **`thinking_budget`:** Thinking token budget on Gemini 2.5 (`-1` dynamic, `0` off).
+- **`google_search` / `code_execution` / `google_maps` / `url_context` / `file_search` / `custom_functions`:** Enable tools (default: off). `file_search` needs `GEMINI_FILE_SEARCH_STORE_IDS`. Tools that can't be combined on the chosen model (for example File Search with Google Search) are turned off.
 
 ### `/gemini-media image`
 
-Generate images from text prompts or edit using reference images.
+Generate an image from a prompt, or edit an attached image.
 
-- **Models:** Gemini Nano Banana 2.1 (default), 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image.
-- **Options:** Aspect ratio (see below), image size (`512`, `1K`, `2K`, `4K` — availability varies by model, see below), and Google Image Search grounding (Nano Banana 2.1 and 3.1 Flash Image only; each web or image search query it runs adds $0.014 to the cost embed). The chosen aspect ratio (`1:1` by default) is always sent to the API; left out, the model would pick its own ratio.
-- **Image sizes by model:** Gemini Nano Banana 2.1 accepts `1K` ($0.0336), `2K` ($0.0504) and `4K` ($0.113, 4096x4096); Gemini 3.1 Flash Image accepts `512` ($0.045), `1K` ($0.067), `2K` ($0.101) and `4K` ($0.151, 5632x3072); Gemini 3.0 Pro Image accepts `1K`/`2K` ($0.134) and `4K` ($0.24); Gemini 3.1 Flash Lite Image is the low-cost option (~$0.034) and generates `1K` only. A size a model does not support (`512` on Nano Banana 2.1, Pro or Lite, `2K`/`4K` on Lite) is rejected before the call with the API's own "Image size X is not supported for this model" message.
-- **Aspect ratios by model:** every model offers `1:1`, `3:4`, `4:3`, `9:16` and `16:9`. Nano Banana 2.1, 3.1 Flash Image and 3.1 Flash Lite Image also offer the tall and wide ratios `1:4`, `4:1`, `1:8` and `8:1`, listed as Tall, Wide, Tall panoramic and Panoramic (at `1K`: 512x2064, 2064x512 and 352x2928, and 2928x352 for `8:1` on 3.1 Flash Image and 3.1 Flash Lite Image; Nano Banana 2.1 at `2K` and `8:1`: 5856x704). At every size (`512`, `1K`, `2K` and `4K`; `8:1` at `4K` is 11712x1408), an image at these ratios is billed the same image tokens as a square image of that size. 3.0 Pro Image and 2.5 Flash Image do not support them, and the bot rejects the request before the call with "Aspect ratio X is not supported for this model".
-- **Thinking and text output:** image models also produce thinking tokens and some non-image output tokens, which the per-image price does not cover. They are billed at the model's text output rate ($7.50 / 1M on Nano Banana 2.1, about $0.006-0.011 per image in test requests). The cost embed's `N out (T thinking)` counts every billed output token, image tokens included, with the thinking tokens in parentheses.
-- **One image per request:** there is no image-count option. Every image model rejects a request for more than one candidate ("Multiple candidates is not enabled for this model"); to get variations, run the command again, with a different `seed` if you set one.
-- **Delivery:** generated PNG/JPEG images are attached exactly as the API returned them (a 4K JPEG from 3.1 Flash Image is 5-7 MB, under Discord's 10 MB bot upload cap; re-encoded to PNG it would exceed it). Other formats are converted to PNG. An image larger than the server's upload limit (the limit Discord reports for the interaction: 10 MB unless the server's boost level raises it) is re-encoded as JPEG, at lower quality and if needed smaller dimensions, until it fits, and the embed says so with the old and new file sizes. JPEG has no transparency, so a transparent image re-encoded this way loses it. A 4K Nano Banana 2.1 test image went from 11.1 MB to 3.3 MB this way at the same 4096x4096 size.
+- **`model`:** Gemini Nano Banana 2.1 (default), 3.1 Flash Image, 3.1 Flash Lite Image, 3.0 Pro Image, 2.5 Flash Image.
+- **`image_size`:** `512`, `1K`, `2K` or `4K`. 3.1 Flash Image takes all four, Nano Banana 2.1 and 3.0 Pro Image take `1K`–`4K`, and 3.1 Flash Lite Image and 2.5 Flash Image take `1K` only.
+- **`aspect_ratio`:** `1:1` (default), `3:4`, `4:3`, `9:16` or `16:9`. Nano Banana 2.1 and 3.1 Flash / Flash Lite Image also take `1:4`, `4:1`, `1:8` and `8:1`.
+- **`google_image_search`:** Ground the image with Google Search (Nano Banana 2.1 and 3.1 Flash Image only).
+- One image per request. For variations, run the command again with a different `seed`.
+- Images are attached as the API returned them. An image over the server's upload limit is re-encoded as JPEG to fit, which drops transparency.
 
 ### `/gemini-media video`
 
-Generate videos from text prompts or image inputs.
+Generate a video from a prompt or an image.
 
-- **Models:** Gemini Omni 1.2 Flash (default) and Gemini Omni 1.1 Flash.
-- **Gemini Omni:** `resolution` is `360p`, `720p` (default), `1080p` or `4K` (360p and 4K need 1.2), and `duration` is 3 to 15 seconds (default 10; up to 10 on 1.1 or with `last_frame`). Attach an image as `attachment` to use it as the first frame, and add `last_frame` to end the clip on a second image (requires `attachment`). Billed from the response's token counts. Requests too large for the server's upload limit are refused before generation.
+- **`model`:** Gemini Omni 1.2 Flash (default) or Gemini Omni 1.1 Flash.
+- **`resolution`:** `360p`, `720p` (default), `1080p` or `4K`; `360p` and `4K` need Omni 1.2.
+- **`duration`:** 3 to 15 seconds (default 10; at most 10 on Omni 1.1 or with `last_frame`).
+- **`attachment` / `last_frame`:** First-frame and last-frame images; `last_frame` requires `attachment`.
 
 ### `/gemini-tools music`
 
-Create music using Google Lyria models.
+Create music with Google Lyria.
 
-- **Models:** Lyria 3.5 (default), Lyria 3 Pro Preview, Lyria 3 Clip Preview, Lyria RealTime Experimental.
-- **Options:** Customizable BPM, scale/key, density, brightness, duration (RealTime only), and reference image inputs. Long lyrics or structure notes are previewed and attached as text files.
-- **Cost:** Lyria 3.5 and Lyria 3 are billed per generated song, count against the daily cost ledger, and show a cost line such as `$0.0800 · 1 song · $0.12 today`. Lyria RealTime has no published per-song price, so its generations are logged as unpriced rather than at an invented rate, and its cost line shows the duration and `no published price` with no request cost.
+- **`model`:** Lyria 3.5 (default), Lyria 3 Pro Preview, Lyria 3 Clip Preview or Lyria RealTime Experimental.
+- **`bpm` / `scale` / `density` / `brightness` / `guidance`:** Tempo, key and style controls.
+- **`duration`:** Target length in seconds (Lyria RealTime only).
+- **`attachment`:** A reference image (Lyria 3 / 3.5).
+- Long lyrics or structure notes are attached as a text file. Lyria RealTime has no published price, so its cost line shows no request cost.
 
 ### `/gemini-tools tts`
 
-Convert text to high-quality WAV speech audio (24kHz, 16-bit, mono). Features 25+ voice options with natural language style controls.
+Convert text to WAV speech (24 kHz, 16-bit, mono).
 
-- **Models:** Gemini 3.8 Flash TTS (default; $0.50 / 1M input and $9.00 / 1M audio output tokens through 2026-12-31, double from 2027-01-01), Gemini 3.8 Flash Lite TTS ($0.50 / $6.00, same promotion), and the older Gemini 3.1 Flash Preview TTS, 2.5 Flash Preview TTS and 2.5 Pro Preview TTS.
-- **Style prompt:** on the 3.8 models the `style_prompt` is sent as separate speech metadata, because they read the input text word for word and would speak a style instruction placed in front of it. The older models receive it in front of the text, as before.
+- **`model`:** Gemini 3.8 Flash TTS (default), 3.8 Flash Lite TTS, 3.1 Flash Preview TTS, 2.5 Flash Preview TTS or 2.5 Pro Preview TTS.
+- **`voice_name`:** 25+ voices (default: Kore).
+- **`style_prompt`:** Instructions for voice style, tone, accent and pace.
 
 ### `/gemini-tools research`
 
-Run autonomous deep research tasks (takes 2-10 minutes) using a Gemini Deep Research agent. The default `deep-research-preview-04-2026` (Apr 2026) is tuned for low latency and cost; choose `deep-research-max-preview-04-2026` for higher-quality, more comprehensive reports at the cost of longer runtimes. Great for market analysis and literature reviews. Optionally search uploaded document stores via `file_search`, enable Google Maps grounding, and control whether the response includes deep-research thinking summaries. The research agent always grounds on Google Search, and each search the API reports (the `N searches` count in the cost embed) is billed at the Gemini 3 rate of $14 / 1K. When the agent actually grounds on Maps, each Maps call the API reports (the `N maps calls` count) is billed at the underlying Gemini 3 research model's Maps rate.
+Run a deep research task (2–10 minutes) that searches the web and returns a report with citations.
+
+- **`agent`:** `deep-research-preview-04-2026` (default; faster and cheaper) or `deep-research-max-preview-04-2026` (more thorough, longer runs).
+- **`file_search` / `google_maps`:** Also search your File Search stores, or ground on Google Maps (default: off).
+- **`thinking_summaries`:** Include or suppress the agent's thought summaries.
+- The agent always grounds on Google Search. Each search and Maps call is billed and counted in the cost line.
 
 ### `/gemini check_permissions`
 
@@ -88,15 +105,18 @@ Check if the bot has the necessary permissions in the current channel.
 ### Prerequisites
 
 - Python 3.11+
-- `google-genai` ~2.33
-- `py-cord` ~2.8
-- `Pillow` ~13.0
-- `aiohttp` ~3.14
-- `python-dotenv` ~1.2
+- Discord Bot Token
+- Gemini API Key
 
 ### Installation
 
-1. Clone the repository and navigate to the project directory.
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/jdmsharpe/discord-gemini.git
+   cd discord-gemini
+   ```
+
 2. Create and activate a virtual environment:
 
    ```bash
@@ -176,7 +196,15 @@ bot.add_cog(GeminiCog(bot=bot))
 
 ## Usage
 
-### Music Generation Prompt Examples
+1. Run `/gemini chat` to start a conversation.
+2. Send messages in the same channel to continue it.
+3. Use the controls under each reply:
+   - 🔄 Regenerate the last response
+   - ⏯️ Pause or resume the conversation
+   - ⏹️ End the conversation
+   - **Tools** menu: turn tools on or off mid-conversation
+
+### Music Prompt Examples
 
 Try these prompts with `/gemini-tools music`:
 
@@ -184,12 +212,6 @@ Try these prompts with `/gemini-tools music`:
 - **Instruments:** "piano and strings", "guitar and drums", "electronic synthesizers"
 - **Moods:** "upbeat and energetic", "calm and meditative", "dark and atmospheric"
 - **Combinations:** "upbeat electronic dance music with heavy bass", "peaceful acoustic guitar with nature sounds"
-
-### Troubleshooting
-
-- Ensure your API key has the necessary permissions.
-- Check that your bot has proper Discord permissions in the channel.
-- Verify your internet connection for streaming features.
 
 ## Development
 
