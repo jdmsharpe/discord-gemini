@@ -18,12 +18,12 @@ A Discord bot for Google's Gemini API, built on Pycord 2.0. It provides chat, im
 
 ## Features
 
-- **Chat:** Multi-turn conversations with Gemini 4 Argon (default; needs a paid API key), 3.8 Flash, 3.6 Flash, 3.5 Flash Lite, 3.1 Pro, 3.1 Flash Lite, 3.0 Flash and 2.5 Pro / Flash / Flash Lite. Messages you send in the channel continue the conversation. Google limits the 2.5 models to API accounts that used them before.
-- **Attachments:** Text, images, PDFs, audio, video, documents and file URLs, up to 2 GB. On Gemini 4 Argon, 3.8 / 3.6 Flash and 3.5 Flash Lite, videos and YouTube URLs use agentic video understanding: the model requests only the segments it needs.
+- **Chat:** Multi-turn conversations with Gemini 4 Carbon (default; needs a paid API key), 4 Argon, 3.8 Flash, 3.6 Flash, 3.5 Flash Lite, 3.1 Pro, 3.1 Flash Lite, 3.0 Flash and 2.5 Pro / Flash / Flash Lite. Messages you send in the channel continue the conversation. Google limits the 2.5 models to API accounts that used them before.
+- **Attachments:** Text, images, PDFs, audio, video, documents and file URLs, up to 2 GB. On Gemini 4 Carbon / Argon, 3.8 / 3.6 Flash and 3.5 Flash Lite, videos and YouTube URLs use agentic video understanding: the model requests only the segments it needs.
 - **Reasoning:** Thinking levels on Gemini 3 and 4, token budgets on Gemini 2.5, with thought summaries in a spoiler. Unsupported combinations are refused before the request is sent.
 - **Built-in tools:** `google_search`, `code_execution`, `google_maps`, `url_context` and `file_search`. Gemini 3 and 4 can combine them with custom functions.
 - **Citations:** Web and map citations, search queries, URL context and file search citations appear in a Sources embed.
-- **Context caching:** Conversations above the model's cache minimum are cached (not on Gemini 4 Argon), and cache hits are billed at the cached-input rate.
+- **Context caching:** Conversations above the model's cache minimum are cached (implicit caching only on Gemini 4 Carbon / Argon), and cache hits are billed at the cached-input rate.
 - **Request storage:** Chat, image, speech and music requests are sent with `store=False`.
 - **Media generation:**
   - **Images:** Generation and editing with Nano Banana 2.1 (default) and the Gemini Flash / Pro Image models, up to 4K.
@@ -41,7 +41,7 @@ Start a conversation with a Gemini model.
 
 - **`prompt` (required):** Your first message.
 - **`system_instruction`:** System prompt.
-- **`model`:** Gemini model (default: Gemini 4 Argon).
+- **`model`:** Gemini model (default: Gemini 4 Carbon).
 - **`attachment` / `url`:** A file attachment, or a file URL (Gemini 2.5 and newer).
 - **`temperature` / `top_p` / `frequency_penalty` / `presence_penalty` / `seed`:** Sampling options; Gemini 4 ignores `temperature` and `top_p`.
 - **`media_resolution`:** Resolution for image, video and PDF inputs.
