@@ -107,6 +107,52 @@ def test_chat_command_default_model_param():
     assert signature.parameters["model"].default == "gemini-4-carbon"
 
 
+def test_gemini_4_models_follow_google_order_after_the_default():
+    """Carbon (default), Neon, Hydrogen, then Argon; 13 chat models in all."""
+    values = [choice.value for choice in CHAT_MODEL_CHOICES]
+    assert values[:4] == [
+        "gemini-4-carbon",
+        "gemini-4-neon",
+        "gemini-4-hydrogen",
+        "gemini-4-argon",
+    ]
+    assert len(values) == 13
+    names = {choice.value: choice.name for choice in CHAT_MODEL_CHOICES}
+    assert names["gemini-4-neon"] == "Gemini 4 Neon"
+    assert names["gemini-4-hydrogen"] == "Gemini 4 Hydrogen"
+
+
+def _chat_option(name):
+    return next(option for option in GeminiCog.chat.options if option.name == name)
+
+
+def test_chat_sampling_options_carry_the_api_bounds():
+    """The API answers temperature outside 0.0-2.0 and top_p outside 0.0-1.0 with a 400
+    on every Gemini 4 model, so Discord rejects such values first."""
+    temperature = _chat_option("temperature")
+    assert (temperature.min_value, temperature.max_value) == (0.0, 2.0)
+    assert temperature.to_dict()["min_value"] == 0.0
+    assert temperature.to_dict()["max_value"] == 2.0
+    top_p = _chat_option("top_p")
+    assert (top_p.min_value, top_p.max_value) == (0.0, 1.0)
+    assert top_p.to_dict()["min_value"] == 0.0
+    assert top_p.to_dict()["max_value"] == 1.0
+
+
+def test_thinking_level_option_offers_xhigh_within_discord_limits():
+    option = _chat_option("thinking_level")
+    assert [choice.value for choice in option.choices] == [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ]
+    assert len(option.description) <= 100
+    assert "Xhigh" in option.description
+    assert option.description.endswith("(default: not set / model default)")
+
+
 def test_routed_aliases_are_off_the_chat_menu():
     """Google routes gemini-3.7-flash to 3.8 Flash and gemini-3.5-flash to 3.6 Flash."""
     values = [choice.value for choice in CHAT_MODEL_CHOICES]
@@ -149,14 +195,57 @@ class TestThinkingValidation:
             assert self._validate(model, level="high", budget=512) is not None
 
     def test_rejects_minimal_on_models_that_do_not_support_it(self):
-        """4 Argon, 3.8 Flash and 3.1 Pro 400 on MINIMAL while the menu offers it.
+        """4 Carbon, Neon, Hydrogen and Argon, 3.8 Flash and 3.1 Pro 400 on MINIMAL while
+        the menu offers it.
 
-        Argon: "Thinking level MINIMAL is not supported for this model."
+        Gemini 4: "Thinking level MINIMAL is not supported for this model."
         """
-        for model in ("gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview"):
+        for model in (
+            "gemini-4-carbon",
+            "gemini-4-neon",
+            "gemini-4-hydrogen",
+            "gemini-4-argon",
+            "gemini-3.8-flash",
+            "gemini-3.1-pro-preview",
+        ):
             error = self._validate(model, level="minimal")
             assert error is not None, model
             assert "Minimal" in error
+
+    @pytest.mark.parametrize("model", ["gemini-4-neon", "gemini-4-hydrogen"])
+    def test_accepts_xhigh_and_the_other_levels_on_neon_and_hydrogen(self, model):
+        for level in ("low", "medium", "high", "xhigh"):
+            assert self._validate(model, level=level) is None, (model, level)
+
+    def test_xhigh_set_is_exactly_neon_and_hydrogen(self):
+        """Carbon and Argon 400 on XHIGH ("Thinking level XHIGH is not supported for this
+        model."); no earlier generation has been tried with it, so none is offered."""
+        from discord_gemini.util import XHIGH_THINKING_MODELS
+
+        assert frozenset({"gemini-4-neon", "gemini-4-hydrogen"}) == XHIGH_THINKING_MODELS
+
+    def test_rejects_xhigh_on_every_other_chat_model(self):
+        supported = {"gemini-4-neon", "gemini-4-hydrogen"}
+        others = [c.value for c in CHAT_MODEL_CHOICES if c.value not in supported]
+        assert "gemini-4-carbon" in others
+        assert "gemini-4-argon" in others
+        assert len(others) == len(CHAT_MODEL_CHOICES) - 2
+        for model in others:
+            error = self._validate(model, level="xhigh")
+            assert error is not None, model
+            assert f"`{model}`" in error
+            if model.startswith("gemini-2.5"):
+                # Gemini 2.5 refuses every level, and that check comes first.
+                assert "thinking_budget" in error
+            else:
+                assert "Xhigh" in error
+
+    def test_xhigh_refusal_names_the_models_that_support_it(self):
+        error = self._validate("gemini-4-carbon", level="xhigh")
+        assert error == (
+            "The Xhigh thinking level is offered only on `gemini-4-hydrogen` and `gemini-4-neon`. "
+            "Choose Low, Medium, or High for `gemini-4-carbon`, or switch to one of those models."
+        )
 
     def test_allows_minimal_where_it_is_supported(self):
         assert self._validate("gemini-3.6-flash", level="minimal") is None
@@ -579,6 +668,8 @@ class TestImageAspectRatioCommand(AsyncGeminiCogTestCase):
 
 def test_critical_choice_values_present():
     assert any(choice.value == "gemini-4-argon" for choice in CHAT_MODEL_CHOICES)
+    assert any(choice.value == "gemini-4-neon" for choice in CHAT_MODEL_CHOICES)
+    assert any(choice.value == "gemini-4-hydrogen" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.8-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.6-flash" for choice in CHAT_MODEL_CHOICES)
     assert any(choice.value == "gemini-3.5-flash-lite" for choice in CHAT_MODEL_CHOICES)
@@ -672,7 +763,8 @@ def test_image_command_offers_no_image_count_option():
 
 def test_thinking_level_choice_set():
     values = {choice.value for choice in THINKING_LEVEL_CHOICES}
-    assert values == {"minimal", "low", "medium", "high"}
+    assert values == {"minimal", "low", "medium", "high", "xhigh"}
+    assert len(THINKING_LEVEL_CHOICES) == 5
 
 
 def test_research_thinking_summary_choice_set():

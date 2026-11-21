@@ -226,8 +226,20 @@ CACHE_TTL = "3600s"  # 60-minute TTL for explicit caches
 # Models that 400 on `thinking_level="minimal"`. "Minimal" is an unconditional
 # slash-command choice, so it must be gated here rather than in the menu.
 MINIMAL_THINKING_UNSUPPORTED_MODELS = frozenset(
-    {"gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview"}
+    {
+        "gemini-4-carbon",
+        "gemini-4-neon",
+        "gemini-4-hydrogen",
+        "gemini-4-argon",
+        "gemini-3.8-flash",
+        "gemini-3.1-pro-preview",
+    }
 )
+
+# Models that accept `thinking_level="xhigh"`. Carbon and Argon 400 on it
+# ("Thinking level XHIGH is not supported for this model."); no Gemini 3.x or older
+# model has been tried with it, so none is listed.
+XHIGH_THINKING_MODELS = frozenset({"gemini-4-neon", "gemini-4-hydrogen"})
 
 # Models that 400 on EVERY `thinking_level` ("Thinking level is not supported for
 # this model"); they take `thinking_budget` instead. Live-reproduced 2026-08-28.
@@ -245,6 +257,8 @@ THINKING_LEVEL_UNSUPPORTED_MODELS = frozenset(
 AGENTIC_VIDEO_MODELS = frozenset(
     {
         "gemini-4-carbon",
+        "gemini-4-neon",
+        "gemini-4-hydrogen",
         "gemini-4-argon",
         "gemini-3.8-flash",
         "gemini-3.6-flash",
@@ -544,9 +558,17 @@ def has_server_side_tools(tools: list[Any]) -> bool:
 # one request (Gemini 3 and Gemini 4).
 TOOL_COMBINATION_MODEL_PREFIXES = ("gemini-3", "gemini-4")
 
-# Model-id prefixes whose models accept `temperature` and `top_p` without error but
-# ignore them (Gemini 4 model docs: "If provided, they are ignored").
+# Model-id prefixes whose models ignore `temperature` and `top_p` (Gemini 4 model
+# docs: "If provided, they are ignored"). The API still validates the ranges
+# (temperature 0.0-2.0, top_p 0.0-1.0), so the chat flows do not send them to these
+# models at all.
 SAMPLING_IGNORED_MODEL_PREFIXES = ("gemini-4",)
+
+
+def model_ignores_sampling(model: str) -> bool:
+    """Return True when the model ignores `temperature` and `top_p`."""
+
+    return model.startswith(SAMPLING_IGNORED_MODEL_PREFIXES)
 
 
 def model_supports_tool_combinations(model: str) -> bool:

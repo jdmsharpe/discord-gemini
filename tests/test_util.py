@@ -43,6 +43,7 @@ from discord_gemini.util import (
     filter_supported_tools_for_model,
     has_server_side_tools,
     maps_grounding_cost_for_model,
+    model_ignores_sampling,
     model_supports_tool_combinations,
     resolve_tool_name,
     validate_builtin_custom_tool_combination,
@@ -254,6 +255,21 @@ class TestToolCombinationSupport:
         assert model_supports_tool_combinations("gemini-3-flash-preview") is True
         assert model_supports_tool_combinations("gemini-3.1-pro-preview") is True
         assert model_supports_tool_combinations("gemini-2.5-flash") is False
+
+    @pytest.mark.parametrize(
+        "model",
+        ["gemini-4-carbon", "gemini-4-neon", "gemini-4-hydrogen", "gemini-4-argon"],
+    )
+    def test_every_gemini_4_chat_model_ignores_sampling_and_combines_tools(self, model):
+        assert model_ignores_sampling(model) is True
+        assert model_supports_tool_combinations(model) is True
+
+    @pytest.mark.parametrize(
+        "model",
+        ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash-lite"],
+    )
+    def test_earlier_generations_do_not_ignore_sampling(self, model):
+        assert model_ignores_sampling(model) is False
 
     def test_model_supports_tool_combinations_for_gemini_4(self):
         assert model_supports_tool_combinations("gemini-4-argon") is True
@@ -732,8 +748,25 @@ class TestCacheConstants:
         """Test that models without explicit caching are absent from the threshold map."""
         assert "gemini-2.5-flash-lite" not in CACHE_MIN_TOKEN_COUNT
         assert "gemini-3.1-flash-lite" not in CACHE_MIN_TOKEN_COUNT
-        # Argon supports implicit caching only and rejects explicit cache creation.
-        assert "gemini-4-argon" not in CACHE_MIN_TOKEN_COUNT
+        # The Gemini 4 models support implicit caching only and reject explicit cache creation.
+        for model in ("gemini-4-carbon", "gemini-4-neon", "gemini-4-hydrogen", "gemini-4-argon"):
+            assert model not in CACHE_MIN_TOKEN_COUNT
+
+    def test_gemini_4_models_share_the_thinking_and_video_capability_sets(self):
+        """Carbon, Neon, Hydrogen and Argon all reject Minimal and accept agentic video;
+        only Neon and Hydrogen accept Xhigh."""
+        from discord_gemini.util import (
+            AGENTIC_VIDEO_MODELS,
+            MINIMAL_THINKING_UNSUPPORTED_MODELS,
+            THINKING_LEVEL_UNSUPPORTED_MODELS,
+            XHIGH_THINKING_MODELS,
+        )
+
+        gemini_4 = {"gemini-4-carbon", "gemini-4-neon", "gemini-4-hydrogen", "gemini-4-argon"}
+        assert gemini_4 <= MINIMAL_THINKING_UNSUPPORTED_MODELS
+        assert gemini_4 <= AGENTIC_VIDEO_MODELS
+        assert not gemini_4 & THINKING_LEVEL_UNSUPPORTED_MODELS
+        assert gemini_4 & XHIGH_THINKING_MODELS == {"gemini-4-neon", "gemini-4-hydrogen"}
 
     def test_cache_min_token_count_covers_only_chat_menu_models(self):
         """The routed aliases left the menu; no threshold may name an id the menu lacks."""
@@ -803,6 +836,8 @@ class TestModelPricing:
     def test_pricing_contains_all_chat_models(self):
         """Test that MODEL_PRICING includes all chat models."""
         expected_models = [
+            "gemini-4-neon",
+            "gemini-4-hydrogen",
             "gemini-4-argon",
             "gemini-3.8-flash",
             "gemini-3.6-flash",
@@ -848,9 +883,13 @@ class TestModelPricing:
 
     def test_calculate_cost_uses_new_ga_model_rows(self):
         """Missing pricing rows fall back silently, so price the new models explicitly."""
-        # gemini-4-argon (default chat model): $2.00/M input, $10.00/M output through
+        # gemini-4-argon: $2.00/M input, $10.00/M output through
         # 2026-11-30 ($4.00 / $20.00 from 2026-12-01).
         assert calculate_cost("gemini-4-argon", 1_000_000, 1_000_000) == pytest.approx(12.00)
+        # gemini-4-neon: $3.00/M input, $15.00/M output, no dated change.
+        assert calculate_cost("gemini-4-neon", 1_000_000, 1_000_000) == pytest.approx(18.00)
+        # gemini-4-hydrogen: $1.50/M input, $7.50/M output, no dated change.
+        assert calculate_cost("gemini-4-hydrogen", 1_000_000, 1_000_000) == pytest.approx(9.00)
         # gemini-3.8-flash: $0.75/M input, $3.75/M output
         assert calculate_cost("gemini-3.8-flash", 1_000_000, 1_000_000) == pytest.approx(4.50)
         # gemini-3.7-flash: $0.75/M input, $3.75/M output
@@ -861,6 +900,8 @@ class TestModelPricing:
         assert calculate_cost("gemini-3.5-flash-lite", 1_000_000, 1_000_000) == pytest.approx(2.80)
         # None may land on UNKNOWN_CHAT_MODEL_PRICING (2.0, 12.0) == $14.00.
         for model in (
+            "gemini-4-neon",
+            "gemini-4-hydrogen",
             "gemini-4-argon",
             "gemini-3.8-flash",
             "gemini-3.7-flash",
@@ -877,6 +918,36 @@ class TestModelPricing:
         )
         # 600k uncached x $2.00 + 400k cached x $0.10 + 200k output and thinking x $10.00
         assert cost == pytest.approx(1.20 + 0.04 + 2.00)
+
+    def test_neon_bills_thinking_cache_hits_and_search_queries(self):
+        """Neon: $3.00 input, $15.00 output (thinking included), $0.15 cached input, and
+        $0.014 per Search query ("shared across all Gemini 3 and newer models")."""
+        cost = calculate_cost(
+            "gemini-4-neon",
+            1_000_000,
+            100_000,
+            thinking_tokens=100_000,
+            cached_tokens=400_000,
+            google_search_queries=3,
+        )
+        # 600k uncached x $3.00 + 400k cached x $0.15 + 200k output and thinking x $15.00
+        # + 3 queries x $0.014
+        assert cost == pytest.approx(1.80 + 0.06 + 3.00 + 0.042)
+
+    def test_hydrogen_bills_thinking_cache_hits_and_maps_queries(self):
+        """Hydrogen: $1.50 input, $7.50 output (thinking included), $0.075 cached input,
+        and $0.014 per Maps query."""
+        cost = calculate_cost(
+            "gemini-4-hydrogen",
+            1_000_000,
+            100_000,
+            thinking_tokens=100_000,
+            cached_tokens=400_000,
+            google_maps_grounded=2,
+        )
+        # 600k uncached x $1.50 + 400k cached x $0.075 + 200k output and thinking x $7.50
+        # + 2 queries x $0.014
+        assert cost == pytest.approx(0.90 + 0.03 + 1.50 + 0.028)
 
     def test_flash_tier_carries_the_promotional_rate(self):
         """3.8 and 3.6 Flash bill at the promotional rate, not the 2027 rate.

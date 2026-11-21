@@ -19,6 +19,9 @@ class TestPricingLoader:
         pricing = _reload_pricing()
         # Rates through 2026-11-30; Google doubles them to 4.00 / 20.00 on 2026-12-01.
         assert pricing.MODEL_PRICING["gemini-4-argon"] == (2.00, 10.00)
+        # Neon and Hydrogen carry flat rates with no dated change.
+        assert pricing.MODEL_PRICING["gemini-4-neon"] == (3.00, 15.00)
+        assert pricing.MODEL_PRICING["gemini-4-hydrogen"] == (1.50, 7.50)
         assert pricing.MODEL_PRICING["gemini-3.8-flash"] == (0.75, 3.75)
         assert pricing.MODEL_PRICING["gemini-3.7-flash"] == (0.75, 3.75)
         assert pricing.MODEL_PRICING["gemini-3.6-flash"] == (0.75, 3.75)
@@ -122,6 +125,8 @@ class TestPricingLoader:
     def test_cached_input_rates_match_the_live_page(self):
         pricing = _reload_pricing()
         assert pricing.CACHED_INPUT_PRICING["gemini-4-argon"] == 0.10
+        assert pricing.CACHED_INPUT_PRICING["gemini-4-neon"] == 0.15
+        assert pricing.CACHED_INPUT_PRICING["gemini-4-hydrogen"] == 0.075
         assert pricing.CACHED_INPUT_PRICING["gemini-3.8-flash"] == 0.075
         assert pricing.CACHED_INPUT_PRICING["gemini-3.7-flash"] == 0.075
         assert pricing.CACHED_INPUT_PRICING["gemini-3.1-pro-preview"] == 0.20
@@ -145,6 +150,8 @@ class TestPricingLoader:
         """Gemini 3.x: $14/1K (upper bound, free tier untracked); 2.5: $25/1K; else fallback."""
         pricing = _reload_pricing()
         assert pricing.maps_grounding_cost_for_model("gemini-4-argon") == 0.014
+        assert pricing.maps_grounding_cost_for_model("gemini-4-neon") == 0.014
+        assert pricing.maps_grounding_cost_for_model("gemini-4-hydrogen") == 0.014
         assert pricing.maps_grounding_cost_for_model("gemini-3.8-flash") == 0.014
         assert pricing.maps_grounding_cost_for_model("gemini-3-flash-preview") == 0.014
         assert pricing.maps_grounding_cost_for_model("gemini-2.5-flash") == 0.025
@@ -173,6 +180,8 @@ class TestPricingLoader:
         assert cost("gemini-3.1-flash-image", 2, 1) == pytest.approx(0.028)
         # Gemini 4 shares the rate ("shared across all Gemini 3 and newer models").
         assert cost("gemini-4-argon", 3, 1) == pytest.approx(0.042)
+        assert cost("gemini-4-neon", 3, 1) == pytest.approx(0.042)
+        assert cost("gemini-4-hydrogen", 3, 1) == pytest.approx(0.042)
         # Nano Banana 2.1 shares the Gemini 3.x per-query rate.
         assert cost("gemini-nano-banana-2.1", 2, 1) == pytest.approx(0.028)
         # Per grounded prompt on Gemini 2.5, whatever the query count.

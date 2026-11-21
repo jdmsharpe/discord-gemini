@@ -198,7 +198,9 @@ class TestGeminiCaching(AsyncGeminiCogTestCase):
         assert params.cache_name is None
         self.cog.client.aio.caches.create.assert_not_called()
 
-    @pytest.mark.parametrize("model", ["gemini-4-carbon", "gemini-4-argon"])
+    @pytest.mark.parametrize(
+        "model", ["gemini-4-carbon", "gemini-4-neon", "gemini-4-hydrogen", "gemini-4-argon"]
+    )
     async def test_gemini_4_never_creates_an_explicit_cache(self, model):
         """Gemini 4 supports implicit caching only; caches.create is not supported."""
         from discord_gemini.util import ChatCompletionParameters

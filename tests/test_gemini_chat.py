@@ -259,6 +259,8 @@ class TestAgenticVideoProcessing(AsyncGeminiCogTestCase):
         """These accepted media_processing=AGENTIC in live requests; 3.1 Pro 400s."""
         assert {
             "gemini-4-carbon",
+            "gemini-4-neon",
+            "gemini-4-hydrogen",
             "gemini-4-argon",
             "gemini-3.8-flash",
             "gemini-3.6-flash",
@@ -526,6 +528,135 @@ class TestGemini4CarbonDefault(AsyncGeminiCogTestCase):
         embed = ctx.send_followup.await_args_list[0].kwargs["embed"]
         assert "gemini-4-carbon" in embed.description
         assert "Minimal" in embed.description
+
+    @pytest.mark.parametrize(
+        "model", ["gemini-4-carbon", "gemini-4-neon", "gemini-4-hydrogen", "gemini-4-argon"]
+    )
+    async def test_gemini_4_chat_request_omits_temperature_and_top_p(self, model):
+        """Gemini 4 ignores in-range values and 400s on out-of-range ones, so a typed
+        value is not sent; the embed still reports it as ignored."""
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog, ctx=ctx, prompt="hello", model=model, temperature=0.5, top_p=0.9
+            )
+
+        config = loop.await_args.args[3]
+        assert config.temperature is None
+        assert config.top_p is None
+        description = ctx.send_followup.await_args_list[0].kwargs["embeds"][0].description
+        assert "**Temperature:** 0.5 (ignored: Gemini 4 models do not use temperature)" in (
+            description
+        )
+        assert "**Nucleus Sampling:** 0.9 (ignored: Gemini 4 models do not use top_p)" in (
+            description
+        )
+
+    @pytest.mark.parametrize(
+        "model", ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-flash"]
+    )
+    async def test_earlier_generations_still_receive_temperature_and_top_p(self, model):
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog, ctx=ctx, prompt="hello", model=model, temperature=0.5, top_p=0.9
+            )
+
+        config = loop.await_args.args[3]
+        assert config.temperature == 0.5
+        assert config.top_p == 0.9
+
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [
+            ("gemini-4-carbon", (None, None)),
+            ("gemini-4-neon", (None, None)),
+            ("gemini-4-hydrogen", (None, None)),
+            ("gemini-4-argon", (None, None)),
+            ("gemini-3.8-flash", (0.5, 0.9)),
+            ("gemini-2.5-pro", (0.5, 0.9)),
+        ],
+    )
+    async def test_follow_up_request_applies_the_same_sampling_rule(self, model, expected):
+        from discord_gemini.cogs.gemini.chat import handle_new_message_in_conversation
+        from discord_gemini.cogs.gemini.models import Conversation
+        from discord_gemini.util import ChatCompletionParameters
+
+        author = MagicMock()
+        message = MagicMock()
+        message.author = author
+        message.attachments = []
+        message.content = "follow-up"
+        message.stickers = []
+        message.channel = MagicMock()
+        message.reply = AsyncMock(return_value=MagicMock(id=555, edit=AsyncMock()))
+        conversation = Conversation(
+            params=ChatCompletionParameters(
+                model=model,
+                conversation_id=100,
+                conversation_starter=author,
+                temperature=0.5,
+                top_p=0.9,
+            ),
+            history=[],
+        )
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+            patch.object(self.cog, "_log_cost"),
+        ):
+            await handle_new_message_in_conversation(self.cog, message, conversation)
+
+        config = loop.await_args.args[3]
+        assert (config.temperature, config.top_p) == expected
+
+    @pytest.mark.parametrize("model", ["gemini-4-neon", "gemini-4-hydrogen"])
+    async def test_xhigh_thinking_reaches_the_request_on_neon_and_hydrogen(self, model):
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog, ctx=ctx, prompt="hello", model=model, thinking_level="xhigh"
+            )
+
+        config = loop.await_args.args[3]
+        assert config.thinking_config.thinking_level == types.ThinkingLevel.XHIGH
+        description = ctx.send_followup.await_args_list[0].kwargs["embeds"][0].description
+        assert "**Thinking Level:** Xhigh" in description
+
+    @pytest.mark.parametrize("model", ["gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash"])
+    async def test_xhigh_thinking_is_refused_before_the_request_on_other_models(self, model):
+        ctx = _chat_ctx()
+        loop = AsyncMock(return_value=_loop_result())
+
+        with (
+            patch("discord_gemini.cogs.gemini.chat.keep_typing", AsyncMock()),
+            patch("discord_gemini.cogs.gemini.chat._run_agentic_loop", loop),
+        ):
+            await self.cog.chat.callback(
+                self.cog, ctx=ctx, prompt="hello", model=model, thinking_level="xhigh"
+            )
+
+        loop.assert_not_awaited()
+        embed = ctx.send_followup.await_args_list[0].kwargs["embed"]
+        assert model in embed.description
+        assert "Xhigh" in embed.description
 
     def test_argon_combines_builtin_and_custom_tools(self):
         """The combination gate checked startswith("gemini-3") and refused Gemini 4."""

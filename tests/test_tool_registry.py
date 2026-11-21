@@ -96,3 +96,26 @@ def test_default_chat_model_is_priced_and_fully_tool_enabled():
             f"{default_model} is the default chat model but is missing from the "
             f"{tool_id} allowlist, so the tool silently disappears."
         )
+
+
+def test_every_gemini_4_menu_model_is_priced_and_in_every_tool_allowlist():
+    """Neon and Hydrogen were added next to Carbon and Argon; a Gemini 4 id left out of a
+    set silently bills at the fallback rate or loses the tool."""
+    from discord_gemini.cogs.gemini.command_options import CHAT_MODEL_CHOICES
+
+    gemini_4_models = [
+        choice.value for choice in CHAT_MODEL_CHOICES if choice.value.startswith("gemini-4-")
+    ]
+    assert gemini_4_models == [
+        "gemini-4-carbon",
+        "gemini-4-neon",
+        "gemini-4-hydrogen",
+        "gemini-4-argon",
+    ]
+    for model in gemini_4_models:
+        assert model in MODEL_PRICING, model
+        for tool_id in MODEL_GATED_TOOLS:
+            metadata = get_tool_metadata(tool_id)
+            assert metadata is not None
+            assert metadata.model_allowlist is not None
+            assert model in metadata.model_allowlist, (model, tool_id)

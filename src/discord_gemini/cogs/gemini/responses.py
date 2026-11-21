@@ -7,7 +7,11 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 from google.genai import types
 
-from ...util import MINIMAL_THINKING_UNSUPPORTED_MODELS, THINKING_LEVEL_UNSUPPORTED_MODELS
+from ...util import (
+    MINIMAL_THINKING_UNSUPPORTED_MODELS,
+    THINKING_LEVEL_UNSUPPORTED_MODELS,
+    XHIGH_THINKING_MODELS,
+)
 from .models import CitationInfo, ToolInfo, UrlContextInfo
 
 _GROUNDING_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
@@ -161,10 +165,11 @@ def _validate_thinking_request(
 ) -> str | None:
     """Reject thinking configurations the API answers with a 400.
 
-    All three are reachable straight from the slash command: level and budget
+    All four are reachable straight from the slash command: level and budget
     together fail on every model, any level fails on the Gemini 2.5 models in
-    `THINKING_LEVEL_UNSUPPORTED_MODELS` (they take a budget instead), and
-    `minimal` fails on the models listed in `MINIMAL_THINKING_UNSUPPORTED_MODELS`.
+    `THINKING_LEVEL_UNSUPPORTED_MODELS` (they take a budget instead), `minimal`
+    fails on the models listed in `MINIMAL_THINKING_UNSUPPORTED_MODELS`, and
+    `xhigh` fails on every model outside `XHIGH_THINKING_MODELS`.
     """
 
     if thinking_level is not None and thinking_budget is not None:
@@ -182,6 +187,12 @@ def _validate_thinking_request(
         return (
             f"`{model}` does not support the Minimal thinking level. "
             "Choose Low, Medium, or High, or use `thinking_budget` instead."
+        )
+    if thinking_level == "xhigh" and model not in XHIGH_THINKING_MODELS:
+        supported = " and ".join(f"`{name}`" for name in sorted(XHIGH_THINKING_MODELS))
+        return (
+            f"The Xhigh thinking level is offered only on {supported}. "
+            f"Choose Low, Medium, or High for `{model}`, or switch to one of those models."
         )
     return None
 

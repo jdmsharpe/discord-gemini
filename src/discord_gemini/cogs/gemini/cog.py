@@ -410,12 +410,16 @@ class GeminiCog(commands.Cog):
         description="(Advanced) Controls randomness. Gemini 3 recommends 1.0; Gemini 4 ignores it. (default: not set)",
         required=False,
         type=float,
+        min_value=0.0,
+        max_value=2.0,
     )
     @option(
         "top_p",
         description="(Advanced) Nucleus sampling. Gemini 4 ignores it. (default: not set)",
         required=False,
         type=float,
+        min_value=0.0,
+        max_value=1.0,
     )
     @option(
         "media_resolution",
@@ -426,7 +430,7 @@ class GeminiCog(commands.Cog):
     )
     @option(
         "thinking_level",
-        description="Thinking depth for Gemini 3 and 4: Minimal, Low, Medium, High. (default: not set / model default)",
+        description="Thinking depth for Gemini 3 and 4; Xhigh needs Neon or Hydrogen. (default: not set / model default)",
         required=False,
         choices=THINKING_LEVEL_CHOICES,
         type=str,

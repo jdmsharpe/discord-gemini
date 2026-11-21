@@ -15,7 +15,6 @@ from ...stickers import text_with_stickers
 from ...util import (
     AGENTIC_VIDEO_MODELS,
     MAX_AGENTIC_ITERATIONS,
-    SAMPLING_IGNORED_MODEL_PREFIXES,
     TYPING_INDICATOR_INTERVAL,
     AgenticResult,
     ChatCompletionParameters,
@@ -24,6 +23,7 @@ from ...util import (
     filter_file_search_incompatible_tools,
     filter_supported_tools_for_model,
     has_server_side_tools,
+    model_ignores_sampling,
     model_supports_tool_combinations,
     resolve_tool_name,
     truncate_text,
@@ -294,10 +294,11 @@ async def handle_new_message_in_conversation(
             config_args["cached_content"] = params.cache_name
         elif params.system_instruction:
             config_args["system_instruction"] = params.system_instruction
-        if params.temperature is not None:
-            config_args["temperature"] = params.temperature
-        if params.top_p is not None:
-            config_args["top_p"] = params.top_p
+        if not model_ignores_sampling(params.model):
+            if params.temperature is not None:
+                config_args["temperature"] = params.temperature
+            if params.top_p is not None:
+                config_args["top_p"] = params.top_p
         if params.media_resolution is not None:
             config_args["media_resolution"] = params.media_resolution
         thinking_config = responses._build_thinking_config(
@@ -677,10 +678,11 @@ async def chat_command(
             config_args["presence_penalty"] = presence_penalty
         if seed is not None:
             config_args["seed"] = seed
-        if temperature is not None:
-            config_args["temperature"] = temperature
-        if top_p is not None:
-            config_args["top_p"] = top_p
+        if not model_ignores_sampling(model):
+            if temperature is not None:
+                config_args["temperature"] = temperature
+            if top_p is not None:
+                config_args["top_p"] = top_p
         if media_resolution is not None:
             config_args["media_resolution"] = media_resolution
         thinking_config = responses._build_thinking_config(thinking_level, thinking_budget)
@@ -754,7 +756,7 @@ async def chat_command(
         description += f"**Frequency Penalty:** {frequency_penalty}\n" if frequency_penalty else ""
         description += f"**Presence Penalty:** {presence_penalty}\n" if presence_penalty else ""
         description += f"**Seed:** {seed}\n" if seed else ""
-        ignores_sampling = model.startswith(SAMPLING_IGNORED_MODEL_PREFIXES)
+        ignores_sampling = model_ignores_sampling(model)
         if temperature is not None:
             description += f"**Temperature:** {temperature}"
             if ignores_sampling:
@@ -762,7 +764,7 @@ async def chat_command(
             elif model.startswith("gemini-3") and temperature != 1.0:
                 description += " (warning: Gemini 3 recommends 1.0; lower values may cause looping)"
             description += "\n"
-        if top_p:
+        if top_p is not None:
             description += f"**Nucleus Sampling:** {top_p}"
             if ignores_sampling:
                 description += " (ignored: Gemini 4 models do not use top_p)"

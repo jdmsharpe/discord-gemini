@@ -4,6 +4,8 @@ from ...util import LYRIA_REALTIME_MODEL
 
 CHAT_MODEL_CHOICES = [
     OptionChoice(name="Gemini 4 Carbon", value="gemini-4-carbon"),
+    OptionChoice(name="Gemini 4 Neon", value="gemini-4-neon"),
+    OptionChoice(name="Gemini 4 Hydrogen", value="gemini-4-hydrogen"),
     OptionChoice(name="Gemini 4 Argon", value="gemini-4-argon"),
     OptionChoice(name="Gemini 3.8 Flash", value="gemini-3.8-flash"),
     OptionChoice(name="Gemini 3.6 Flash", value="gemini-3.6-flash"),
@@ -27,6 +29,7 @@ THINKING_LEVEL_CHOICES = [
     OptionChoice(name="Low", value="low"),
     OptionChoice(name="Medium", value="medium"),
     OptionChoice(name="High", value="high"),
+    OptionChoice(name="Xhigh (Gemini 4 Neon / Hydrogen only)", value="xhigh"),
 ]
 
 RESEARCH_THINKING_SUMMARY_CHOICES = [
@@ -92,7 +95,7 @@ VIDEO_RESOLUTION_CHOICES = [
 ]
 
 
-# The three preview ids shut down 2026-11-17 (replacement: either 3.8 model).
+# The three preview ids shut down 2026-12-18 (replacement: either 3.8 model).
 TTS_MODEL_CHOICES = [
     OptionChoice(name="Gemini 3.8 Flash TTS", value="gemini-3.8-flash-tts"),
     OptionChoice(name="Gemini 3.8 Flash Lite TTS", value="gemini-3.8-flash-lite-tts"),
